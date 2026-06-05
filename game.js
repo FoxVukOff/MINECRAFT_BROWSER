@@ -7,12 +7,13 @@
 
 // ---------- Константы блоков ----------
 const BLOCK = {
-  AIR:     0,
-  GRASS:   1,
-  DIRT:    2,
-  STONE:   3,
-  BEDROCK: 4,
-  WATER:   5,
+  AIR:        0,
+  GRASS:      1,
+  DIRT:       2,
+  STONE:      3,
+  BEDROCK:    4,
+  WATER:      5, // источник (бесконечный)
+  WATER_FLOW: 6, // течение (имеет уровень 1..7, может убывать/исчезать)
 };
 
 const BLOCK_NAMES = {
@@ -21,12 +22,15 @@ const BLOCK_NAMES = {
   [BLOCK.STONE]:   'Камень',
   [BLOCK.BEDROCK]: 'Бедрок',
   [BLOCK.WATER]:   'Вода',
+  [BLOCK.WATER_FLOW]: 'Вода',
 };
 
 // Прозрачные блоки (через них видно грани соседей)
-function isTransparent(b) { return b === BLOCK.AIR || b === BLOCK.WATER; }
+function isTransparent(b) { return b === BLOCK.AIR || b === BLOCK.WATER || b === BLOCK.WATER_FLOW; }
 // Жидкости (не твёрдые для коллизий)
-function isLiquid(b) { return b === BLOCK.WATER; }
+function isLiquid(b) { return b === BLOCK.WATER || b === BLOCK.WATER_FLOW; }
+// Максимальный уровень воды (источник). Течение: 7..1, чем дальше — тем меньше
+const WATER_MAX = 8;
 // Уровень моря
 const SEA_LEVEL = 22;
 
@@ -40,6 +44,7 @@ const BREAK_TIME = {
   [BLOCK.STONE]:   1.9,
   [BLOCK.BEDROCK]: Infinity, // неразрушим
   [BLOCK.WATER]:   Infinity, // воду нельзя сломать
+  [BLOCK.WATER_FLOW]: Infinity,
 };
 
 // Размеры чанка
@@ -167,7 +172,8 @@ function buildMaterials() {
   MATERIALS[BLOCK.DIRT]    = [mDirt, mDirt, mDirt, mDirt, mDirt, mDirt];
   MATERIALS[BLOCK.STONE]   = [mStone, mStone, mStone, mStone, mStone, mStone];
   MATERIALS[BLOCK.BEDROCK] = [mBedrock, mBedrock, mBedrock, mBedrock, mBedrock, mBedrock];
-  MATERIALS[BLOCK.WATER]   = [mWater, mWater, mWater, mWater, mWater, mWater];
+  MATERIALS[BLOCK.WATER]      = [mWater, mWater, mWater, mWater, mWater, mWater];
+  MATERIALS[BLOCK.WATER_FLOW] = [mWater, mWater, mWater, mWater, mWater, mWater];
 }
 buildMaterials();
 
@@ -219,9 +225,24 @@ function terrainHeight(wx, wz) {
 const World = {
   chunks: new Map(),          // "cx,cz" -> { blocks:Uint8Array, mesh, dirty }
   edits: new Map(),           // "x,y,z" -> blockId  (изменения игрока)
+  waterLevel: new Map(),      // "x,y,z" -> уровень воды (1..8); источник = 8
 
   key(cx, cz) { return cx + ',' + cz; },
   ekey(x, y, z) { return x + ',' + y + ',' + z; },
+
+  // Уровень воды в ячейке: источник=8, течение=1..7, нет воды=0
+  getLevel(x, y, z) {
+    const b = this.getBlock(x, y, z);
+    if (b === BLOCK.WATER) return WATER_MAX;
+    if (b === BLOCK.WATER_FLOW) return this.waterLevel.get(this.ekey(x, y, z)) || 1;
+    return 0;
+  },
+  setLevel(x, y, z, lvl) {
+    this.waterLevel.set(this.ekey(x, y, z), lvl);
+  },
+  clearLevel(x, y, z) {
+    this.waterLevel.delete(this.ekey(x, y, z));
+  },
 
   generateChunk(cx, cz) {
     const blocks = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
@@ -285,7 +306,8 @@ const World = {
     return c.blocks[idx(lx, wy, lz)];
   },
 
-  setBlock(wx, wy, wz, id) {
+  // transient=true: изменение от симуляции воды, его не сохраняем как правку игрока
+  setBlock(wx, wy, wz, id, transient = false) {
     if (wy < 0 || wy >= WORLD_HEIGHT) return;
     const cx = Math.floor(wx / CHUNK_SIZE);
     const cz = Math.floor(wz / CHUNK_SIZE);
@@ -294,7 +316,9 @@ const World = {
     const lz = wz - cz * CHUNK_SIZE;
     c.blocks[idx(lx, wy, lz)] = id;
     c.dirty = true;
-    this.edits.set(this.ekey(wx, wy, wz), id);
+    if (!transient) this.edits.set(this.ekey(wx, wy, wz), id);
+    // уровень храним только для течения; иначе чистим
+    if (id !== BLOCK.WATER_FLOW) this.clearLevel(wx, wy, wz);
 
     // пометить соседние чанки dirty если на границе
     if (lx === 0) this.markDirty(cx - 1, cz);
@@ -314,88 +338,168 @@ function idx(x, y, z) {
 }
 
 // ============================================================
-//  Симуляция воды (растекание) — простая флуд-модель
+//  Симуляция воды — модель современного Minecraft (уровни + течение)
+//  Источник WATER = уровень 8 (бесконечный).
+//  Течение WATER_FLOW = уровень 7..1, убывает на 1 за блок, до 7 блоков.
+//  Вода, потерявшая питание, постепенно исчезает.
 // ============================================================
 const WaterSim = {
-  queue: new Set(),     // "x,y,z" ячейки для проверки
+  queue: [],            // FIFO список ключей "x,y,z"
+  inQueue: new Set(),   // защита от дублей
   tickAcc: 0,
-  tickRate: 0.18,       // секунд между тиками
+  tickRate: 0.14,       // сек между тиками
+  MAX_PER_TICK: 220,    // лимит ячеек за тик — гарантия от лагов
+  changedChunks: new Set(),
 
-  // поставить ячейку и её окрестность в очередь
-  touch(x, y, z) {
+  enqueue(x, y, z) {
+    if (y < 0 || y >= WORLD_HEIGHT) return;
     const k = x + ',' + y + ',' + z;
-    this.queue.add(k);
+    if (this.inQueue.has(k)) return;
+    this.inQueue.add(k);
+    this.queue.push(k);
   },
   touchAround(x, y, z) {
-    this.touch(x, y, z);
-    this.touch(x + 1, y, z); this.touch(x - 1, y, z);
-    this.touch(x, y, z + 1); this.touch(x, y, z - 1);
-    this.touch(x, y + 1, z); this.touch(x, y - 1, z);
+    this.enqueue(x, y, z);
+    this.enqueue(x + 1, y, z); this.enqueue(x - 1, y, z);
+    this.enqueue(x, y, z + 1); this.enqueue(x, y, z - 1);
+    this.enqueue(x, y + 1, z); this.enqueue(x, y - 1, z);
+  },
+
+  markChunk(x, z) {
+    const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+    this.changedChunks.add(cx + ',' + cz);
+    // приграничные чанки
+    const lx = x - cx * CHUNK_SIZE, lz = z - cz * CHUNK_SIZE;
+    if (lx === 0) this.changedChunks.add((cx - 1) + ',' + cz);
+    if (lx === CHUNK_SIZE - 1) this.changedChunks.add((cx + 1) + ',' + cz);
+    if (lz === 0) this.changedChunks.add(cx + ',' + (cz - 1));
+    if (lz === CHUNK_SIZE - 1) this.changedChunks.add(cx + ',' + (cz + 1));
+  },
+
+  // поставить течение нужного уровня (или удалить воду)
+  setFlow(x, y, z, lvl) {
+    if (lvl <= 0) {
+      World.clearLevel(x, y, z);
+      World.setBlock(x, y, z, BLOCK.AIR, true); // transient — не сохраняем
+    } else {
+      World.setLevel(x, y, z, lvl);
+      World.setBlock(x, y, z, BLOCK.WATER_FLOW, true);
+    }
+    this.markChunk(x, z);
+    this.touchAround(x, y, z);
+  },
+
+  solidBelow(x, y, z) {
+    const b = World.getBlock(x, y - 1, z);
+    return b !== BLOCK.AIR && !isLiquid(b);
+  },
+
+  // Желаемый уровень ячейки исходя из питания.
+  // Возвращает {level, falling}. falling=true означает «падающая» вода (сверху жидкость):
+  //   она всегда полная (7) и НЕ растекается вбок — только вниз.
+  desiredLevel(x, y, z) {
+    // питание сверху -> падающая вода
+    if (isLiquid(World.getBlock(x, y + 1, z))) return { level: 7, falling: true };
+    // иначе — максимум из горизонтальных соседей минус 1.
+    // ВАЖНО: сосед, под которым воздух (он «падает»), не питает по горизонтали —
+    // иначе вода растекается над пропастью вместо того, чтобы литься вниз.
+    let best = 0;
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    for (const [dx, dz] of dirs) {
+      const nx = x + dx, nz = z + dz;
+      const nb = World.getBlock(nx, y, nz);
+      if (nb === BLOCK.WATER) {
+        best = Math.max(best, 7); // источник питает на 7
+      } else if (nb === BLOCK.WATER_FLOW) {
+        // сосед, который сам падает (под ним воздух), вбок не питает
+        if (World.getBlock(nx, y - 1, nz) === BLOCK.AIR) continue;
+        best = Math.max(best, World.getLevel(nx, y, nz) - 1);
+      }
+    }
+    return { level: best, falling: false };
+  },
+
+  step(x, y, z) {
+    const here = World.getBlock(x, y, z);
+
+    // 1) пустая ячейка — может ли заполниться?
+    if (here === BLOCK.AIR) {
+      const d = this.desiredLevel(x, y, z);
+      if (d.level > 0) this.setFlow(x, y, z, d.level);
+      return;
+    }
+
+    // источник: не меняется, льёт вниз и растекается вбок (на 7)
+    if (here === BLOCK.WATER) {
+      if (World.getBlock(x, y - 1, z) === BLOCK.AIR) this.setFlow(x, y - 1, z, 7);
+      else this.spreadSides(x, y, z, 7);
+      return;
+    }
+
+    // 2) течение — пересчитать уровень от питания
+    if (here === BLOCK.WATER_FLOW) {
+      const d = this.desiredLevel(x, y, z);
+      if (d.level <= 0) { this.setFlow(x, y, z, 0); return; } // нет питания -> исчезает
+
+      const cur = World.getLevel(x, y, z);
+      if (d.level !== cur) {
+        World.setLevel(x, y, z, d.level);
+        this.markChunk(x, z);
+        this.touchAround(x, y, z);
+      }
+
+      // под ячейкой воздух -> вода падает вниз (приоритет, без бокового растекания)
+      if (World.getBlock(x, y - 1, z) === BLOCK.AIR) {
+        this.setFlow(x, y - 1, z, 7);
+        return;
+      }
+      // падающая вода вбок не растекается
+      if (d.falling) return;
+      // лежит на опоре (твёрдое или вода снизу) -> растекается вбок
+      this.spreadSides(x, y, z, d.level);
+      return;
+    }
+  },
+
+  spreadSides(x, y, z, lvl) {
+    const next = lvl - 1;
+    if (next <= 0) return;
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    for (const [dx, dz] of dirs) {
+      const nx = x + dx, nz = z + dz;
+      const nb = World.getBlock(nx, y, nz);
+      if (nb === BLOCK.AIR) {
+        this.setFlow(nx, y, nz, next);
+      } else if (nb === BLOCK.WATER_FLOW && World.getLevel(nx, y, nz) < next) {
+        World.setLevel(nx, y, nz, next);
+        this.markChunk(nx, nz);
+        this.touchAround(nx, y, nz);
+      }
+    }
   },
 
   update(dt) {
     this.tickAcc += dt;
     if (this.tickAcc < this.tickRate) return;
     this.tickAcc = 0;
-    if (this.queue.size === 0) return;
+    if (this.queue.length === 0) return;
 
-    const current = Array.from(this.queue);
-    this.queue.clear();
-    const changedChunks = new Set();
-
-    const setWater = (x, y, z, id) => {
-      World.setBlock(x, y, z, id);
-      const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
-      changedChunks.add(cx + ',' + cz);
-      // соседние чанки на границе
-      changedChunks.add((cx+1)+','+cz); changedChunks.add((cx-1)+','+cz);
-      changedChunks.add(cx+','+(cz+1)); changedChunks.add(cx+','+(cz-1));
-      this.touchAround(x, y, z);
-    };
-
-    for (const k of current) {
+    let processed = 0;
+    while (this.queue.length > 0 && processed < this.MAX_PER_TICK) {
+      const k = this.queue.shift();
+      this.inQueue.delete(k);
       const [x, y, z] = k.split(',').map(Number);
-      if (y < 1 || y >= WORLD_HEIGHT) continue;
-      const here = World.getBlock(x, y, z);
-
-      if (here === BLOCK.AIR) {
-        // должна ли сюда прийти вода?
-        const above = World.getBlock(x, y + 1, z);
-        let fed = (above === BLOCK.WATER); // льётся сверху
-        if (!fed) {
-          // горизонтальный источник + не выше уровня моря (чтобы не заливать всё бесконечно вверх)
-          if (y <= SEA_LEVEL) {
-            if (World.getBlock(x + 1, y, z) === BLOCK.WATER ||
-                World.getBlock(x - 1, y, z) === BLOCK.WATER ||
-                World.getBlock(x, y, z + 1) === BLOCK.WATER ||
-                World.getBlock(x, y, z - 1) === BLOCK.WATER) {
-              fed = true;
-            }
-          }
-        }
-        if (fed) setWater(x, y, z, BLOCK.WATER);
-      } else if (here === BLOCK.WATER) {
-        // проверить, не должна ли вода исчезнуть (нет питания) — простая «высыхание»
-        const above = World.getBlock(x, y + 1, z);
-        let supported = (above === BLOCK.WATER) || (y <= SEA_LEVEL);
-        if (!supported) {
-          // питается ли с боков водой, которая выше уровня моря? оставим простую логику:
-          // если выше уровня моря и сверху не вода — высыхает
-          World.setBlock(x, y, z, BLOCK.AIR);
-          const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
-          changedChunks.add(cx + ',' + cz);
-          this.touchAround(x, y, z);
-        } else {
-          // распространять дальше вниз/вбок
-          this.touchAround(x, y, z);
-        }
-      }
+      this.step(x, y, z);
+      processed++;
     }
 
-    // перестроить изменённые чанки
-    for (const ck of changedChunks) {
-      const [cx, cz] = ck.split(',').map(Number);
-      World.markDirty(cx, cz);
+    // перестроить только реально изменившиеся чанки
+    if (this.changedChunks.size > 0) {
+      for (const ck of this.changedChunks) {
+        const [cx, cz] = ck.split(',').map(Number);
+        World.markDirty(cx, cz);
+      }
+      this.changedChunks.clear();
     }
   },
 };
@@ -420,6 +524,15 @@ const FACES = [
   { dir: [ 0, 0,-1], mat: 5, // -Z
     corners: [[1,0,0],[0,0,0],[0,1,0],[1,1,0]] },
 ];
+
+// поверхность воды в ячейке (0..1) с учётом уровня; полная если сверху вода
+function waterSurface(x, y, z) {
+  const b = World.getBlock(x, y, z);
+  if (!isLiquid(b)) return 0;
+  if (isLiquid(World.getBlock(x, y + 1, z))) return 1;
+  const lvl = World.getLevel(x, y, z);
+  return 0.12 + (lvl / WATER_MAX) * 0.86;
+}
 
 function buildChunkMesh(c) {
   // Группируем по материалу (по уникальному canvas-материалу)
@@ -453,11 +566,37 @@ function buildChunkMesh(c) {
         if (b === BLOCK.AIR) continue;
         const wx = x0 + lx, wz = z0 + lz;
         const water = isLiquid(b);
+
+        // высота поверхности воды (0..1) по уровню; если сверху вода — поверхность полная
+        let waterTop = 1;
+        if (water) {
+          const above = World.getBlock(wx, y + 1, wz);
+          if (isLiquid(above)) {
+            waterTop = 1; // вода под водой — полный куб
+          } else {
+            const lvl = World.getLevel(wx, y, wz); // 1..8
+            waterTop = 0.12 + (lvl / WATER_MAX) * 0.86; // от ~0.2 (lvl1) до ~1.0 (источник)
+          }
+        }
+
         for (const f of FACES) {
           const nb = World.getBlock(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
           if (water) {
-            // вода: рисуем грань только если сосед — воздух (между водой и водой/блоком грани нет)
-            if (nb !== BLOCK.AIR) continue;
+            // верхняя грань: рисуем, если сверху не вода
+            if (f.dir[1] === 1) {
+              if (isLiquid(nb)) continue;
+            } else if (f.dir[1] === -1) {
+              // нижняя грань: только если снизу воздух
+              if (nb !== BLOCK.AIR) continue;
+            } else {
+              // боковая грань: рисуем против воздуха или против воды с более низкой поверхностью
+              if (isLiquid(nb)) {
+                const nbTop = waterSurface(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
+                if (nbTop >= waterTop - 0.001) continue;
+              } else if (nb !== BLOCK.AIR) {
+                continue;
+              }
+            }
           } else {
             // твёрдый блок: грань видна, если сосед прозрачный (воздух или вода)
             if (!isTransparent(nb)) continue;
@@ -467,10 +606,9 @@ function buildChunkMesh(c) {
           let buf = byMat.get(mi);
           if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], water }; byMat.set(mi, buf); }
           const base = buf.positions.length / 3;
-          // вода чуть ниже полного блока — опускаем верхние вершины
-          const topDrop = water ? 0.12 : 0;
           for (const cv of f.corners) {
-            const vy = y + cv[1] - (cv[1] === 1 ? topDrop : 0);
+            // у воды верхние вершины опускаем до уровня поверхности
+            const vy = water && cv[1] === 1 ? y + waterTop : y + cv[1];
             buf.positions.push(lx + cv[0], vy, lz + cv[2]);
             buf.normals.push(f.dir[0], f.dir[1], f.dir[2]);
           }
@@ -1128,26 +1266,40 @@ function rebuildAround(wx, wz) {
 // ============================================================
 const loadedMeshes = new Map(); // key -> group
 
+const MAX_REBUILDS_PER_FRAME = 2; // бюджет перестроений за кадр — против лагов
+
 function updateChunks() {
   const pcx = Math.floor(PLAYER.pos.x / CHUNK_SIZE);
   const pcz = Math.floor(PLAYER.pos.z / CHUNK_SIZE);
 
-  // загрузить нужные
+  // собрать кандидатов на (пере)строение, отсортировать по близости к игроку
+  const todo = [];
   for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
     for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
       const cx = pcx + dx, cz = pcz + dz;
       const c = World.getChunk(cx, cz);
       const k = World.key(cx, cz);
-      if (c.dirty || !loadedMeshes.has(k)) {
-        // удалить старый меш
-        const old = loadedMeshes.get(k);
-        if (old) { scene.remove(old); disposeGroup(old); }
-        const mesh = buildChunkMesh(c);
-        scene.add(mesh);
-        loadedMeshes.set(k, mesh);
-        c.dirty = false;
+      const isNew = !loadedMeshes.has(k);
+      if (c.dirty || isNew) {
+        todo.push({ c, k, isNew, dist: dx * dx + dz * dz });
       }
     }
+  }
+  // новые чанки и ближние — в первую очередь
+  todo.sort((a, b) => (a.isNew === b.isNew ? a.dist - b.dist : (a.isNew ? -1 : 1)));
+
+  // при первичной загрузке (много новых чанков) строим быстрее
+  const newCount = todo.reduce((n, t) => n + (t.isNew ? 1 : 0), 0);
+  let budget = newCount > 4 ? 5 : MAX_REBUILDS_PER_FRAME;
+  for (const item of todo) {
+    if (budget <= 0) break;
+    const old = loadedMeshes.get(item.k);
+    if (old) { scene.remove(old); disposeGroup(old); }
+    const mesh = buildChunkMesh(item.c);
+    scene.add(mesh);
+    loadedMeshes.set(item.k, mesh);
+    item.c.dirty = false;
+    budget--;
   }
 
   // выгрузить дальние
@@ -1220,11 +1372,11 @@ function updatePlayer(dt) {
   if (move.lengthSq() > 0) move.normalize();
 
   // в воде ли игрок (ноги / голова)
-  const feetInWater = blockAtPlayer(0.2) === BLOCK.WATER;
+  const feetInWater = isLiquid(blockAtPlayer(0.2));
   const headY = PLAYER.pos.y + (PLAYER.crouching ? PLAYER.crouchEye : PLAYER.eye);
-  const headInWater = World.getBlock(
+  const headInWater = isLiquid(World.getBlock(
     Math.floor(PLAYER.pos.x), Math.floor(headY), Math.floor(PLAYER.pos.z)
-  ) === BLOCK.WATER;
+  ));
   const wasInWater = PLAYER.inWater;
   PLAYER.inWater = feetInWater || headInWater;
   PLAYER.submerged = headInWater;
