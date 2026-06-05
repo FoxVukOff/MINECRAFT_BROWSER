@@ -24,6 +24,7 @@ const BLOCK = {
   FURNACE:    14, // печь
   DOOR_BOTTOM: 15, // дверь, нижняя половина
   DOOR_TOP:   16, // дверь, верхняя половина
+  CHEST:      17, // сундук (хранилище)
 };
 
 // Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
@@ -50,6 +51,7 @@ const BLOCK_NAMES = {
   [BLOCK.FURNACE]: 'Печь',
   [BLOCK.DOOR_BOTTOM]: 'Дверь',
   [BLOCK.DOOR_TOP]: 'Дверь',
+  [BLOCK.CHEST]:   'Сундук',
   [ITEM.STICK]:    'Палки',
   [ITEM.WOODEN_PICKAXE]: 'Деревянная кирка',
   [ITEM.DOOR]:     'Дверь',
@@ -83,7 +85,7 @@ const SEA_LEVEL = 22;
 // Какие блоки/предметы игрок может держать/ставить
 const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND,
                    BLOCK.WOOD, BLOCK.LEAVES, BLOCK.PLANKS, BLOCK.CRAFTING_TABLE,
-                   BLOCK.COBBLESTONE, BLOCK.GLASS, BLOCK.FURNACE, ITEM.DOOR];
+                   BLOCK.COBBLESTONE, BLOCK.GLASS, BLOCK.FURNACE, BLOCK.CHEST, ITEM.DOOR];
 
 // Инструменты-кирки (ускоряют добычу камня и позволяют получить булыжник)
 function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE; }
@@ -106,6 +108,7 @@ const BREAK_TIME = {
   [BLOCK.FURNACE]: 2.2,
   [BLOCK.DOOR_BOTTOM]: 0.8,
   [BLOCK.DOOR_TOP]: 0.8,
+  [BLOCK.CHEST]:   1.4,
   [BLOCK.BEDROCK]: Infinity, // неразрушим
   [BLOCK.WATER]:   Infinity, // воду нельзя сломать
   [BLOCK.WATER_FLOW]: Infinity,
@@ -247,6 +250,24 @@ function buildTextures() {
     ctx.strokeStyle='#6e4a22'; ctx.strokeRect(1.5,0.5,13,15);
     ctx.fillStyle = '#3a2712'; ctx.fillRect(12,7,2,2);             // ручка
   });
+  // сундук: верх — крышка с обвязкой; перед — замок; бок — доски с обвязкой
+  TEX.chest_top = makeTex(ctx => {
+    noiseFill(ctx, 0x9a6a30, 12);
+    ctx.fillStyle = '#5b3d18'; ctx.fillRect(0,0,16,2); ctx.fillRect(0,14,16,2);
+    ctx.fillRect(7,0,2,16);
+  });
+  TEX.chest_front = makeTex(ctx => {
+    noiseFill(ctx, 0xa3712f, 12);
+    ctx.fillStyle = '#5b3d18'; ctx.fillRect(0,0,16,2); ctx.fillRect(0,14,16,2);
+    ctx.fillRect(0,7,16,2);                                  // линия крышки
+    ctx.fillStyle = '#3a2712'; ctx.fillRect(7,6,2,4);        // замок
+    ctx.fillStyle = '#d8b76a'; ctx.fillRect(7,7,2,2);        // блик замка
+  });
+  TEX.chest_side = makeTex(ctx => {
+    noiseFill(ctx, 0x8f6128, 12);
+    ctx.fillStyle = '#5b3d18'; ctx.fillRect(0,0,16,2); ctx.fillRect(0,14,16,2);
+    ctx.fillRect(0,7,16,2);
+  });
 }
 
 buildTextures();
@@ -326,6 +347,9 @@ function buildMaterials() {
   const mFurFront  = texToMaterial(TEX.furnace_front);
   const mDoorTop   = texToMaterial(TEX.door_top);
   const mDoorBot   = texToMaterial(TEX.door_bottom);
+  const mChestTop  = texToMaterial(TEX.chest_top);
+  const mChestFront= texToMaterial(TEX.chest_front);
+  const mChestSide = texToMaterial(TEX.chest_side);
   // листва: прозрачные «дырки», видна с обеих сторон
   const mLeaves = (() => {
     const t = new THREE.CanvasTexture(TEX.leaves);
@@ -362,6 +386,8 @@ function buildMaterials() {
   MATERIALS[BLOCK.FURNACE] = [mFurSide, mFurSide, mCobble, mCobble, mFurFront, mFurSide];
   MATERIALS[BLOCK.DOOR_BOTTOM] = [mDoorBot, mDoorBot, mDoorBot, mDoorBot, mDoorBot, mDoorBot];
   MATERIALS[BLOCK.DOOR_TOP]    = [mDoorTopT, mDoorTopT, mDoorTopT, mDoorTopT, mDoorTopT, mDoorTopT];
+  // сундук: перед — замок (+Z), верх/низ — крышка, бока — обвязка
+  MATERIALS[BLOCK.CHEST]   = [mChestSide, mChestSide, mChestTop, mChestTop, mChestFront, mChestSide];
 }
 buildMaterials();
 
@@ -451,6 +477,7 @@ const World = {
   waterLevel: new Map(),      // "x,y,z" -> уровень воды (1..8); источник = 8
   doorState: new Map(),       // "x,y,z"(низ двери) -> {open}
   furnaces: new Map(),        // "x,y,z" -> {input,fuel,output, burn, cookTime}
+  chests: new Map(),          // "x,y,z" -> массив из 27 слотов
 
   key(cx, cz) { return cx + ',' + cz; },
   ekey(x, y, z) { return x + ',' + y + ',' + z; },
@@ -1075,7 +1102,9 @@ const WorldManager = {
     World.waterLevel.clear();
     World.doorState.clear();
     World.furnaces.clear();
+    World.chests.clear();
     openFurnacePos = null;
+    openChestPos = null;
     // очистить сущности
     for (const d of drops) { scene.remove(d.mesh); }
     drops.length = 0;
@@ -1128,6 +1157,9 @@ const WorldManager = {
       furnaces: Array.from(World.furnaces.entries()).map(([k, f]) => ({
         k, input: f.input, fuel: f.fuel, output: f.output,
       })),
+      chests: Array.from(World.chests.entries()).map(([k, arr]) => ({
+        k, items: arr.map(s => s ? { id: s.id, count: s.count } : null),
+      })),
     };
     try {
       localStorage.setItem(this.LS_PREFIX + this.current, JSON.stringify(data));
@@ -1166,6 +1198,13 @@ const WorldManager = {
     // печи
     for (const f of (data.furnaces || [])) {
       World.furnaces.set(f.k, { input: f.input || null, fuel: f.fuel || null, output: f.output || null, burn: 0, burnMax: 0, cook: 0 });
+    }
+    // сундуки
+    for (const ch of (data.chests || [])) {
+      const arr = new Array(CHEST_SIZE).fill(null);
+      const items = ch.items || [];
+      for (let i = 0; i < CHEST_SIZE; i++) arr[i] = items[i] ? { id: items[i].id, count: items[i].count } : null;
+      World.chests.set(ch.k, arr);
     }
     // инвентарь (новый формат слотов; старые сейвы без slots -> пустой инвентарь)
     if (Array.isArray(data.slots)) {
@@ -1438,6 +1477,7 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.COBBLESTONE) tex = TEX.cobble;
   else if (id === BLOCK.GLASS) tex = TEX.glass;
   else if (id === BLOCK.FURNACE) tex = TEX.furnace_front;
+  else if (id === BLOCK.CHEST) tex = TEX.chest_front;
   else if (id === BLOCK.DOOR_BOTTOM || id === BLOCK.DOOR_TOP) tex = TEX.door_bottom;
   // фон для прозрачных текстур
   if (id === BLOCK.LEAVES) { ctx.fillStyle = '#2f6e22'; ctx.fillRect(0,0,size,size); }
@@ -1497,6 +1537,11 @@ const RECIPES = [
     cells: [C,C,C,
             C,O,C,
             C,C,C], result: { id: BLOCK.FURNACE, count: 1 } },
+  // сундук: 8 досок по периметру (центр пуст) 3x3 -> сундук
+  { shaped: true, w: 3, h: 3, need3x3: true,
+    cells: [P,P,P,
+            P,O,P,
+            P,P,P], result: { id: BLOCK.CHEST, count: 1 } },
 ];
 
 // нормализовать содержимое сетки крафта к компактной матрице (обрезать пустые края)
@@ -1732,7 +1777,17 @@ function renderInventory() {
   // строим всю панель заново (заголовок задан в HTML)
   invGrid.innerHTML = '';
 
-  if (craftMode === 'furnace') {
+  if (craftMode === 'chest') {
+    // --- Сундук: 27 слотов (3x9) ---
+    const chest = getChest(openChestPos.x, openChestPos.y, openChestPos.z);
+    const cz = document.createElement('div');
+    cz.className = 'inv-storage';
+    for (let i = 0; i < CHEST_SIZE; i++) cz.appendChild(makeSlotEl(chest, i, 34));
+    invGrid.appendChild(cz);
+    const lbl = document.createElement('div'); lbl.className = 'inv-label';
+    lbl.textContent = 'Сундук';
+    invGrid.appendChild(lbl);
+  } else if (craftMode === 'furnace') {
     // --- Интерфейс печи ---
     const f = getFurnace(openFurnacePos.x, openFurnacePos.y, openFurnacePos.z);
     const fz = document.createElement('div'); fz.className = 'furnace-zone';
@@ -1826,15 +1881,17 @@ function toggleInventory(mode) {
   if (invOpen) {
     craftMode = mode || '2x2';
     invPanel.classList.add('open');
-    const title = craftMode === '3x3' ? 'Верстак' : (craftMode === 'furnace' ? 'Печь' : 'Инвентарь');
+    const title = craftMode === '3x3' ? 'Верстак' : (craftMode === 'furnace' ? 'Печь' : (craftMode === 'chest' ? 'Сундук' : 'Инвентарь'));
     document.getElementById('invTitle').textContent = title;
     document.exitPointerLock();
     updateCraftResult();
     renderInventory();
   } else {
-    if (craftMode !== 'furnace') clearCraftToInventory(); // вернуть предметы из крафта
+    // вернуть предметы из крафта только в режимах с сеткой крафта
+    if (craftMode !== 'furnace' && craftMode !== 'chest') clearCraftToInventory();
     if (cursorItem) { addToInventory(cursorItem.id, cursorItem.count); cursorItem = null; } // курсор в инвентарь
     openFurnacePos = null;
+    openChestPos = null;
     craftMode = '2x2';
     invPanel.classList.remove('open');
     refreshUI();
@@ -2299,6 +2356,19 @@ function finishBreak(t) {
     }
   }
 
+  // Сундук: выбросить всё содержимое и удалить хранилище
+  if (broken === BLOCK.CHEST) {
+    const ck = World.ekey(t.x, t.y, t.z);
+    const arr = World.chests.get(ck);
+    if (arr) {
+      for (const it of arr) if (it) for (let n = 0; n < it.count; n++) spawnDrop(it.id, t.x + 0.5, t.y + 0.7, t.z + 0.5);
+      World.chests.delete(ck);
+    }
+    if (openChestPos && ck === World.ekey(openChestPos.x, openChestPos.y, openChestPos.z) && invOpen) {
+      toggleInventory();
+    }
+  }
+
   World.setBlock(t.x, t.y, t.z, BLOCK.AIR);
 
   // что выпадает
@@ -2347,6 +2417,11 @@ function placeBlock() {
   // ПКМ по печи — открыть интерфейс плавки
   if (t.block === BLOCK.FURNACE) {
     openFurnace(t.x, t.y, t.z);
+    return;
+  }
+  // ПКМ по сундуку — открыть хранилище
+  if (t.block === BLOCK.CHEST) {
+    openChest(t.x, t.y, t.z);
     return;
   }
   // ПКМ по двери — открыть/закрыть
@@ -2419,6 +2494,20 @@ function isFuel(id) { return FUEL[id] !== undefined; }
 const COOK_TIME = 4; // сек на 1 предмет
 
 let openFurnacePos = null; // {x,y,z} текущая открытая печь
+let openChestPos = null;   // {x,y,z} текущий открытый сундук
+const CHEST_SIZE = 27;     // слотов в сундуке
+
+function getChest(x, y, z) {
+  const k = World.ekey(x, y, z);
+  let arr = World.chests.get(k);
+  if (!arr) { arr = new Array(CHEST_SIZE).fill(null); World.chests.set(k, arr); }
+  return arr;
+}
+
+function openChest(x, y, z) {
+  openChestPos = { x, y, z };
+  toggleInventory('chest');
+}
 
 function getFurnace(x, y, z) {
   const k = World.ekey(x, y, z);
@@ -2559,9 +2648,19 @@ function disposeGroup(group) {
 // ============================================================
 //  Физика игрока (AABB collision)
 // ============================================================
+// твёрдый ли блок для коллизий
+function isSolidForPlayer(x, y, z) {
+  const bb = World.getBlock(x, y, z);
+  if (bb === BLOCK.AIR || isLiquid(bb)) return false;
+  if (isDoor(bb) && isDoorOpen(x, y, z)) return false;
+  return true;
+}
+
 function collide(axis, amount) {
   const hw = PLAYER.width / 2;
   const h = PLAYER.height;
+  // запоминаем позицию ДО смещения, чтобы корректно откатывать только это смещение
+  const before = PLAYER.pos[axis];
   PLAYER.pos[axis] += amount;
 
   const minX = Math.floor(PLAYER.pos.x - hw);
@@ -2574,10 +2673,11 @@ function collide(axis, amount) {
   for (let x = minX; x <= maxX; x++) {
     for (let y = minY; y <= maxY; y++) {
       for (let z = minZ; z <= maxZ; z++) {
-        const bb = World.getBlock(x, y, z);
-        if (bb === BLOCK.AIR || isLiquid(bb)) continue; // вода не сталкивается
-        if (isDoor(bb) && isDoorOpen(x, y, z)) continue; // открытая дверь проходима
-        // пересечение есть -> откат по оси
+        if (!isSolidForPlayer(x, y, z)) continue;
+        // пересечение есть -> откатываем именно по направлению движения (по знаку amount).
+        // Если amount == 0 (движения нет), это «застревание»: НЕ трогаем позицию здесь,
+        // выталкивание сделает antiSuffocate().
+        if (amount === 0) return true;
         if (axis === 'x') {
           if (amount > 0) PLAYER.pos.x = x - hw - 1e-3;
           else PLAYER.pos.x = x + 1 + hw + 1e-3;
@@ -2595,6 +2695,40 @@ function collide(axis, amount) {
     }
   }
   return false;
+}
+
+// проверка: пересекает ли AABB игрока хоть один твёрдый блок (засыпало/застрял)
+function playerStuck() {
+  const hw = PLAYER.width / 2;
+  const h = PLAYER.height;
+  const minX = Math.floor(PLAYER.pos.x - hw + 1e-3);
+  const maxX = Math.floor(PLAYER.pos.x + hw - 1e-3);
+  const minY = Math.floor(PLAYER.pos.y + 1e-3);
+  const maxY = Math.floor(PLAYER.pos.y + h - 1e-3);
+  const minZ = Math.floor(PLAYER.pos.z - hw + 1e-3);
+  const maxZ = Math.floor(PLAYER.pos.z + hw - 1e-3);
+  for (let x = minX; x <= maxX; x++)
+    for (let y = minY; y <= maxY; y++)
+      for (let z = minZ; z <= maxZ; z++)
+        if (isSolidForPlayer(x, y, z)) return true;
+  return false;
+}
+
+// Если игрока зажало блоками (например, засыпало песком) — мягко выталкиваем ВВЕРХ,
+// как в Minecraft, вместо швыряния по горизонтали.
+function antiSuffocate(dt) {
+  if (!playerStuck()) return;
+  PLAYER.vel.x = 0; PLAYER.vel.z = 0;
+  // поднимаем понемногу, пока не освободимся (с ограничением за кадр)
+  let steps = 0;
+  while (playerStuck() && steps < 8) {
+    PLAYER.pos.y += 0.25;
+    PLAYER.vel.y = 0;
+    steps++;
+  }
+  // плавный «выдавливающий» импульс вверх, чтобы выбраться над поверхностью
+  PLAYER.vel.y = Math.max(PLAYER.vel.y, 1.5);
+  PLAYER.onGround = false;
 }
 
 function updatePlayer(dt) {
@@ -2667,6 +2801,10 @@ function updatePlayer(dt) {
       if (!hasGroundUnder()) { /* если всё равно нет — оставим */ }
     }
   }
+
+  // антизастревание: если зажало блоками (засыпало песком) — выдавить вверх,
+  // а не швырять с огромной скоростью под текстуры
+  antiSuffocate(dt);
 
   // шаги
   const horizSpeed = Math.hypot(PLAYER.vel.x, PLAYER.vel.z);
