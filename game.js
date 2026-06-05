@@ -19,6 +19,18 @@ const BLOCK = {
   LEAVES:     9, // листва (ничего не выпадает, затухает без ствола)
   PLANKS:     10, // доски
   CRAFTING_TABLE: 11, // верстак (3x3 крафт)
+  COBBLESTONE: 12, // булыжник (выпадает из камня)
+  GLASS:      13, // стекло (переплавка песка)
+  FURNACE:    14, // печь
+  DOOR_BOTTOM: 15, // дверь, нижняя половина
+  DOOR_TOP:   16, // дверь, верхняя половина
+};
+
+// Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
+const ITEM = {
+  STICK:          100, // палка
+  WOODEN_PICKAXE: 101, // деревянная кирка
+  DOOR:           102, // предмет-дверь (ставится как два блока)
 };
 
 const BLOCK_NAMES = {
@@ -33,26 +45,51 @@ const BLOCK_NAMES = {
   [BLOCK.LEAVES]:  'Листва',
   [BLOCK.PLANKS]:  'Доски',
   [BLOCK.CRAFTING_TABLE]: 'Верстак',
+  [BLOCK.COBBLESTONE]: 'Булыжник',
+  [BLOCK.GLASS]:   'Стекло',
+  [BLOCK.FURNACE]: 'Печь',
+  [BLOCK.DOOR_BOTTOM]: 'Дверь',
+  [BLOCK.DOOR_TOP]: 'Дверь',
+  [ITEM.STICK]:    'Палки',
+  [ITEM.WOODEN_PICKAXE]: 'Деревянная кирка',
+  [ITEM.DOOR]:     'Дверь',
 };
 
 const MAX_STACK = 64; // максимум в стопке
 
+// Является ли id блоком (а не предметом)
+function isBlock(id) { return id < 100; }
+
 // Гравитационные блоки (падают, если под ними нет опоры)
 function isFalling(b) { return b === BLOCK.SAND; }
 
+// Двери (две половинки)
+function isDoor(b) { return b === BLOCK.DOOR_BOTTOM || b === BLOCK.DOOR_TOP; }
+
 // Прозрачные блоки (через них видно грани соседей).
-// Листва тоже прозрачна, чтобы внутренние грани были видны (как в майнкрафте fancy).
-function isTransparent(b) { return b === BLOCK.AIR || b === BLOCK.WATER || b === BLOCK.WATER_FLOW || b === BLOCK.LEAVES; }
+// Листва/стекло/дверь прозрачны для меширования внутренних граней.
+function isTransparent(b) {
+  return b === BLOCK.AIR || b === BLOCK.WATER || b === BLOCK.WATER_FLOW ||
+         b === BLOCK.LEAVES || b === BLOCK.GLASS || isDoor(b);
+}
 // Жидкости (не твёрдые для коллизий)
 function isLiquid(b) { return b === BLOCK.WATER || b === BLOCK.WATER_FLOW; }
+// Блоки, сквозь которые можно проходить (двери — если открыты; пока проходимы всегда у открытой)
 // Максимальный уровень воды (источник). Течение: 7..1, чем дальше — тем меньше
 const WATER_MAX = 8;
 // Уровень моря
 const SEA_LEVEL = 22;
 
-// Какие блоки игрок может держать/ставить (бедрок не ставится обычно, но дадим)
+// Какие блоки/предметы игрок может держать/ставить
 const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND,
-                   BLOCK.WOOD, BLOCK.LEAVES, BLOCK.PLANKS, BLOCK.CRAFTING_TABLE];
+                   BLOCK.WOOD, BLOCK.LEAVES, BLOCK.PLANKS, BLOCK.CRAFTING_TABLE,
+                   BLOCK.COBBLESTONE, BLOCK.GLASS, BLOCK.FURNACE, ITEM.DOOR];
+
+// Инструменты-кирки (ускоряют добычу камня и позволяют получить булыжник)
+function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE; }
+
+// Блоки, для добычи которых нужна кирка (иначе ломается, но ничего не выпадает)
+function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE; }
 
 // Время ломания (в секундах, без инструментов) — как в современном майне
 const BREAK_TIME = {
@@ -64,6 +101,11 @@ const BREAK_TIME = {
   [BLOCK.LEAVES]:  0.3,
   [BLOCK.PLANKS]:  1.2,
   [BLOCK.CRAFTING_TABLE]: 1.2,
+  [BLOCK.COBBLESTONE]: 2.0,
+  [BLOCK.GLASS]:   0.4,
+  [BLOCK.FURNACE]: 2.2,
+  [BLOCK.DOOR_BOTTOM]: 0.8,
+  [BLOCK.DOOR_TOP]: 0.8,
   [BLOCK.BEDROCK]: Infinity, // неразрушим
   [BLOCK.WATER]:   Infinity, // воду нельзя сломать
   [BLOCK.WATER_FLOW]: Infinity,
@@ -167,6 +209,44 @@ function buildTextures() {
     ctx.fillRect(0,5,16,2); ctx.fillRect(0,9,16,1);
     for (let y=0;y<16;y++){ ctx.fillRect(3,y,1,1); ctx.fillRect(11,y,1,1); }
   });
+
+  // булыжник — крупные камни
+  TEX.cobble = makeTex(ctx => {
+    noiseFill(ctx, 0x7d7d7d, 22);
+    ctx.fillStyle = '#5a5a5a';
+    const cells=[[0,0,7,5],[8,0,7,4],[0,6,5,5],[6,5,9,6],[0,12,6,4],[7,12,8,4]];
+    for (const [x,y,w,h] of cells){ ctx.strokeStyle='#5a5a5a'; ctx.strokeRect(x+0.5,y+0.5,w-1,h-1); }
+  });
+  // стекло — почти прозрачное с рамкой/бликом
+  TEX.glass = makeTex(ctx => {
+    ctx.clearRect(0,0,16,16);
+    ctx.strokeStyle = 'rgba(220,240,255,0.9)'; ctx.lineWidth=1;
+    ctx.strokeRect(0.5,0.5,15,15);
+    ctx.strokeStyle = 'rgba(220,240,255,0.5)';
+    ctx.beginPath(); ctx.moveTo(3,13); ctx.lineTo(11,3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(6,13); ctx.lineTo(13,6); ctx.stroke();
+  });
+  // печь: бок/верх — булыжник; перед — тёмная топка
+  TEX.furnace_side = TEX.cobble;
+  TEX.furnace_front = makeTex(ctx => {
+    noiseFill(ctx, 0x7d7d7d, 18);
+    ctx.fillStyle = '#2a2a2a'; ctx.fillRect(4,5,8,8);     // топка
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(5,6,6,6);
+    ctx.fillStyle = '#888'; ctx.fillRect(4,3,8,1);        // вентиляция
+  });
+  // дверь: верхняя половинка (с окошком) и нижняя
+  TEX.door_top = makeTex(ctx => {
+    noiseFill(ctx, 0x9c6b35, 14);
+    ctx.fillStyle = '#6e4a22'; ctx.strokeStyle='#6e4a22';
+    ctx.strokeRect(1.5,1.5,13,13);
+    ctx.fillStyle = 'rgba(150,200,230,0.6)'; ctx.fillRect(4,3,8,5); // окошко
+    ctx.fillStyle = '#3a2712'; ctx.fillRect(12,9,2,2);             // ручка
+  });
+  TEX.door_bottom = makeTex(ctx => {
+    noiseFill(ctx, 0x9c6b35, 14);
+    ctx.strokeStyle='#6e4a22'; ctx.strokeRect(1.5,0.5,13,15);
+    ctx.fillStyle = '#3a2712'; ctx.fillRect(12,7,2,2);             // ручка
+  });
 }
 
 buildTextures();
@@ -241,11 +321,28 @@ function buildMaterials() {
   const mPlanks    = texToMaterial(TEX.planks);
   const mCraftTop  = texToMaterial(TEX.craft_top);
   const mCraftSide = texToMaterial(TEX.craft_side);
+  const mCobble    = texToMaterial(TEX.cobble);
+  const mFurSide   = texToMaterial(TEX.furnace_side);
+  const mFurFront  = texToMaterial(TEX.furnace_front);
+  const mDoorTop   = texToMaterial(TEX.door_top);
+  const mDoorBot   = texToMaterial(TEX.door_bottom);
   // листва: прозрачные «дырки», видна с обеих сторон
   const mLeaves = (() => {
     const t = new THREE.CanvasTexture(TEX.leaves);
     t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
     return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide });
+  })();
+  // стекло: прозрачное
+  const mGlass = (() => {
+    const t = new THREE.CanvasTexture(TEX.glass);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshLambertMaterial({ map: t, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+  })();
+  // дверь: тонкая, с прозрачностью у окошка
+  const mDoorTopT = (() => {
+    const t = new THREE.CanvasTexture(TEX.door_top);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide });
   })();
 
   MATERIALS[BLOCK.GRASS]   = [mGrassSide, mGrassSide, mGrassTop, mDirt, mGrassSide, mGrassSide];
@@ -259,6 +356,12 @@ function buildMaterials() {
   MATERIALS[BLOCK.LEAVES]  = [mLeaves, mLeaves, mLeaves, mLeaves, mLeaves, mLeaves];
   MATERIALS[BLOCK.PLANKS]  = [mPlanks, mPlanks, mPlanks, mPlanks, mPlanks, mPlanks];
   MATERIALS[BLOCK.CRAFTING_TABLE] = [mCraftSide, mCraftSide, mCraftTop, mPlanks, mCraftSide, mCraftSide];
+  MATERIALS[BLOCK.COBBLESTONE] = [mCobble, mCobble, mCobble, mCobble, mCobble, mCobble];
+  MATERIALS[BLOCK.GLASS]   = [mGlass, mGlass, mGlass, mGlass, mGlass, mGlass];
+  // печь: перед — топка (+Z), остальное булыжник
+  MATERIALS[BLOCK.FURNACE] = [mFurSide, mFurSide, mCobble, mCobble, mFurFront, mFurSide];
+  MATERIALS[BLOCK.DOOR_BOTTOM] = [mDoorBot, mDoorBot, mDoorBot, mDoorBot, mDoorBot, mDoorBot];
+  MATERIALS[BLOCK.DOOR_TOP]    = [mDoorTopT, mDoorTopT, mDoorTopT, mDoorTopT, mDoorTopT, mDoorTopT];
 }
 buildMaterials();
 
@@ -346,6 +449,8 @@ const World = {
   chunks: new Map(),          // "cx,cz" -> { blocks:Uint8Array, mesh, dirty }
   edits: new Map(),           // "x,y,z" -> blockId  (изменения игрока)
   waterLevel: new Map(),      // "x,y,z" -> уровень воды (1..8); источник = 8
+  doorState: new Map(),       // "x,y,z"(низ двери) -> {open}
+  furnaces: new Map(),        // "x,y,z" -> {input,fuel,output, burn, cookTime}
 
   key(cx, cz) { return cx + ',' + cz; },
   ekey(x, y, z) { return x + ',' + y + ',' + z; },
@@ -492,6 +597,15 @@ const World = {
 
 function idx(x, y, z) {
   return y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x;
+}
+
+// открыта ли дверь в данной ячейке (учитывая, что состояние хранится по нижней половине)
+function isDoorOpen(x, y, z) {
+  const b = World.getBlock(x, y, z);
+  if (!isDoor(b)) return false;
+  const by = (b === BLOCK.DOOR_TOP) ? y - 1 : y;
+  const st = World.doorState.get(World.ekey(x, by, z));
+  return !!(st && st.open);
 }
 
 // ============================================================
@@ -722,6 +836,35 @@ function buildChunkMesh(c) {
         const b = c.blocks[idx(lx, y, lz)];
         if (b === BLOCK.AIR) continue;
         const wx = x0 + lx, wz = z0 + lz;
+
+        // ---- Дверь: тонкая панель (закрыта вдоль -Z, открыта вдоль -X) ----
+        if (isDoor(b)) {
+          const open = isDoorOpen(wx, y, wz);
+          const mat = MATERIALS[b][0];
+          const mi = getMatIndex(mat);
+          let buf = byMat.get(mi);
+          if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], water:false }; byMat.set(mi, buf); }
+          const TH = 0.18; // толщина
+          // bbox панели в локальных координатах
+          let x1,x2,z1,z2;
+          if (!open) { x1=0; x2=1; z1=0; z2=TH; }      // вдоль стены -Z
+          else       { x1=0; x2=TH; z1=0; z2=1; }      // повёрнута вдоль -X
+          const addQuad = (p, nrm) => {
+            const base = buf.positions.length/3;
+            for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); }
+            buf.uvs.push(0,0,1,0,1,1,0,1);
+            buf.indices.push(base,base+1,base+2,base,base+2,base+3);
+          };
+          // 4 боковые + верх/низ панели
+          addQuad([[x1,0,z2],[x2,0,z2],[x2,1,z2],[x1,1,z2]],[0,0,1]);
+          addQuad([[x2,0,z1],[x1,0,z1],[x1,1,z1],[x2,1,z1]],[0,0,-1]);
+          addQuad([[x2,0,z2],[x2,0,z1],[x2,1,z1],[x2,1,z2]],[1,0,0]);
+          addQuad([[x1,0,z1],[x1,0,z2],[x1,1,z2],[x1,1,z1]],[-1,0,0]);
+          addQuad([[x1,1,z2],[x2,1,z2],[x2,1,z1],[x1,1,z1]],[0,1,0]);
+          addQuad([[x1,0,z1],[x2,0,z1],[x2,0,z2],[x1,0,z2]],[0,-1,0]);
+          continue;
+        }
+
         const water = isLiquid(b);
 
         // высота поверхности воды (0..1) по уровню; если сверху вода — поверхность полная
@@ -789,6 +932,7 @@ function buildChunkMesh(c) {
     geo.setIndex(buf.indices);
     const mesh = new THREE.Mesh(geo, matList[mi]);
     if (buf.water) mesh.renderOrder = 1; // вода рисуется после непрозрачного
+    if (SHADOWS_ON && !buf.water) { mesh.castShadow = true; mesh.receiveShadow = true; }
     group.add(mesh);
   }
 
@@ -804,17 +948,45 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 
+// Тени (по умолчанию включены, настраивается)
+let SHADOWS_ON = (localStorage.getItem('minicraft_shadows') ?? '1') === '1';
+renderer.shadowMap.enabled = SHADOWS_ON;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 scene.fog = new THREE.Fog(0x87ceeb, RENDER_DISTANCE * CHUNK_SIZE * 0.6, RENDER_DISTANCE * CHUNK_SIZE);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
-// Свет
+// Солнце — отбрасывает тени; следует за игроком
 const sun = new THREE.DirectionalLight(0xffffff, 0.85);
-sun.position.set(0.5, 1, 0.3);
+sun.position.set(40, 80, 30);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+const SHADOW_AREA = 48;
+sun.shadow.camera.left = -SHADOW_AREA; sun.shadow.camera.right = SHADOW_AREA;
+sun.shadow.camera.top = SHADOW_AREA; sun.shadow.camera.bottom = -SHADOW_AREA;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 260;
+sun.shadow.bias = -0.0012;
+sun.castShadow = SHADOWS_ON;
 scene.add(sun);
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+scene.add(sun.target);
+const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+scene.add(ambient);
+
+function setShadows(on) {
+  SHADOWS_ON = on;
+  localStorage.setItem('minicraft_shadows', on ? '1' : '0');
+  renderer.shadowMap.enabled = on;
+  sun.castShadow = on;
+  // компенсируем яркость: с тенями солнце сильнее, амбиент слабее
+  sun.intensity = on ? 0.9 : 0.85;
+  ambient.intensity = on ? 0.5 : 0.55;
+  // пометить все материалы на пересборку теней
+  scene.traverse(o => { if (o.material) { if (Array.isArray(o.material)) o.material.forEach(m=>m.needsUpdate=true); else o.material.needsUpdate=true; } });
+  for (const c of World.chunks.values()) c.dirty = true; // перестроить меши с тенями
+}
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -901,6 +1073,9 @@ const WorldManager = {
     World.chunks.clear();
     World.edits.clear();
     World.waterLevel.clear();
+    World.doorState.clear();
+    World.furnaces.clear();
+    openFurnacePos = null;
     // очистить сущности
     for (const d of drops) { scene.remove(d.mesh); }
     drops.length = 0;
@@ -949,6 +1124,10 @@ const WorldManager = {
       activeSlot,
       // правки блоков: "x,y,z:id"  (только постоянные изменения игрока)
       edits: Array.from(World.edits.entries()).map(([k, v]) => k + ':' + v),
+      doors: Array.from(World.doorState.entries()).map(([k, v]) => k + ':' + (v.open ? 1 : 0)),
+      furnaces: Array.from(World.furnaces.entries()).map(([k, f]) => ({
+        k, input: f.input, fuel: f.fuel, output: f.output,
+      })),
     };
     try {
       localStorage.setItem(this.LS_PREFIX + this.current, JSON.stringify(data));
@@ -978,6 +1157,15 @@ const WorldManager = {
       const i = s.lastIndexOf(':');
       const k = s.slice(0, i), v = parseInt(s.slice(i + 1), 10);
       World.edits.set(k, v);
+    }
+    // двери
+    for (const s of (data.doors || [])) {
+      const i = s.lastIndexOf(':');
+      World.doorState.set(s.slice(0, i), { open: s.slice(i + 1) === '1' });
+    }
+    // печи
+    for (const f of (data.furnaces || [])) {
+      World.furnaces.set(f.k, { input: f.input || null, fuel: f.fuel || null, output: f.output || null, burn: 0, burnMax: 0, cook: 0 });
     }
     // инвентарь (новый формат слотов; старые сейвы без slots -> пустой инвентарь)
     if (Array.isArray(data.slots)) {
@@ -1111,7 +1299,13 @@ function updateMining(dt) {
     playSound('dig', mining.block);
   }
 
-  const time = BREAK_TIME[mining.block] || 1;
+  let time = BREAK_TIME[mining.block] || 1;
+  const held = activeItem();
+  const havePick = held && isPickaxe(held.id);
+  if (needsPickaxe(mining.block)) {
+    if (havePick) time *= 0.35;  // кирка добывает быстрее
+    else time *= 2.2;            // без кирки — заметно медленнее
+  }
   mining.progress += dt / time;
 
   // звук копания каждые ~0.25с
@@ -1199,11 +1393,37 @@ function selectSlot(i) { activeSlot = i; renderHotbar(); }
 // активный предмет хотбара (для постановки блоков)
 function activeItem() { return slots[activeSlot]; }
 
-// ---- Иконки блоков ----
+// ---- Иконки блоков и предметов ----
 function iconCanvas(id, size) {
   const c = document.createElement('canvas');
   c.width = size; c.height = size;
   const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  // Предметы рисуем вручную
+  if (id === ITEM.STICK) {
+    ctx.strokeStyle = '#7a5326'; ctx.lineWidth = Math.max(2, size/9);
+    ctx.beginPath(); ctx.moveTo(size*0.7, size*0.2); ctx.lineTo(size*0.3, size*0.8); ctx.stroke();
+    return c;
+  }
+  if (id === ITEM.WOODEN_PICKAXE) {
+    // ручка
+    ctx.strokeStyle = '#7a5326'; ctx.lineWidth = Math.max(2, size/8);
+    ctx.beginPath(); ctx.moveTo(size*0.62, size*0.28); ctx.lineTo(size*0.34, size*0.82); ctx.stroke();
+    // головка из досок
+    ctx.strokeStyle = '#b98e4d'; ctx.lineWidth = Math.max(3, size/6);
+    ctx.beginPath(); ctx.moveTo(size*0.3, size*0.32); ctx.quadraticCurveTo(size*0.62, size*0.18, size*0.82, size*0.34); ctx.stroke();
+    return c;
+  }
+  if (id === ITEM.DOOR) {
+    ctx.fillStyle = '#9c6b35'; ctx.fillRect(size*0.28, size*0.08, size*0.44, size*0.84);
+    ctx.strokeStyle = '#6e4a22'; ctx.lineWidth = 1; ctx.strokeRect(size*0.28, size*0.08, size*0.44, size*0.84);
+    ctx.fillStyle = 'rgba(150,200,230,0.6)'; ctx.fillRect(size*0.36, size*0.16, size*0.28, size*0.18);
+    ctx.fillStyle = '#3a2712'; ctx.fillRect(size*0.62, size*0.5, size*0.07, size*0.07);
+    return c;
+  }
+
+  // Блоки — рисуем текстуру верхней/боковой грани
   let tex = TEX.stone;
   if (id === BLOCK.GRASS) tex = TEX.grass_side;
   else if (id === BLOCK.DIRT) tex = TEX.dirt;
@@ -1215,9 +1435,13 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.LEAVES) tex = TEX.leaves;
   else if (id === BLOCK.PLANKS) tex = TEX.planks;
   else if (id === BLOCK.CRAFTING_TABLE) tex = TEX.craft_top;
-  ctx.imageSmoothingEnabled = false;
-  // фон для листвы (она прозрачная)
+  else if (id === BLOCK.COBBLESTONE) tex = TEX.cobble;
+  else if (id === BLOCK.GLASS) tex = TEX.glass;
+  else if (id === BLOCK.FURNACE) tex = TEX.furnace_front;
+  else if (id === BLOCK.DOOR_BOTTOM || id === BLOCK.DOOR_TOP) tex = TEX.door_bottom;
+  // фон для прозрачных текстур
   if (id === BLOCK.LEAVES) { ctx.fillStyle = '#2f6e22'; ctx.fillRect(0,0,size,size); }
+  if (id === BLOCK.GLASS) { ctx.fillStyle = 'rgba(180,215,235,0.25)'; ctx.fillRect(0,0,size,size); }
   ctx.drawImage(tex, 0, 0, size, size);
   return c;
 }
@@ -1249,13 +1473,30 @@ function renderHotbar() {
 // Каждый рецепт: { shapeless?, pattern (для формовых), result:{id,count} }
 // Для простоты: формовые задаются как массив строк с символами,
 // бесформенные — как набор {id:count}.
+const P = BLOCK.PLANKS, S = ITEM.STICK, C = BLOCK.COBBLESTONE, O = 0;
 const RECIPES = [
   // 1 дерево -> 4 доски (бесформенно)
   { shapeless: true, ingredients: { [BLOCK.WOOD]: 1 }, result: { id: BLOCK.PLANKS, count: 4 } },
-  // 4 доски в 2x2 -> верстак
-  { shaped: true, w: 2, h: 2,
-    cells: [BLOCK.PLANKS, BLOCK.PLANKS, BLOCK.PLANKS, BLOCK.PLANKS],
-    result: { id: BLOCK.CRAFTING_TABLE, count: 1 } },
+  // 2 доски -> 4 палки (бесформенно, как в майне столбиком, но упростим)
+  { shapeless: true, ingredients: { [BLOCK.PLANKS]: 2 }, result: { id: ITEM.STICK, count: 4 } },
+  // 4 доски 2x2 -> верстак
+  { shaped: true, w: 2, h: 2, cells: [P,P, P,P], result: { id: BLOCK.CRAFTING_TABLE, count: 1 } },
+  // деревянная кирка: ряд досок + 2 палки (3x3)
+  { shaped: true, w: 3, h: 3, need3x3: true,
+    cells: [P,P,P,
+            O,S,O,
+            O,S,O], result: { id: ITEM.WOODEN_PICKAXE, count: 1 } },
+  // дверь: 2 в ширину, 3 в высоту из досок (6 досок) -> предмет двери.
+  // (полный столбец 2x3, чтобы не путать с верстаком 2x2)
+  { shaped: true, w: 2, h: 3, need3x3: true,
+    cells: [P,P,
+            P,P,
+            P,P], result: { id: ITEM.DOOR, count: 1 } },
+  // печь: 8 булыжника по периметру (центр пуст) 3x3 -> печь
+  { shaped: true, w: 3, h: 3, need3x3: true,
+    cells: [C,C,C,
+            C,O,C,
+            C,C,C], result: { id: BLOCK.FURNACE, count: 1 } },
 ];
 
 // нормализовать содержимое сетки крафта к компактной матрице (обрезать пустые края)
@@ -1278,11 +1519,32 @@ function craftTotals(size) {
   return tot;
 }
 
+// id-сетка крафта (0 для пустых) размером size x size
+function craftIdGrid(size) {
+  const g = [];
+  for (let r = 0; r < size; r++) { g.push([]); for (let cc = 0; cc < size; cc++) { const s = craftSlots[r*size+cc]; g[r].push(s ? s.id : 0); } }
+  return g;
+}
+
+// совпадает ли формовый рецепт при заданном смещении (or, oc) в сетке size
+function shapedFits(rec, grid, size, or, oc) {
+  for (let r = 0; r < size; r++) for (let cc = 0; cc < size; cc++) {
+    let want = 0;
+    if (r >= or && r < or + rec.h && cc >= oc && cc < oc + rec.w) {
+      want = rec.cells[(r - or) * rec.w + (cc - oc)];
+    }
+    if (grid[r][cc] !== want) return false;
+  }
+  return true;
+}
+
 function matchRecipe(size) {
   const totals = craftTotals(size);
   const totalCount = Object.values(totals).reduce((a,b)=>a+b,0);
   if (totalCount === 0) return null;
+  const grid = craftIdGrid(size);
   for (const rec of RECIPES) {
+    if (rec.need3x3 && size < 3) continue;
     if (rec.shapeless) {
       const keys = Object.keys(rec.ingredients);
       if (keys.length !== Object.keys(totals).length) continue;
@@ -1290,14 +1552,10 @@ function matchRecipe(size) {
       for (const k of keys) if ((totals[k]||0) !== rec.ingredients[k]) ok = false;
       if (ok) return rec;
     } else if (rec.shaped) {
-      const m = craftMatrix(size);
-      if (!m) continue;
-      if (m.length !== rec.h || m[0].length !== rec.w) continue;
-      let ok = true;
-      for (let r=0;r<rec.h;r++) for (let cc=0;cc<rec.w;cc++) {
-        if (m[r][cc] !== rec.cells[r*rec.w+cc]) ok = false;
-      }
-      if (ok) return rec;
+      if (rec.h > size || rec.w > size) continue;
+      for (let or = 0; or + rec.h <= size; or++)
+        for (let oc = 0; oc + rec.w <= size; oc++)
+          if (shapedFits(rec, grid, size, or, oc)) return rec;
     }
   }
   return null;
@@ -1317,9 +1575,23 @@ function takeCraftResult() {
   const res = rec.result;
   // если на курсоре уже есть предмет — складываем, иначе берём
   if (cursorItem && (cursorItem.id !== res.id || cursorItem.count + res.count > maxStack(res.id))) return;
-  // списать по одному из каждого занятого слота крафта
-  for (let i = 0; i < size*size; i++) {
-    if (craftSlots[i]) { craftSlots[i].count--; if (craftSlots[i].count<=0) craftSlots[i]=null; }
+  // списать ингредиенты
+  if (rec.shapeless) {
+    // по нужному количеству каждого ингредиента (может лежать в одном слоте стопкой)
+    const need = { ...rec.ingredients };
+    for (let i = 0; i < size*size; i++) {
+      const s = craftSlots[i]; if (!s) continue;
+      if (need[s.id] > 0) {
+        const take = Math.min(need[s.id], s.count);
+        s.count -= take; need[s.id] -= take;
+        if (s.count <= 0) craftSlots[i] = null;
+      }
+    }
+  } else {
+    // формовый: по одному из каждого занятого слота
+    for (let i = 0; i < size*size; i++) {
+      if (craftSlots[i]) { craftSlots[i].count--; if (craftSlots[i].count<=0) craftSlots[i]=null; }
+    }
   }
   if (cursorItem) cursorItem.count += res.count;
   else cursorItem = { id: res.id, count: res.count };
@@ -1409,39 +1681,113 @@ function makeSlotEl(arr, index, size) {
 }
 
 const invGrid = document.getElementById('invGrid');
+// клик по слотам печи (поля input/fuel/output)
+function furnaceSlotClick(f, field, rightClick) {
+  if (field === 'output') {
+    // только забрать
+    const s = f.output;
+    if (!s) return;
+    if (!cursorItem) { cursorItem = s; f.output = null; }
+    else if (cursorItem.id === s.id && cursorItem.count + s.count <= MAX_STACK) { cursorItem.count += s.count; f.output = null; }
+    refreshUI(); return;
+  }
+  const s = f[field];
+  if (!cursorItem) {
+    if (!s) return;
+    if (rightClick) { const half=Math.ceil(s.count/2); cursorItem={id:s.id,count:half}; s.count-=half; if(s.count<=0) f[field]=null; }
+    else { cursorItem = s; f[field] = null; }
+  } else {
+    // для input принимаем только плавимое, для fuel — только топливо
+    if (field === 'input' && !isSmeltable(cursorItem.id)) return;
+    if (field === 'fuel' && !isFuel(cursorItem.id)) return;
+    if (!s) {
+      if (rightClick) { f[field] = {id:cursorItem.id,count:1}; cursorItem.count--; if(cursorItem.count<=0) cursorItem=null; }
+      else { f[field] = cursorItem; cursorItem = null; }
+    } else if (s.id === cursorItem.id) {
+      const space = MAX_STACK - s.count;
+      const move = rightClick ? Math.min(1, space) : Math.min(space, cursorItem.count);
+      s.count += move; cursorItem.count -= move; if (cursorItem.count<=0) cursorItem=null;
+    } else {
+      const tmp = f[field]; f[field] = cursorItem; cursorItem = tmp;
+    }
+  }
+  refreshUI();
+}
+
+function makeFurnaceSlot(f, field) {
+  const el = document.createElement('div');
+  el.className = 'inv-slot';
+  const item = f[field];
+  if (item) {
+    el.appendChild(iconCanvas(item.id, 34));
+    if (item.count > 1) { const c=document.createElement('div'); c.className='count'; c.textContent=item.count; el.appendChild(c); }
+    el.title = BLOCK_NAMES[item.id] || '';
+  }
+  el.addEventListener('mousedown', (e) => { e.preventDefault(); furnaceSlotClick(f, field, e.button === 2); });
+  el.addEventListener('contextmenu', e => e.preventDefault());
+  return el;
+}
+
 function renderInventory() {
   // строим всю панель заново (заголовок задан в HTML)
   invGrid.innerHTML = '';
 
-  // --- Зона крафта ---
-  const craftWrap = document.createElement('div');
-  craftWrap.className = 'craft-zone';
-  const size = craftMode === '3x3' ? 3 : 2;
-  const grid = document.createElement('div');
-  grid.className = 'craft-grid';
-  grid.style.gridTemplateColumns = `repeat(${size}, 44px)`;
-  for (let i = 0; i < size*size; i++) grid.appendChild(makeSlotEl(craftSlots, i, 34));
-  craftWrap.appendChild(grid);
+  if (craftMode === 'furnace') {
+    // --- Интерфейс печи ---
+    const f = getFurnace(openFurnacePos.x, openFurnacePos.y, openFurnacePos.z);
+    const fz = document.createElement('div'); fz.className = 'furnace-zone';
+    const col = document.createElement('div'); col.className = 'furnace-col';
+    col.appendChild(makeFurnaceSlot(f, 'input'));   // вверху — что плавим
+    const flame = document.createElement('div'); flame.className = 'furnace-flame';
+    flame.textContent = f.burn > 0 ? '🔥' : '▢';
+    col.appendChild(flame);
+    col.appendChild(makeFurnaceSlot(f, 'fuel'));    // внизу — топливо
+    fz.appendChild(col);
 
-  const arrow = document.createElement('div');
-  arrow.className = 'craft-arrow'; arrow.textContent = '➜';
-  craftWrap.appendChild(arrow);
+    // прогресс-стрелка
+    const prog = document.createElement('div'); prog.className = 'furnace-prog';
+    const fill = document.createElement('div'); fill.className = 'furnace-prog-fill';
+    fill.style.width = Math.round((f.cook / COOK_TIME) * 100) + '%';
+    prog.appendChild(fill);
+    fz.appendChild(prog);
 
-  const resSlot = document.createElement('div');
-  resSlot.className = 'inv-slot craft-result';
-  if (craftResult) {
-    resSlot.appendChild(iconCanvas(craftResult.id, 34));
-    if (craftResult.count > 1) { const c=document.createElement('div'); c.className='count'; c.textContent=craftResult.count; resSlot.appendChild(c); }
-    resSlot.title = BLOCK_NAMES[craftResult.id] || '';
+    fz.appendChild(makeFurnaceSlot(f, 'output'));
+    invGrid.appendChild(fz);
+
+    const lbl = document.createElement('div'); lbl.className='inv-label';
+    lbl.textContent = 'Печь: песок → стекло (топливо: доски/дерево/двери)';
+    invGrid.appendChild(lbl);
+  } else {
+    // --- Зона крафта ---
+    const craftWrap = document.createElement('div');
+    craftWrap.className = 'craft-zone';
+    const size = craftMode === '3x3' ? 3 : 2;
+    const grid = document.createElement('div');
+    grid.className = 'craft-grid';
+    grid.style.gridTemplateColumns = `repeat(${size}, 44px)`;
+    for (let i = 0; i < size*size; i++) grid.appendChild(makeSlotEl(craftSlots, i, 34));
+    craftWrap.appendChild(grid);
+
+    const arrow = document.createElement('div');
+    arrow.className = 'craft-arrow'; arrow.textContent = '➜';
+    craftWrap.appendChild(arrow);
+
+    const resSlot = document.createElement('div');
+    resSlot.className = 'inv-slot craft-result';
+    if (craftResult) {
+      resSlot.appendChild(iconCanvas(craftResult.id, 34));
+      if (craftResult.count > 1) { const c=document.createElement('div'); c.className='count'; c.textContent=craftResult.count; resSlot.appendChild(c); }
+      resSlot.title = BLOCK_NAMES[craftResult.id] || '';
+    }
+    resSlot.addEventListener('mousedown', (e) => { e.preventDefault(); takeCraftResult(); });
+    craftWrap.appendChild(resSlot);
+    invGrid.appendChild(craftWrap);
+
+    const lbl = document.createElement('div');
+    lbl.className = 'inv-label';
+    lbl.textContent = craftMode === '3x3' ? 'Крафт 3×3 (верстак)' : 'Крафт 2×2';
+    invGrid.appendChild(lbl);
   }
-  resSlot.addEventListener('mousedown', (e) => { e.preventDefault(); takeCraftResult(); });
-  craftWrap.appendChild(resSlot);
-  invGrid.appendChild(craftWrap);
-
-  const lbl = document.createElement('div');
-  lbl.className = 'inv-label';
-  lbl.textContent = craftMode === '3x3' ? 'Крафт 3×3 (верстак)' : 'Крафт 2×2';
-  invGrid.appendChild(lbl);
 
   // --- Основное хранилище (27) ---
   const storage = document.createElement('div');
@@ -1480,12 +1826,15 @@ function toggleInventory(mode) {
   if (invOpen) {
     craftMode = mode || '2x2';
     invPanel.classList.add('open');
-    document.getElementById('invTitle').textContent = craftMode === '3x3' ? 'Верстак' : 'Инвентарь';
+    const title = craftMode === '3x3' ? 'Верстак' : (craftMode === 'furnace' ? 'Печь' : 'Инвентарь');
+    document.getElementById('invTitle').textContent = title;
     document.exitPointerLock();
     updateCraftResult();
     renderInventory();
   } else {
-    clearCraftToInventory(); // вернуть предметы из крафта
+    if (craftMode !== 'furnace') clearCraftToInventory(); // вернуть предметы из крафта
+    if (cursorItem) { addToInventory(cursorItem.id, cursorItem.count); cursorItem = null; } // курсор в инвентарь
+    openFurnacePos = null;
     craftMode = '2x2';
     invPanel.classList.remove('open');
     refreshUI();
@@ -1690,10 +2039,24 @@ function getTargetBlock(maxDist = 6) {
 // ============================================================
 const drops = []; // {mesh, pos, vel, id, age, picked}
 
+const _itemDropMat = {}; // кеш материалов-иконок для предметов
+function itemDropMaterial(id) {
+  if (_itemDropMat[id]) return _itemDropMat[id];
+  const t = new THREE.CanvasTexture(iconCanvas(id, 32));
+  t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+  const m = new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide });
+  _itemDropMat[id] = m;
+  return m;
+}
+
 function spawnDrop(id, x, y, z) {
-  const geo = new THREE.BoxGeometry(0.28, 0.28, 0.28);
-  const mat = MATERIALS[id]; // массив материалов
-  const mesh = new THREE.Mesh(geo, mat);
+  let mesh;
+  if (isBlock(id) && MATERIALS[id]) {
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.28), MATERIALS[id]);
+  } else {
+    // предмет — плоский «спрайт»
+    mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), itemDropMaterial(id));
+  }
   mesh.position.set(x, y, z);
   scene.add(mesh);
   drops.push({
@@ -1909,14 +2272,47 @@ function finishBreak(t) {
   if (!t) return;
   if (t.block === BLOCK.BEDROCK) return; // бедрок не ломается
   const broken = t.block;
+
+  // Двери: ломаем обе половины
+  if (isDoor(broken)) {
+    const byd = broken === BLOCK.DOOR_BOTTOM ? t.y : t.y - 1;
+    const otherY = broken === BLOCK.DOOR_BOTTOM ? t.y + 1 : t.y - 1;
+    World.setBlock(t.x, t.y, t.z, BLOCK.AIR);
+    if (isDoor(World.getBlock(t.x, otherY, t.z))) World.setBlock(t.x, otherY, t.z, BLOCK.AIR);
+    World.doorState.delete(World.ekey(t.x, byd, t.z));
+    spawnDrop(ITEM.DOOR, t.x + 0.5, t.y + 0.5, t.z + 0.5);
+    rebuildAround(t.x, t.z);
+    playSound('break', BLOCK.PLANKS);
+    return;
+  }
+
+  // Печь: вернуть содержимое и удалить состояние
+  if (broken === BLOCK.FURNACE) {
+    const fk = World.ekey(t.x, t.y, t.z);
+    const f = World.furnaces.get(fk);
+    if (f) {
+      for (const it of [f.input, f.fuel, f.output]) if (it) spawnDrop(it.id, t.x + 0.5, t.y + 0.7, t.z + 0.5);
+      World.furnaces.delete(fk);
+    }
+    if (openFurnacePos && fk === World.ekey(openFurnacePos.x, openFurnacePos.y, openFurnacePos.z) && invOpen) {
+      toggleInventory();
+    }
+  }
+
   World.setBlock(t.x, t.y, t.z, BLOCK.AIR);
 
   // что выпадает
   let dropId = broken;
+  const held = activeItem();
+  const havePick = held && isPickaxe(held.id);
+
   if (broken === BLOCK.GRASS) dropId = BLOCK.DIRT;
-  if (broken === BLOCK.LEAVES) {
-    dropId = null; // из листвы ничего не выпадает
-  }
+  else if (broken === BLOCK.LEAVES) dropId = null;       // из листвы ничего
+  else if (broken === BLOCK.GLASS) dropId = null;        // стекло разбивается
+  else if (broken === BLOCK.STONE) dropId = havePick ? BLOCK.COBBLESTONE : null; // камень -> булыжник только киркой
+  else if (broken === BLOCK.COBBLESTONE) dropId = havePick ? BLOCK.COBBLESTONE : null;
+  else if (broken === BLOCK.FURNACE) dropId = havePick ? BLOCK.FURNACE : null;
+
   if (dropId !== null) spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
 
   rebuildAround(t.x, t.z);
@@ -1927,6 +2323,15 @@ function finishBreak(t) {
   // сломали ствол — листва вокруг начнёт затухать (проверяем зону)
   if (broken === BLOCK.WOOD || broken === BLOCK.LEAVES) {
     scheduleLeafDecayAround(t.x, t.y, t.z);
+  }
+
+  // если над сломанным блоком стояла дверь без опоры — она падает (ломается)
+  if (World.getBlock(t.x, t.y + 1, t.z) === BLOCK.DOOR_BOTTOM) {
+    World.setBlock(t.x, t.y + 1, t.z, BLOCK.AIR);
+    if (World.getBlock(t.x, t.y + 2, t.z) === BLOCK.DOOR_TOP) World.setBlock(t.x, t.y + 2, t.z, BLOCK.AIR);
+    World.doorState.delete(World.ekey(t.x, t.y + 1, t.z));
+    spawnDrop(ITEM.DOOR, t.x + 0.5, t.y + 1.5, t.z + 0.5);
+    rebuildAround(t.x, t.z);
   }
 }
 
@@ -1939,9 +2344,21 @@ function placeBlock() {
     toggleInventory('3x3');
     return;
   }
+  // ПКМ по печи — открыть интерфейс плавки
+  if (t.block === BLOCK.FURNACE) {
+    openFurnace(t.x, t.y, t.z);
+    return;
+  }
+  // ПКМ по двери — открыть/закрыть
+  if (isDoor(t.block)) {
+    toggleDoor(t.x, t.y, t.z);
+    return;
+  }
 
   const slot = activeItem();
   if (!slot || slot.count <= 0) return;
+  // палка/кирка не ставятся
+  if (!isBlock(slot.id) && slot.id !== ITEM.DOOR) return;
 
   const nx = t.x + t.face[0];
   const ny = t.y + t.face[1];
@@ -1949,6 +2366,24 @@ function placeBlock() {
   if (ny < 0 || ny >= WORLD_HEIGHT) return;
   const target = World.getBlock(nx, ny, nz);
   if (target !== BLOCK.AIR && !isLiquid(target)) return; // можно ставить только в воздух/воду
+
+  // ---- Дверь: два блока в высоту ----
+  if (slot.id === ITEM.DOOR) {
+    const aboveOk = World.getBlock(nx, ny + 1, nz);
+    if (ny + 1 >= WORLD_HEIGHT || (aboveOk !== BLOCK.AIR && !isLiquid(aboveOk))) return;
+    if (intersectsPlayer(nx, ny, nz) || intersectsPlayer(nx, ny + 1, nz)) return;
+    // нужна опора снизу
+    if (canFallInto(World.getBlock(nx, ny - 1, nz))) return;
+    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    refreshUI();
+    // направление по взгляду игрока (для рендера достаточно открытия/закрытия)
+    World.setBlock(nx, ny, nz, BLOCK.DOOR_BOTTOM);
+    World.setBlock(nx, ny + 1, nz, BLOCK.DOOR_TOP);
+    World.doorState.set(World.ekey(nx, ny, nz), { open: false });
+    rebuildAround(nx, nz);
+    playSound('place', BLOCK.PLANKS);
+    return;
+  }
 
   // не ставить блок внутрь игрока
   if (intersectsPlayer(nx, ny, nz)) return;
@@ -1963,6 +2398,87 @@ function placeBlock() {
   playSound('place', placeId);
   WaterSim.touchAround(nx, ny, nz); // вытеснение/перетекание воды
   if (isFalling(placeId)) checkSand(nx, ny, nz); // поставленный песок может упасть
+}
+
+// ============================================================
+//  Печь (плавка)
+// ============================================================
+// Что во что плавится
+const SMELT = {
+  [BLOCK.SAND]: { id: BLOCK.GLASS, count: 1 },
+};
+function isSmeltable(id) { return SMELT[id] !== undefined; }
+// Топливо: сколько предметов сжигает 1 единица
+const FUEL = {
+  [BLOCK.PLANKS]: 1.5,
+  [BLOCK.WOOD]: 1.5,
+  [ITEM.DOOR]: 1,
+};
+function isFuel(id) { return FUEL[id] !== undefined; }
+
+const COOK_TIME = 4; // сек на 1 предмет
+
+let openFurnacePos = null; // {x,y,z} текущая открытая печь
+
+function getFurnace(x, y, z) {
+  const k = World.ekey(x, y, z);
+  let f = World.furnaces.get(k);
+  if (!f) { f = { input: null, fuel: null, output: null, burn: 0, burnMax: 0, cook: 0 }; World.furnaces.set(k, f); }
+  return f;
+}
+
+function openFurnace(x, y, z) {
+  openFurnacePos = { x, y, z };
+  toggleInventory('furnace');
+}
+
+// прогресс плавки во всех активных печах
+function updateFurnaces(dt) {
+  for (const [k, f] of World.furnaces) {
+    const canSmelt = f.input && isSmeltable(f.input.id) &&
+      (!f.output || (f.output.id === SMELT[f.input.id].id && f.output.count < MAX_STACK));
+    // зажечь топливо при необходимости
+    if (f.burn <= 0 && canSmelt && f.fuel && isFuel(f.fuel.id)) {
+      f.burnMax = FUEL[f.fuel.id] * COOK_TIME;
+      f.burn = f.burnMax;
+      f.fuel.count--; if (f.fuel.count <= 0) f.fuel = null;
+    }
+    if (f.burn > 0) {
+      f.burn -= dt;
+      if (canSmelt) {
+        f.cook += dt;
+        if (f.cook >= COOK_TIME) {
+          f.cook = 0;
+          const res = SMELT[f.input.id];
+          f.input.count--; if (f.input.count <= 0) f.input = null;
+          if (!f.output) f.output = { id: res.id, count: res.count };
+          else f.output.count += res.count;
+          playSound('place', res.id);
+        }
+      } else {
+        f.cook = 0;
+      }
+    } else {
+      f.cook = 0;
+    }
+    // обновить UI, если эта печь открыта
+    if (openFurnacePos && World.ekey(openFurnacePos.x, openFurnacePos.y, openFurnacePos.z) === k && invOpen) {
+      renderInventory();
+    }
+  }
+}
+
+// открыть/закрыть дверь (упрощённо: убираем/возвращаем коллизию делая её проходимой)
+function toggleDoor(x, y, z) {
+  // найти нижнюю половину
+  let by = y;
+  if (World.getBlock(x, y, z) === BLOCK.DOOR_TOP) by = y - 1;
+  const key = World.ekey(x, by, z);
+  const st = World.doorState.get(key) || { open: false };
+  st.open = !st.open;
+  World.doorState.set(key, st);
+  rebuildAround(x, z);
+  playSound('place', BLOCK.PLANKS);
 }
 
 function intersectsPlayer(bx, by, bz) {
@@ -2060,6 +2576,7 @@ function collide(axis, amount) {
       for (let z = minZ; z <= maxZ; z++) {
         const bb = World.getBlock(x, y, z);
         if (bb === BLOCK.AIR || isLiquid(bb)) continue; // вода не сталкивается
+        if (isDoor(bb) && isDoorOpen(x, y, z)) continue; // открытая дверь проходима
         // пересечение есть -> откат по оси
         if (axis === 'x') {
           if (amount > 0) PLAYER.pos.x = x - hw - 1e-3;
@@ -2316,7 +2833,15 @@ function loop(now) {
   WaterSim.update(dt);
   updateFallingSand(dt);
   updateLeafDecay(dt);
+  updateFurnaces(dt);
   updateChunks();
+
+  // солнце следует за игроком (чтобы тени были вокруг него)
+  if (SHADOWS_ON) {
+    sun.target.position.set(PLAYER.pos.x, PLAYER.pos.y, PLAYER.pos.z);
+    sun.position.set(PLAYER.pos.x + 50, PLAYER.pos.y + 90, PLAYER.pos.z + 35);
+    sun.target.updateMatrixWorld();
+  }
 
   // камера
   const eyeY = PLAYER.pos.y + (PLAYER.crouching ? PLAYER.crouchEye : PLAYER.eye);
@@ -2448,6 +2973,12 @@ rdValueEl.textContent = RENDER_DISTANCE;
 renderDistEl.addEventListener('input', () => {
   rdValueEl.textContent = renderDistEl.value;
   setRenderDistance(parseInt(renderDistEl.value, 10));
+});
+
+const shadowToggleEl = document.getElementById('shadowToggle');
+shadowToggleEl.checked = SHADOWS_ON;
+shadowToggleEl.addEventListener('change', () => {
+  setShadows(shadowToggleEl.checked);
 });
 
 // открыть меню (пауза + менеджер миров)

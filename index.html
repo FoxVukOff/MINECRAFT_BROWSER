@@ -65,6 +65,13 @@
   .craft-arrow { font-size: 22px; color: #555; }
   .craft-result { width: 48px; height: 48px; background: #9b9b9b; }
   .inv-label { font-size: 11px; color: #444; }
+
+  /* Печь */
+  .furnace-zone { display: flex; align-items: center; gap: 14px; padding: 8px; background:#bdbdbd; border-radius:4px; }
+  .furnace-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .furnace-flame { font-size: 18px; height: 20px; }
+  .furnace-prog { width: 60px; height: 10px; background:#888; border:1px solid #555; border-radius:3px; overflow:hidden; }
+  .furnace-prog-fill { height: 100%; background:#d98a2b; width:0%; transition: width 0.1s linear; }
   .inv-storage { display: grid; grid-template-columns: repeat(9, 42px); gap: 3px; }
   .inv-hotbar { display: grid; grid-template-columns: repeat(9, 42px); gap: 3px; margin-top: 4px; padding-top: 8px; border-top: 2px solid #999; }
 
@@ -125,6 +132,8 @@
   .wm-setting { display: block; font-size: 12px; color: #ddd; }
   .wm-range { width: 100%; margin-top: 6px; }
   .wm-note { font-size: 10px; color: #999; margin-top: 4px; }
+  .wm-check { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+  .wm-check input { width: auto; }
   .wm-input {
     display: block; width: 100%; margin-bottom: 8px; padding: 9px 10px;
     font-family: monospace; font-size: 13px; background: #2a2a2a; color: #fff;
@@ -197,7 +206,10 @@
         Прорисовка чанков: <span id="rdValue">4</span>
         <input id="renderDist" class="wm-range" type="range" min="2" max="10" step="1" value="4">
       </label>
-      <p class="wm-note">Меньше = выше FPS. Применяется сразу.</p>
+      <label class="wm-setting wm-check">
+        <input id="shadowToggle" type="checkbox" checked> Тени от блоков
+      </label>
+      <p class="wm-note">Меньше прорисовка = выше FPS. Тени можно выключить для производительности.</p>
     </div>
 
     <div class="keys">
@@ -205,6 +217,14 @@
       <p><kbd>Space</kbd> — прыжок/всплыть · <kbd>Shift</kbd> — присесть/нырять</p>
       <p><kbd>ЛКМ</kbd> (удерж.) — ломать · <kbd>ПКМ</kbd> — ставить / открыть верстак</p>
       <p><kbd>E</kbd> — инвентарь · <kbd>1-9</kbd>/колесо — слот · <kbd>O</kbd> — сохранить</p>
+    </div>
+    <div class="keys recipes">
+      <p style="color:#9fd;margin-top:6px;">Рецепты (крафт):</p>
+      <p>🪵 дерево → 4 доски · 🪵🪵 2 доски → 4 палки</p>
+      <p>🟫 4 доски (2×2) → верстак · ⛏ доски+палки → кирка</p>
+      <p>🚪 6 досок (2×3) → дверь · 🔥 8 булыжника (рамкой) → печь</p>
+      <p>🏭 печь: песок → стекло (топливо: доски/дерево/двери)</p>
+      <p>⛏ камень добывается киркой и даёт булыжник</p>
     </div>
   </div>
 </div>
