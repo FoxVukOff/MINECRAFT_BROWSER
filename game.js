@@ -229,13 +229,48 @@ function buildTextures() {
     ctx.beginPath(); ctx.moveTo(3,13); ctx.lineTo(11,3); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(6,13); ctx.lineTo(13,6); ctx.stroke();
   });
-  // печь: бок/верх — булыжник; перед — тёмная топка
-  TEX.furnace_side = TEX.cobble;
+  // печь: бок/верх — гладкий камень; перед — топка с решёткой
+  TEX.furnace_side = makeTex(ctx => {
+    noiseFill(ctx, 0x8a8a8a, 10);
+    // тёмная рамка по краю
+    ctx.strokeStyle = '#6c6c6c'; ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, 15, 15);
+    // лёгкие сколы
+    ctx.fillStyle = '#787878'; ctx.fillRect(3,4,2,1); ctx.fillRect(11,9,2,1); ctx.fillRect(6,12,2,1);
+    ctx.fillStyle = '#9a9a9a'; ctx.fillRect(2,10,1,2); ctx.fillRect(12,3,1,2);
+  });
+  TEX.furnace_top = makeTex(ctx => {
+    noiseFill(ctx, 0x8a8a8a, 10);
+    ctx.strokeStyle = '#6c6c6c'; ctx.lineWidth = 1; ctx.strokeRect(0.5,0.5,15,15);
+    // дымоход в центре
+    ctx.fillStyle = '#5a5a5a'; ctx.fillRect(5,5,6,6);
+    ctx.fillStyle = '#3a3a3a'; ctx.fillRect(6,6,4,4);
+  });
   TEX.furnace_front = makeTex(ctx => {
-    noiseFill(ctx, 0x7d7d7d, 18);
-    ctx.fillStyle = '#2a2a2a'; ctx.fillRect(4,5,8,8);     // топка
-    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(5,6,6,6);
-    ctx.fillStyle = '#888'; ctx.fillRect(4,3,8,1);        // вентиляция
+    noiseFill(ctx, 0x8a8a8a, 10);
+    ctx.strokeStyle = '#6c6c6c'; ctx.lineWidth = 1; ctx.strokeRect(0.5,0.5,15,15);
+    // тёмная топка
+    ctx.fillStyle = '#3a3128'; ctx.fillRect(3,4,10,9);
+    ctx.fillStyle = '#1c1712'; ctx.fillRect(4,5,8,7);
+    // решётка-вентиляция
+    ctx.fillStyle = '#555'; for (let x=4;x<12;x+=2) ctx.fillRect(x,5,1,7);
+    // нижняя металлическая планка
+    ctx.fillStyle = '#777'; ctx.fillRect(3,12,10,1);
+    // огонёк (потухший)
+    ctx.fillStyle = '#3a2a18'; ctx.fillRect(6,9,4,3);
+  });
+  // печь зажжённая — светящаяся топка
+  TEX.furnace_front_lit = makeTex(ctx => {
+    noiseFill(ctx, 0x8a8a8a, 10);
+    ctx.strokeStyle = '#6c6c6c'; ctx.lineWidth = 1; ctx.strokeRect(0.5,0.5,15,15);
+    ctx.fillStyle = '#2a1c10'; ctx.fillRect(3,4,10,9);
+    ctx.fillStyle = '#1c1712'; ctx.fillRect(4,5,8,7);
+    ctx.fillStyle = '#555'; for (let x=4;x<12;x+=2) ctx.fillRect(x,5,1,7);
+    ctx.fillStyle = '#777'; ctx.fillRect(3,12,10,1);
+    // пламя
+    ctx.fillStyle = '#ff6a1a'; ctx.fillRect(5,9,6,3);
+    ctx.fillStyle = '#ffb030'; ctx.fillRect(6,10,4,2);
+    ctx.fillStyle = '#ffe060'; ctx.fillRect(7,11,2,1);
   });
   // дверь: верхняя половинка (с окошком) и нижняя
   TEX.door_top = makeTex(ctx => {
@@ -250,23 +285,41 @@ function buildTextures() {
     ctx.strokeStyle='#6e4a22'; ctx.strokeRect(1.5,0.5,13,15);
     ctx.fillStyle = '#3a2712'; ctx.fillRect(12,7,2,2);             // ручка
   });
-  // сундук: верх — крышка с обвязкой; перед — замок; бок — доски с обвязкой
+  // сундук: доски с тёмной обвязкой по краям и фактурой древесины
+  const woodGrain = (ctx, base) => {
+    noiseFill(ctx, base, 10);
+    // горизонтальные волокна
+    ctx.globalAlpha = 0.35;
+    for (let y=1;y<16;y+=2){ ctx.fillStyle = shade(base, -14); ctx.fillRect(0,y,16,1); }
+    ctx.globalAlpha = 1;
+  };
   TEX.chest_top = makeTex(ctx => {
-    noiseFill(ctx, 0x9a6a30, 12);
-    ctx.fillStyle = '#5b3d18'; ctx.fillRect(0,0,16,2); ctx.fillRect(0,14,16,2);
+    woodGrain(ctx, 0xb07a36);
+    // обвязка по периметру
+    ctx.fillStyle = '#4d3416';
+    ctx.fillRect(0,0,16,2); ctx.fillRect(0,14,16,2); ctx.fillRect(0,0,2,16); ctx.fillRect(14,0,2,16);
+    // средняя планка
     ctx.fillRect(7,0,2,16);
+    ctx.fillStyle = '#6b4a20'; ctx.fillRect(2,2,5,12); ctx.fillRect(9,2,5,12);
   });
   TEX.chest_front = makeTex(ctx => {
-    noiseFill(ctx, 0xa3712f, 12);
-    ctx.fillStyle = '#5b3d18'; ctx.fillRect(0,0,16,2); ctx.fillRect(0,14,16,2);
+    woodGrain(ctx, 0xb07a36);
+    ctx.fillStyle = '#4d3416';
+    ctx.fillRect(0,0,16,2); ctx.fillRect(0,14,16,2); ctx.fillRect(0,0,2,16); ctx.fillRect(14,0,2,16);
     ctx.fillRect(0,7,16,2);                                  // линия крышки
-    ctx.fillStyle = '#3a2712'; ctx.fillRect(7,6,2,4);        // замок
-    ctx.fillStyle = '#d8b76a'; ctx.fillRect(7,7,2,2);        // блик замка
+    // петли
+    ctx.fillStyle = '#3a2712'; ctx.fillRect(2,7,2,2); ctx.fillRect(12,7,2,2);
+    // замок (металл)
+    ctx.fillStyle = '#6e6e6e'; ctx.fillRect(6,6,4,5);
+    ctx.fillStyle = '#9a9a9a'; ctx.fillRect(7,7,2,3);
+    ctx.fillStyle = '#2a2a2a'; ctx.fillRect(7,8,2,2);       // скважина
   });
   TEX.chest_side = makeTex(ctx => {
-    noiseFill(ctx, 0x8f6128, 12);
-    ctx.fillStyle = '#5b3d18'; ctx.fillRect(0,0,16,2); ctx.fillRect(0,14,16,2);
-    ctx.fillRect(0,7,16,2);
+    woodGrain(ctx, 0xa3712f);
+    ctx.fillStyle = '#4d3416';
+    ctx.fillRect(0,0,16,2); ctx.fillRect(0,14,16,2); ctx.fillRect(0,0,2,16); ctx.fillRect(14,0,2,16);
+    ctx.fillRect(0,7,16,2);                                  // линия крышки
+    ctx.fillStyle = '#6b4a20'; ctx.fillRect(2,2,12,5); ctx.fillRect(2,9,12,5);
   });
 }
 
@@ -344,6 +397,7 @@ function buildMaterials() {
   const mCraftSide = texToMaterial(TEX.craft_side);
   const mCobble    = texToMaterial(TEX.cobble);
   const mFurSide   = texToMaterial(TEX.furnace_side);
+  const mFurTop    = texToMaterial(TEX.furnace_top);
   const mFurFront  = texToMaterial(TEX.furnace_front);
   const mDoorTop   = texToMaterial(TEX.door_top);
   const mDoorBot   = texToMaterial(TEX.door_bottom);
@@ -383,7 +437,8 @@ function buildMaterials() {
   MATERIALS[BLOCK.COBBLESTONE] = [mCobble, mCobble, mCobble, mCobble, mCobble, mCobble];
   MATERIALS[BLOCK.GLASS]   = [mGlass, mGlass, mGlass, mGlass, mGlass, mGlass];
   // печь: перед — топка (+Z), остальное булыжник
-  MATERIALS[BLOCK.FURNACE] = [mFurSide, mFurSide, mCobble, mCobble, mFurFront, mFurSide];
+  MATERIALS[BLOCK.FURNACE] = [mFurSide, mFurSide, mFurTop, mFurTop, mFurFront, mFurSide];
+  MATERIALS.FURNACE_LIT = [mFurSide, mFurSide, mFurTop, mFurTop, texToMaterial(TEX.furnace_front_lit), mFurSide];
   MATERIALS[BLOCK.DOOR_BOTTOM] = [mDoorBot, mDoorBot, mDoorBot, mDoorBot, mDoorBot, mDoorBot];
   MATERIALS[BLOCK.DOOR_TOP]    = [mDoorTopT, mDoorTopT, mDoorTopT, mDoorTopT, mDoorTopT, mDoorTopT];
   // сундук: перед — замок (+Z), верх/низ — крышка, бока — обвязка
@@ -478,6 +533,7 @@ const World = {
   doorState: new Map(),       // "x,y,z"(низ двери) -> {open}
   furnaces: new Map(),        // "x,y,z" -> {input,fuel,output, burn, cookTime}
   chests: new Map(),          // "x,y,z" -> массив из 27 слотов
+  facing: new Map(),          // "x,y,z" -> ориентация блока (см. ORIENT)
 
   key(cx, cz) { return cx + ',' + cz; },
   ekey(x, y, z) { return x + ',' + y + ',' + z; },
@@ -608,6 +664,8 @@ const World = {
     if (!transient) this.edits.set(this.ekey(wx, wy, wz), id);
     // уровень храним только для течения; иначе чистим
     if (id !== BLOCK.WATER_FLOW) this.clearLevel(wx, wy, wz);
+    // воздух — сбросить ориентацию
+    if (id === BLOCK.AIR) this.facing.delete(this.ekey(wx, wy, wz));
 
     // пометить соседние чанки dirty если на границе
     if (lx === 0) this.markDirty(cx - 1, cz);
@@ -823,6 +881,87 @@ const FACES = [
     corners: [[1,0,0],[0,0,0],[0,1,0],[1,1,0]] },
 ];
 
+// ============================================================
+//  Ориентация блоков (facing)
+// ============================================================
+// Ориентация = индекс грани (в системе FACES.mat: 0:+X 1:-X 2:+Y 3:-Y 4:+Z 5:-Z),
+// на которую смотрит "перед" блока. По умолчанию перед = +Z (mat 4).
+// Для каждого индекса задаём перестановку материалов:
+//   newMat[physicalFace] = baseMat[ откуда взять текстуру ]
+// Так "передняя" текстура (baseMat[4]) оказывается на нужной физической грани.
+const FACE_PX=0, FACE_NX=1, FACE_PY=2, FACE_NY=3, FACE_PZ=4, FACE_NZ=5;
+
+// Перестановки для 6 направлений "переда". perm[phys] = индекс исходной грани.
+// Базовые грани: top=2(+Y) bottom=3(-Y) front=4(+Z) back=5(-Z) right=0(+X) left=1(-X)
+const ORIENT_PERM = {
+  // перед смотрит на +Z (по умолчанию) — без изменений
+  [FACE_PZ]: [0,1,2,3,4,5],
+  // перед смотрит на -Z: поворот на 180° вокруг Y -> меняем +X<->-X и +Z<->-Z
+  [FACE_NZ]: [1,0,2,3,5,4],
+  // перед на +X: поворот на -90° вокруг Y. front(+Z)->+X
+  [FACE_PX]: [4,5,2,3,1,0],
+  // перед на -X: поворот на +90° вокруг Y. front(+Z)->-X
+  [FACE_NX]: [5,4,2,3,0,1],
+  // перед вверх (+Y): наклон. front(+Z)->+Y, top(+Y)->-Z и т.д.
+  [FACE_PY]: [0,1,4,5,3,2],
+  // перед вниз (-Y)
+  [FACE_NY]: [0,1,5,4,2,3],
+};
+
+// Перестановки для брёвен: ось определяется значением front (FACE_PX=ось X, FACE_PY=ось Y, FACE_PZ=ось Z)
+const LOG_PERM = {
+  [FACE_PY]: [0,1,2,3,4,5],   // ось Y (вертикально) — по умолчанию
+  [FACE_PX]: [2,3,0,1,4,5],   // ось X — кольца на ±X
+  [FACE_PZ]: [0,1,4,5,2,3],   // ось Z — кольца на ±Z
+};
+
+// Повернуть произвольный массив материалов по ориентации front (универсальный куб)
+function orientedMaterialsFrom(base, front, isLog) {
+  if (front === undefined) return base;
+  const perm = isLog ? (LOG_PERM[front] || LOG_PERM[FACE_PY]) : ORIENT_PERM[front];
+  if (!perm) return base;
+  return [base[perm[0]], base[perm[1]], base[perm[2]], base[perm[3]], base[perm[4]], base[perm[5]]];
+}
+// Повёрнутый массив материалов для блока id и ориентации front
+function orientedMaterials(id, front) {
+  return orientedMaterialsFrom(MATERIALS[id], front, id === BLOCK.WOOD);
+}
+
+// Какие блоки ориентируемые и как.
+// 'log' — ориентируется по оси (вертикально/горизонтально), 'horizontal' — только 4 стороны,
+// 'full' — по любой из 6 граней.
+function orientKind(id) {
+  if (id === BLOCK.WOOD) return 'log';
+  if (id === BLOCK.FURNACE || id === BLOCK.CHEST || id === BLOCK.CRAFTING_TABLE) return 'horizontal';
+  // остальные полные блоки тоже ориентируем «как смотришь» для эффекта
+  return 'full';
+}
+
+// Вычислить ориентацию-перед при установке, исходя из направления взгляда игрока
+// и грани, на которую кликнули. dir — вектор взгляда (нормализован не обязательно).
+function computePlaceFront(id, lookDir) {
+  const kind = orientKind(id);
+  const ax = Math.abs(lookDir.x), ay = Math.abs(lookDir.y), az = Math.abs(lookDir.z);
+
+  if (kind === 'log') {
+    // бревно ориентируется вдоль оси взгляда (доминирующая ось)
+    if (ay >= ax && ay >= az) return FACE_PY;        // вертикально (ось Y)
+    if (ax >= az) return FACE_PX;                     // ось X
+    return FACE_PZ;                                   // ось Z
+  }
+
+  if (kind === 'horizontal') {
+    // только горизонтальный «перед» — к игроку (противоположно взгляду)
+    if (ax >= az) return lookDir.x > 0 ? FACE_NX : FACE_PX;
+    return lookDir.z > 0 ? FACE_NZ : FACE_PZ;
+  }
+
+  // full: перед направлен противоположно взгляду (грань «к игроку»)
+  if (ay >= ax && ay >= az) return lookDir.y > 0 ? FACE_NY : FACE_PY;
+  if (ax >= az) return lookDir.x > 0 ? FACE_NX : FACE_PX;
+  return lookDir.z > 0 ? FACE_NZ : FACE_PZ;
+}
+
 // поверхность воды в ячейке (0..1) с учётом уровня; полная если сверху вода
 function waterSurface(x, y, z) {
   const b = World.getBlock(x, y, z);
@@ -893,6 +1032,16 @@ function buildChunkMesh(c) {
         }
 
         const water = isLiquid(b);
+        // материалы с учётом ориентации блока
+        const front = World.facing.get(World.ekey(wx, y, wz));
+        let baseMats = MATERIALS[b];
+        // зажжённая печь — другой передний материал
+        if (b === BLOCK.FURNACE) {
+          const fu = World.furnaces.get(World.ekey(wx, y, wz));
+          if (fu && fu.burn > 0) baseMats = MATERIALS.FURNACE_LIT;
+        }
+        const blockMats = (front !== undefined && MATERIALS[b])
+          ? orientedMaterialsFrom(baseMats, front, b === BLOCK.WOOD) : baseMats;
 
         // высота поверхности воды (0..1) по уровню; если сверху вода — поверхность полная
         let waterTop = 1;
@@ -930,7 +1079,7 @@ function buildChunkMesh(c) {
             // между двумя блоками листвы грань не рисуем (избегаем двойных граней)
             if (b === BLOCK.LEAVES && nb === BLOCK.LEAVES) continue;
           }
-          const material = MATERIALS[b][f.mat];
+          const material = blockMats[f.mat];
           const mi = getMatIndex(material);
           let buf = byMat.get(mi);
           if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], water }; byMat.set(mi, buf); }
@@ -1103,6 +1252,7 @@ const WorldManager = {
     World.doorState.clear();
     World.furnaces.clear();
     World.chests.clear();
+    World.facing.clear();
     openFurnacePos = null;
     openChestPos = null;
     // очистить сущности
@@ -1113,6 +1263,10 @@ const WorldManager = {
     sandCheckQueue.length = 0; sandInQueue.clear();
     WaterSim.queue.length = 0; WaterSim.inQueue.clear();
     leafDecay.length = 0; leafDecaySet.clear();
+    // свиньи
+    for (const p of pigs) scene.remove(p.mesh);
+    pigs.length = 0;
+    pigSpawnTimer = 4;
     // инвентарь / крафт
     for (let i = 0; i < TOTAL_SLOTS; i++) slots[i] = null;
     for (let i = 0; i < craftSlots.length; i++) craftSlots[i] = null;
@@ -1160,6 +1314,7 @@ const WorldManager = {
       chests: Array.from(World.chests.entries()).map(([k, arr]) => ({
         k, items: arr.map(s => s ? { id: s.id, count: s.count } : null),
       })),
+      facing: Array.from(World.facing.entries()).map(([k, v]) => k + ':' + v),
     };
     try {
       localStorage.setItem(this.LS_PREFIX + this.current, JSON.stringify(data));
@@ -1205,6 +1360,11 @@ const WorldManager = {
       const items = ch.items || [];
       for (let i = 0; i < CHEST_SIZE; i++) arr[i] = items[i] ? { id: items[i].id, count: items[i].count } : null;
       World.chests.set(ch.k, arr);
+    }
+    // ориентации блоков
+    for (const s of (data.facing || [])) {
+      const i = s.lastIndexOf(':');
+      World.facing.set(s.slice(0, i), parseInt(s.slice(i + 1), 10));
     }
     // инвентарь (новый формат слотов; старые сейвы без slots -> пустой инвентарь)
     if (Array.isArray(data.slots)) {
@@ -1300,7 +1460,10 @@ window.addEventListener('wheel', (e) => {
 let leftHeld = false;
 canvas.addEventListener('mousedown', (e) => {
   if (!pointerLocked) return;
-  if (e.button === 0) leftHeld = true;          // удержание = непрерывное ломание
+  if (e.button === 0) {
+    // сначала пробуем ударить свинью; если попали — не ломаем блок
+    if (!tryAttackPig()) leftHeld = true;       // удержание = непрерывное ломание
+  }
   if (e.button === 2) placeBlock();
 });
 canvas.addEventListener('mouseup', (e) => {
@@ -2006,7 +2169,32 @@ function playSound(kind, block) {
   } else if (kind === 'sandfall') {
     // мягкий сыпучий звук падения песка
     noiseBurst(0.22, 2400, 0.22, 'highpass');
+  } else if (kind === 'oink') {
+    // хрюканье свиньи — короткий «носовой» звук
+    pigOink(false);
+  } else if (kind === 'oink_hurt') {
+    pigOink(true);
   }
+}
+
+// процедурное хрюканье
+function pigOink(hurt) {
+  if (!AudioEngine.ctx) return;
+  const ctx = AudioEngine.ctx;
+  const t0 = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  const base = hurt ? 360 : 220;
+  osc.frequency.setValueAtTime(base, t0);
+  osc.frequency.linearRampToValueAtTime(base * (hurt ? 1.5 : 0.7), t0 + 0.14);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(hurt ? 0.4 : 0.28, t0 + 0.03);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'bandpass'; filt.frequency.value = 700; filt.Q.value = 2;
+  osc.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
+  osc.start(t0); osc.stop(t0 + 0.2);
 }
 
 // --- Атмосферная музыка (медленные аккорды/арпеджио, спокойный мажор) ---
@@ -2323,6 +2511,287 @@ function updateLeafDecay(dt) {
 }
 
 // ============================================================
+//  Свиньи (мобы): модель, ИИ, анимации, звуки
+// ============================================================
+const pigs = [];
+const MAX_PIGS = 8;
+
+// текстура «кожи» свиньи (розовая с пятнышками)
+let PIG_MAT = null, PIG_SNOUT_MAT = null;
+function buildPigMaterials() {
+  const c = makeTex(ctx => {
+    noiseFill(ctx, 0xeaa0a8, 10);
+    ctx.fillStyle = '#d98a93';
+    for (let i=0;i<8;i++) ctx.fillRect((Math.random()*14)|0,(Math.random()*14)|0,2,2);
+  });
+  PIG_MAT = texToMaterial(c);
+  const s = makeTex(ctx => {
+    noiseFill(ctx, 0xd07f88, 8);
+    ctx.fillStyle = '#9c5a62'; ctx.fillRect(4,5,3,3); ctx.fillRect(9,5,3,3); // ноздри
+  });
+  PIG_SNOUT_MAT = texToMaterial(s);
+}
+
+function makePigMesh() {
+  const g = new THREE.Group();
+  const box = (w,h,d,mat) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat || PIG_MAT);
+    if (SHADOWS_ON) { m.castShadow = true; }
+    return m;
+  };
+  // тело (горизонтальное)
+  const body = box(0.9, 0.7, 1.3);
+  body.position.set(0, 0.65, 0);
+  g.add(body);
+  // голова
+  const head = new THREE.Group();
+  const skull = box(0.62, 0.6, 0.55);
+  head.add(skull);
+  const snout = box(0.34, 0.28, 0.18, PIG_SNOUT_MAT);
+  snout.position.set(0, -0.05, 0.36);
+  head.add(snout);
+  // глаза
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
+  const eL = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.08,0.02), eyeMat); eL.position.set(-0.18,0.1,0.28); head.add(eL);
+  const eR = eL.clone(); eR.position.x = 0.18; head.add(eR);
+  head.position.set(0, 0.78, 0.78);
+  g.add(head);
+  g.userData.head = head;
+  // ноги
+  const legs = [];
+  const legPos = [[-0.28,0,0.45],[0.28,0,0.45],[-0.28,0,-0.45],[0.28,0,-0.45]];
+  for (const [lx,,lz] of legPos) {
+    const leg = box(0.26, 0.55, 0.26);
+    leg.geometry.translate(0, -0.275, 0); // ось вращения сверху
+    leg.position.set(lx, 0.55, lz);
+    g.add(leg); legs.push(leg);
+  }
+  g.userData.legs = legs;
+  return g;
+}
+
+function spawnPig(x, y, z) {
+  if (!PIG_MAT) buildPigMaterials();
+  const mesh = makePigMesh();
+  mesh.position.set(x, y, z);
+  scene.add(mesh);
+  pigs.push({
+    mesh, pos: new THREE.Vector3(x, y, z), vel: new THREE.Vector3(0,0,0),
+    yaw: Math.random()*Math.PI*2, width: 0.9, height: 0.95,
+    onGround: false, state: 'idle', stateT: 1+Math.random()*2,
+    walkPhase: 0, hp: 10, hurtT: 0, oinkT: 3+Math.random()*6,
+    flee: 0,
+  });
+}
+
+// спавн свиней рядом с игроком на траве
+let pigSpawnTimer = 4;
+function trySpawnPigs(dt) {
+  pigSpawnTimer -= dt;
+  if (pigSpawnTimer > 0) return;
+  pigSpawnTimer = 6 + Math.random()*6;
+  if (pigs.length >= MAX_PIGS) return;
+  // пытаемся найти травяную клетку в кольце 12..24 блока вокруг игрока
+  for (let tries = 0; tries < 8; tries++) {
+    const ang = Math.random()*Math.PI*2;
+    const dist = 12 + Math.random()*12;
+    const px = Math.floor(PLAYER.pos.x + Math.cos(ang)*dist);
+    const pz = Math.floor(PLAYER.pos.z + Math.sin(ang)*dist);
+    // найти высоту поверхности
+    for (let y = WORLD_HEIGHT-2; y > 1; y--) {
+      const below = World.getBlock(px, y-1, pz);
+      const here = World.getBlock(px, y, pz);
+      const above = World.getBlock(px, y+1, pz);
+      if (below === BLOCK.GRASS && here === BLOCK.AIR && above === BLOCK.AIR) {
+        spawnPig(px + 0.5, y, pz + 0.5);
+        return;
+      }
+    }
+  }
+}
+
+// твёрдый ли блок для моба
+function mobSolid(x, y, z) {
+  const b = World.getBlock(x, y, z);
+  if (b === BLOCK.AIR || isLiquid(b)) return false;
+  if (isDoor(b) && isDoorOpen(x, y, z)) return false;
+  return true;
+}
+
+// коллизия AABB для свиньи по одной оси
+function pigCollide(p, axis, amount) {
+  const hw = p.width/2, h = p.height;
+  p.pos[axis] += amount;
+  const minX = Math.floor(p.pos.x - hw), maxX = Math.floor(p.pos.x + hw);
+  const minY = Math.floor(p.pos.y), maxY = Math.floor(p.pos.y + h);
+  const minZ = Math.floor(p.pos.z - hw), maxZ = Math.floor(p.pos.z + hw);
+  for (let x=minX;x<=maxX;x++) for (let y=minY;y<=maxY;y++) for (let z=minZ;z<=maxZ;z++) {
+    if (!mobSolid(x,y,z)) continue;
+    if (axis==='x'){ p.pos.x = amount>0 ? x-hw-1e-3 : x+1+hw+1e-3; p.vel.x=0; }
+    else if (axis==='y'){ if(amount>0){p.pos.y=y-h-1e-3;p.vel.y=0;} else {p.pos.y=y+1+1e-3;p.vel.y=0;p.onGround=true;} }
+    else { p.pos.z = amount>0 ? z-hw-1e-3 : z+1+hw+1e-3; p.vel.z=0; }
+    return true;
+  }
+  return false;
+}
+
+function updatePigs(dt) {
+  trySpawnPigs(dt);
+  const pcx = Math.floor(PLAYER.pos.x / CHUNK_SIZE);
+  const pcz = Math.floor(PLAYER.pos.z / CHUNK_SIZE);
+
+  for (let i = pigs.length - 1; i >= 0; i--) {
+    const p = pigs[i];
+
+    // выгрузка слишком далёких свиней
+    const dcx = Math.floor(p.pos.x / CHUNK_SIZE) - pcx;
+    const dcz = Math.floor(p.pos.z / CHUNK_SIZE) - pcz;
+    if (Math.abs(dcx) > RENDER_DISTANCE + 2 || Math.abs(dcz) > RENDER_DISTANCE + 2) {
+      scene.remove(p.mesh); pigs.splice(i, 1); continue;
+    }
+
+    // --- ИИ ---
+    p.hurtT = Math.max(0, p.hurtT - dt);
+    p.oinkT -= dt;
+    if (p.oinkT <= 0) { p.oinkT = 6 + Math.random()*10; if (dist2ToPlayer(p) < 24*24) playSound('oink'); }
+
+    let moving = false;
+    if (p.flee > 0) {
+      // убегает от игрока
+      p.flee -= dt;
+      const ax = p.pos.x - PLAYER.pos.x, az = p.pos.z - PLAYER.pos.z;
+      p.yaw = Math.atan2(ax, az);
+      moving = true;
+    } else {
+      p.stateT -= dt;
+      if (p.stateT <= 0) {
+        // случайно меняем состояние
+        if (Math.random() < 0.5) { p.state = 'walk'; p.yaw = Math.random()*Math.PI*2; p.stateT = 2+Math.random()*4; }
+        else { p.state = 'idle'; p.stateT = 1.5+Math.random()*3; }
+      }
+      moving = (p.state === 'walk');
+    }
+
+    // движение в направлении yaw
+    const speed = p.flee > 0 ? 3.2 : 1.5;
+    if (moving) {
+      const dirx = Math.sin(p.yaw), dirz = Math.cos(p.yaw);
+      p.vel.x = dirx * speed;
+      p.vel.z = dirz * speed;
+      // авто-прыжок через 1 блок (если впереди стенка, а над ней свободно)
+      const fx = Math.floor(p.pos.x + dirx*0.6), fz = Math.floor(p.pos.z + dirz*0.6);
+      const fy = Math.floor(p.pos.y);
+      if (p.onGround && mobSolid(fx, fy, fz) && !mobSolid(fx, fy+1, fz)) {
+        p.vel.y = 7;
+        p.onGround = false;
+      }
+    } else { p.vel.x = 0; p.vel.z = 0; }
+
+    // гравитация
+    p.vel.y -= GRAVITY * dt;
+    if (p.vel.y < -55) p.vel.y = -55;
+    // плавание (выталкивание из воды)
+    const inWater = isLiquid(World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y+0.3), Math.floor(p.pos.z)));
+    if (inWater) { p.vel.y += GRAVITY*0.5*dt + 2.5*dt; if (p.vel.y < -2) p.vel.y = -2; }
+
+    p.onGround = false;
+    pigCollide(p, 'y', p.vel.y * dt);
+    pigCollide(p, 'x', p.vel.x * dt);
+    pigCollide(p, 'z', p.vel.z * dt);
+
+    // если уперлась в стенку при ходьбе — сменить направление
+    if (moving && Math.abs(p.vel.x) < 0.01 && Math.abs(p.vel.z) < 0.01 && p.onGround && p.flee <= 0) {
+      p.yaw = Math.random()*Math.PI*2; p.stateT = Math.min(p.stateT, 0.4);
+    }
+
+    // провалилась в пустоту мира
+    if (p.pos.y < -8) { scene.remove(p.mesh); pigs.splice(i, 1); continue; }
+
+    // --- Анимация ---
+    p.mesh.position.copy(p.pos);
+    // плавный поворот к yaw
+    let dy = p.yaw - p.mesh.rotation.y;
+    while (dy > Math.PI) dy -= Math.PI*2; while (dy < -Math.PI) dy += Math.PI*2;
+    p.mesh.rotation.y += dy * Math.min(1, dt*10);
+
+    if (moving) {
+      p.walkPhase += dt * (p.flee>0?14:8);
+      const sw = Math.sin(p.walkPhase) * 0.6;
+      const legs = p.mesh.userData.legs;
+      if (legs) { legs[0].rotation.x = sw; legs[1].rotation.x = -sw; legs[2].rotation.x = -sw; legs[3].rotation.x = sw; }
+    } else {
+      const legs = p.mesh.userData.legs;
+      if (legs) for (const l of legs) l.rotation.x *= (1 - Math.min(1, dt*8));
+    }
+    // голова чуть качается / краснеет при уроне
+    const head = p.mesh.userData.head;
+    if (head) head.rotation.x = Math.sin(p.walkPhase*0.5) * 0.05;
+    // эффект урона — подёргивание
+    p.mesh.scale.setScalar(p.hurtT > 0 ? 1.0 + Math.sin(p.hurtT*40)*0.06 : 1.0);
+  }
+}
+
+function dist2ToPlayer(p) {
+  const dx = p.pos.x - PLAYER.pos.x, dy = p.pos.y - PLAYER.pos.y, dz = p.pos.z - PLAYER.pos.z;
+  return dx*dx + dy*dy + dz*dz;
+}
+
+// атака по свинье из прицела (вызывается при ЛКМ)
+function tryAttackPig() {
+  // луч из камеры
+  const origin = new THREE.Vector3(PLAYER.pos.x, PLAYER.pos.y + (PLAYER.crouching?PLAYER.crouchEye:PLAYER.eye), PLAYER.pos.z);
+  const dir = new THREE.Vector3(
+    -Math.sin(PLAYER.yaw)*Math.cos(PLAYER.pitch),
+    Math.sin(PLAYER.pitch),
+    -Math.cos(PLAYER.yaw)*Math.cos(PLAYER.pitch)
+  ).normalize();
+  let best = null, bestT = 4.0; // досягаемость атаки
+  for (const p of pigs) {
+    // AABB свиньи
+    const hw = p.width/2;
+    const bmin = new THREE.Vector3(p.pos.x-hw, p.pos.y, p.pos.z-hw);
+    const bmax = new THREE.Vector3(p.pos.x+hw, p.pos.y+p.height, p.pos.z+hw);
+    const tHit = rayAABB(origin, dir, bmin, bmax);
+    if (tHit !== null && tHit < bestT) { bestT = tHit; best = p; }
+  }
+  if (best) { hurtPig(best); return true; }
+  return false;
+}
+
+function rayAABB(o, d, mn, mx) {
+  let tmin = -Infinity, tmax = Infinity;
+  for (const ax of ['x','y','z']) {
+    if (Math.abs(d[ax]) < 1e-8) {
+      if (o[ax] < mn[ax] || o[ax] > mx[ax]) return null;
+    } else {
+      let t1 = (mn[ax]-o[ax])/d[ax], t2 = (mx[ax]-o[ax])/d[ax];
+      if (t1 > t2) { const tmp=t1;t1=t2;t2=tmp; }
+      tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+      if (tmin > tmax) return null;
+    }
+  }
+  return tmin >= 0 ? tmin : (tmax >= 0 ? 0 : null);
+}
+
+function hurtPig(p) {
+  p.hp -= 4;
+  p.hurtT = 0.3;
+  p.flee = 3 + Math.random()*2;
+  playSound('oink_hurt');
+  // отбрасывание
+  const ax = p.pos.x - PLAYER.pos.x, az = p.pos.z - PLAYER.pos.z;
+  const len = Math.hypot(ax, az) || 1;
+  p.vel.x += (ax/len) * 4; p.vel.z += (az/len) * 4; p.vel.y = 4;
+  if (p.hp <= 0) {
+    // смерть: пока ничего не выпадает
+    const idx = pigs.indexOf(p);
+    scene.remove(p.mesh);
+    if (idx >= 0) pigs.splice(idx, 1);
+    playSound('oink_hurt');
+  }
+}
+
+// ============================================================
 //  Ломать / ставить
 // ============================================================
 function finishBreak(t) {
@@ -2469,6 +2938,19 @@ function placeBlock() {
   refreshUI();
 
   World.setBlock(nx, ny, nz, placeId);
+  // ориентация по направлению взгляда игрока
+  const look = new THREE.Vector3(
+    -Math.sin(PLAYER.yaw) * Math.cos(PLAYER.pitch),
+    Math.sin(PLAYER.pitch),
+    -Math.cos(PLAYER.yaw) * Math.cos(PLAYER.pitch)
+  );
+  const front = computePlaceFront(placeId, look);
+  const isLogBlock = (placeId === BLOCK.WOOD);
+  // для брёвен «по умолчанию» (без записи) — вертикаль; поэтому пишем запись для X/Z осей
+  const defaultFront = isLogBlock ? FACE_PY : FACE_PZ;
+  if (front !== defaultFront) World.facing.set(World.ekey(nx, ny, nz), front);
+  else World.facing.delete(World.ekey(nx, ny, nz));
+
   rebuildAround(nx, nz);
   playSound('place', placeId);
   WaterSim.touchAround(nx, ny, nz); // вытеснение/перетекание воды
@@ -2524,6 +3006,7 @@ function openFurnace(x, y, z) {
 // прогресс плавки во всех активных печах
 function updateFurnaces(dt) {
   for (const [k, f] of World.furnaces) {
+    const wasLit = f.burn > 0;
     const canSmelt = f.input && isSmeltable(f.input.id) &&
       (!f.output || (f.output.id === SMELT[f.input.id].id && f.output.count < MAX_STACK));
     // зажечь топливо при необходимости
@@ -2549,6 +3032,12 @@ function updateFurnaces(dt) {
       }
     } else {
       f.cook = 0;
+    }
+    // если изменилось состояние «горит/потухла» — перестроить чанк (для текстуры топки)
+    const nowLit = f.burn > 0;
+    if (nowLit !== wasLit) {
+      const [fx, , fz] = k.split(',').map(Number);
+      rebuildAround(fx, fz);
     }
     // обновить UI, если эта печь открыта
     if (openFurnacePos && World.ekey(openFurnacePos.x, openFurnacePos.y, openFurnacePos.z) === k && invOpen) {
@@ -2972,6 +3461,7 @@ function loop(now) {
   updateFallingSand(dt);
   updateLeafDecay(dt);
   updateFurnaces(dt);
+  if (!invOpen && overlay.classList.contains('hidden')) updatePigs(dt);
   updateChunks();
 
   // солнце следует за игроком (чтобы тени были вокруг него)
