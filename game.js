@@ -15,6 +15,10 @@ const BLOCK = {
   WATER:      5, // источник (бесконечный)
   WATER_FLOW: 6, // течение (имеет уровень 1..7, может убывать/исчезать)
   SAND:       7, // песок (падает под действием гравитации)
+  WOOD:       8, // ствол дуба
+  LEAVES:     9, // листва (ничего не выпадает, затухает без ствола)
+  PLANKS:     10, // доски
+  CRAFTING_TABLE: 11, // верстак (3x3 крафт)
 };
 
 const BLOCK_NAMES = {
@@ -25,13 +29,20 @@ const BLOCK_NAMES = {
   [BLOCK.WATER]:   'Вода',
   [BLOCK.WATER_FLOW]: 'Вода',
   [BLOCK.SAND]:    'Песок',
+  [BLOCK.WOOD]:    'Дерево',
+  [BLOCK.LEAVES]:  'Листва',
+  [BLOCK.PLANKS]:  'Доски',
+  [BLOCK.CRAFTING_TABLE]: 'Верстак',
 };
+
+const MAX_STACK = 64; // максимум в стопке
 
 // Гравитационные блоки (падают, если под ними нет опоры)
 function isFalling(b) { return b === BLOCK.SAND; }
 
-// Прозрачные блоки (через них видно грани соседей)
-function isTransparent(b) { return b === BLOCK.AIR || b === BLOCK.WATER || b === BLOCK.WATER_FLOW; }
+// Прозрачные блоки (через них видно грани соседей).
+// Листва тоже прозрачна, чтобы внутренние грани были видны (как в майнкрафте fancy).
+function isTransparent(b) { return b === BLOCK.AIR || b === BLOCK.WATER || b === BLOCK.WATER_FLOW || b === BLOCK.LEAVES; }
 // Жидкости (не твёрдые для коллизий)
 function isLiquid(b) { return b === BLOCK.WATER || b === BLOCK.WATER_FLOW; }
 // Максимальный уровень воды (источник). Течение: 7..1, чем дальше — тем меньше
@@ -40,7 +51,8 @@ const WATER_MAX = 8;
 const SEA_LEVEL = 22;
 
 // Какие блоки игрок может держать/ставить (бедрок не ставится обычно, но дадим)
-const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND];
+const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND,
+                   BLOCK.WOOD, BLOCK.LEAVES, BLOCK.PLANKS, BLOCK.CRAFTING_TABLE];
 
 // Время ломания (в секундах, без инструментов) — как в современном майне
 const BREAK_TIME = {
@@ -48,6 +60,10 @@ const BREAK_TIME = {
   [BLOCK.DIRT]:    0.75,
   [BLOCK.STONE]:   1.9,
   [BLOCK.SAND]:    0.5,  // песок ломается быстро
+  [BLOCK.WOOD]:    1.5,
+  [BLOCK.LEAVES]:  0.3,
+  [BLOCK.PLANKS]:  1.2,
+  [BLOCK.CRAFTING_TABLE]: 1.2,
   [BLOCK.BEDROCK]: Infinity, // неразрушим
   [BLOCK.WATER]:   Infinity, // воду нельзя сломать
   [BLOCK.WATER_FLOW]: Infinity,
@@ -56,7 +72,7 @@ const BREAK_TIME = {
 // Размеры чанка
 const CHUNK_SIZE = 16;
 const WORLD_HEIGHT = 64;
-const RENDER_DISTANCE = 4; // в чанках
+let RENDER_DISTANCE = parseInt(localStorage.getItem('minicraft_render_dist') || '4', 10); // в чанках, настраивается
 
 // ============================================================
 //  Текстуры (генерируются на canvas, без внешних ассетов)
@@ -106,6 +122,51 @@ function buildTextures() {
   TEX.bedrock = makeTex(ctx => noiseFill(ctx, 0x4a4a4a, 40));
   TEX.water   = makeTex(ctx => noiseFill(ctx, 0x3a6ea5, 18));
   TEX.sand    = makeTex(ctx => noiseFill(ctx, 0xd9cd9a, 16));
+
+  // дерево: бок — кора с вертикальными полосами
+  TEX.wood_side = makeTex(ctx => {
+    noiseFill(ctx, 0x6b4f2a, 18);
+    for (let x = 0; x < 16; x += 3 + (Math.random()*2|0)) {
+      ctx.fillStyle = shade(0x6b4f2a, -22);
+      for (let y = 0; y < 16; y++) ctx.fillRect(x, y, 1, 1);
+    }
+  });
+  // дерево: торец — годовые кольца
+  TEX.wood_top = makeTex(ctx => {
+    noiseFill(ctx, 0x9c7842, 14);
+    ctx.strokeStyle = shade(0x6b4f2a, -10);
+    ctx.lineWidth = 1;
+    for (let r = 2; r < 8; r += 2) { ctx.beginPath(); ctx.arc(8, 8, r, 0, Math.PI*2); ctx.stroke(); }
+  });
+  // листва — зелёная с прозрачными «дырками» (рисуем шум, прозрачность даст материал)
+  TEX.leaves = makeTex(ctx => {
+    ctx.clearRect(0,0,16,16);
+    for (let y=0;y<16;y++) for (let x=0;x<16;x++) {
+      if (Math.random() < 0.12) continue; // дырки
+      ctx.fillStyle = shade(0x3f8b2e, (Math.random()-0.5)*36);
+      ctx.fillRect(x,y,1,1);
+    }
+  });
+  // доски — горизонтальные планки
+  TEX.planks = makeTex(ctx => {
+    noiseFill(ctx, 0xb98e4d, 14);
+    ctx.fillStyle = shade(0xb98e4d, -30);
+    for (let y = 0; y < 16; y += 4) for (let x=0;x<16;x++) ctx.fillRect(x, y, 1, 1);
+    for (let y=0;y<16;y++){ ctx.fillRect(7, y, 1, 1); } // вертикальный стык
+  });
+  // верстак: верх — сетка инструментов, бок — доски с полосой
+  TEX.craft_top = makeTex(ctx => {
+    noiseFill(ctx, 0xb98e4d, 12);
+    ctx.fillStyle = '#5b4423';
+    ctx.fillRect(1,1,6,6); ctx.fillRect(9,1,6,6); ctx.fillRect(1,9,6,6); ctx.fillRect(9,9,6,6);
+    ctx.fillStyle = '#7a5c2f'; ctx.fillRect(2,2,4,4); ctx.fillRect(10,2,4,4);
+  });
+  TEX.craft_side = makeTex(ctx => {
+    noiseFill(ctx, 0xb98e4d, 12);
+    ctx.fillStyle = '#5b4423';
+    ctx.fillRect(0,5,16,2); ctx.fillRect(0,9,16,1);
+    for (let y=0;y<16;y++){ ctx.fillRect(3,y,1,1); ctx.fillRect(11,y,1,1); }
+  });
 }
 
 buildTextures();
@@ -175,6 +236,17 @@ function buildMaterials() {
   const mBedrock   = texToMaterial(TEX.bedrock);
   const mWater     = waterMaterial(TEX.water);
   const mSand      = texToMaterial(TEX.sand);
+  const mWoodSide  = texToMaterial(TEX.wood_side);
+  const mWoodTop   = texToMaterial(TEX.wood_top);
+  const mPlanks    = texToMaterial(TEX.planks);
+  const mCraftTop  = texToMaterial(TEX.craft_top);
+  const mCraftSide = texToMaterial(TEX.craft_side);
+  // листва: прозрачные «дырки», видна с обеих сторон
+  const mLeaves = (() => {
+    const t = new THREE.CanvasTexture(TEX.leaves);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide });
+  })();
 
   MATERIALS[BLOCK.GRASS]   = [mGrassSide, mGrassSide, mGrassTop, mDirt, mGrassSide, mGrassSide];
   MATERIALS[BLOCK.DIRT]    = [mDirt, mDirt, mDirt, mDirt, mDirt, mDirt];
@@ -183,6 +255,10 @@ function buildMaterials() {
   MATERIALS[BLOCK.WATER]      = [mWater, mWater, mWater, mWater, mWater, mWater];
   MATERIALS[BLOCK.WATER_FLOW] = [mWater, mWater, mWater, mWater, mWater, mWater];
   MATERIALS[BLOCK.SAND]    = [mSand, mSand, mSand, mSand, mSand, mSand];
+  MATERIALS[BLOCK.WOOD]    = [mWoodSide, mWoodSide, mWoodTop, mWoodTop, mWoodSide, mWoodSide];
+  MATERIALS[BLOCK.LEAVES]  = [mLeaves, mLeaves, mLeaves, mLeaves, mLeaves, mLeaves];
+  MATERIALS[BLOCK.PLANKS]  = [mPlanks, mPlanks, mPlanks, mPlanks, mPlanks, mPlanks];
+  MATERIALS[BLOCK.CRAFTING_TABLE] = [mCraftSide, mCraftSide, mCraftTop, mPlanks, mCraftSide, mCraftSide];
 }
 buildMaterials();
 
@@ -246,6 +322,23 @@ function terrainHeight(wx, wz) {
   return Math.floor(12 + h * 26); // диапазон ~12..38
 }
 
+// отдельный хеш для решений о деревьях (не зависит от рельефного шума)
+function treeHash(wx, wz) {
+  let h = (wx | 0) * 1597334677 + (wz | 0) * 3812015801 + Math.imul(WORLD_SEED, 22695477);
+  h = Math.imul(h ^ (h >>> 15), 2246822519);
+  h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+
+// растёт ли дерево в этой колонке (на суше, выше уровня моря, разрежено)
+function treeAt(wx, wz) {
+  const h = terrainHeight(wx, wz);
+  if (h <= SEA_LEVEL + 1) return 0;     // не на пляже/воде
+  if (treeHash(wx, wz) > 0.018) return 0; // ~1.8% колонок
+  // высота ствола 4..6
+  return 4 + Math.floor(treeHash(wx + 99, wz - 99) * 3);
+}
+
 // ============================================================
 //  Хранилище мира (чанки)
 // ============================================================
@@ -297,6 +390,40 @@ const World = {
         }
       }
     }
+
+    // ---- Деревья ----
+    // Проверяем колонки в расширенной области (±2), чтобы кроны на границе чанков попадали внутрь.
+    const x0c = cx * CHUNK_SIZE, z0c = cz * CHUNK_SIZE;
+    const setLocal = (wx, wy, wz, id, overwrite) => {
+      const llx = wx - x0c, llz = wz - z0c;
+      if (llx < 0 || llx >= CHUNK_SIZE || llz < 0 || llz >= CHUNK_SIZE) return;
+      if (wy < 0 || wy >= WORLD_HEIGHT) return;
+      const cur = blocks[idx(llx, wy, llz)];
+      // листву ставим только в воздух; ствол перекрывает листву
+      if (!overwrite && cur !== BLOCK.AIR && cur !== BLOCK.LEAVES) return;
+      blocks[idx(llx, wy, llz)] = id;
+    };
+    for (let ox = -2; ox < CHUNK_SIZE + 2; ox++) {
+      for (let oz = -2; oz < CHUNK_SIZE + 2; oz++) {
+        const wx = x0c + ox, wz = z0c + oz;
+        const trunkH = treeAt(wx, wz);
+        if (!trunkH) continue;
+        const baseY = terrainHeight(wx, wz); // верхний блок земли = baseY-1, ствол с baseY
+        const topY = baseY + trunkH - 1;
+        // крона: шар листвы вокруг верхушки
+        for (let ly = topY - 2; ly <= topY + 1; ly++) {
+          const rad = (ly >= topY) ? 1 : 2; // верх уже
+          for (let dx = -rad; dx <= rad; dx++)
+            for (let dz = -rad; dz <= rad; dz++) {
+              if (Math.abs(dx) === rad && Math.abs(dz) === rad && rad === 2 && treeHash(wx+dx, wz+dz) < 0.5) continue; // скруглить углы
+              setLocal(wx + dx, ly, wz + dz, BLOCK.LEAVES, false);
+            }
+        }
+        // ствол
+        for (let i = 0; i < trunkH; i++) setLocal(wx, baseY + i, wz, BLOCK.WOOD, true);
+      }
+    }
+
     return { blocks, mesh: null, dirty: true, cx, cz };
   },
 
@@ -628,8 +755,10 @@ function buildChunkMesh(c) {
               }
             }
           } else {
-            // твёрдый блок: грань видна, если сосед прозрачный (воздух или вода)
+            // твёрдый блок: грань видна, если сосед прозрачный (воздух/вода/листва)
             if (!isTransparent(nb)) continue;
+            // между двумя блоками листвы грань не рисуем (избегаем двойных граней)
+            if (b === BLOCK.LEAVES && nb === BLOCK.LEAVES) continue;
           }
           const material = MATERIALS[b][f.mat];
           const mi = getMatIndex(material);
@@ -779,9 +908,11 @@ const WorldManager = {
     fallingSand.length = 0;
     sandCheckQueue.length = 0; sandInQueue.clear();
     WaterSim.queue.length = 0; WaterSim.inQueue.clear();
-    // инвентарь / хотбар
-    for (const k in inventory) delete inventory[k];
-    for (let i = 0; i < hotbar.length; i++) hotbar[i] = null;
+    leafDecay.length = 0; leafDecaySet.clear();
+    // инвентарь / крафт
+    for (let i = 0; i < TOTAL_SLOTS; i++) slots[i] = null;
+    for (let i = 0; i < craftSlots.length; i++) craftSlots[i] = null;
+    cursorItem = null; craftResult = null;
     activeSlot = 0;
     PLAYER.vel.set(0, 0, 0);
     PLAYER.oxygen = PLAYER.maxOxygen;
@@ -814,8 +945,7 @@ const WorldManager = {
         yaw: PLAYER.yaw, pitch: PLAYER.pitch,
         oxygen: PLAYER.oxygen,
       },
-      inventory: { ...inventory },
-      hotbar: hotbar.map(s => s ? { id: s.id, count: s.count } : null),
+      slots: slots.map(s => s ? { id: s.id, count: s.count } : null),
       activeSlot,
       // правки блоков: "x,y,z:id"  (только постоянные изменения игрока)
       edits: Array.from(World.edits.entries()).map(([k, v]) => k + ':' + v),
@@ -849,11 +979,10 @@ const WorldManager = {
       const k = s.slice(0, i), v = parseInt(s.slice(i + 1), 10);
       World.edits.set(k, v);
     }
-    // инвентарь
-    Object.assign(inventory, data.inventory || {});
-    if (Array.isArray(data.hotbar)) {
-      for (let i = 0; i < hotbar.length; i++) {
-        hotbar[i] = data.hotbar[i] ? { id: data.hotbar[i].id, count: data.hotbar[i].count } : null;
+    // инвентарь (новый формат слотов; старые сейвы без slots -> пустой инвентарь)
+    if (Array.isArray(data.slots)) {
+      for (let i = 0; i < TOTAL_SLOTS; i++) {
+        slots[i] = data.slots[i] ? { id: data.slots[i].id, count: data.slots[i].count } : null;
       }
     }
     activeSlot = data.activeSlot || 0;
@@ -919,7 +1048,11 @@ document.addEventListener('mousemove', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  // игнорировать игровые клавиши, когда печатаем в поле ввода или мир ещё не запущен
+  const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
+  if (typing) return;
   keys[e.code] = true;
+  if (!gameStarted) return;
   if (e.code === 'KeyE') { toggleInventory(); }
   if (e.code.startsWith('Digit')) {
     const n = parseInt(e.code.slice(5), 10);
@@ -1000,60 +1133,77 @@ function updateMining(dt) {
 }
 
 // ============================================================
-//  Инвентарь и хотбар
+//  Инвентарь по слотам (как в Minecraft) + крафт
 // ============================================================
-const HOTBAR_SIZE = 5;
+const HOTBAR_SIZE = 9;
+const INV_ROWS = 3, INV_COLS = 9;       // основное хранилище 27
+const TOTAL_SLOTS = HOTBAR_SIZE + INV_ROWS * INV_COLS; // 36
 let activeSlot = 0;
 let invOpen = false;
+let craftMode = '2x2';                   // '2x2' (инвентарь) или '3x3' (верстак)
 
-// hotbar: массив {id, count} или null — изначально пустой
-const hotbar = [null, null, null, null, null];
+// Слоты: 0..8 — хотбар, 9..35 — хранилище. Каждый: {id, count} или null
+const slots = new Array(TOTAL_SLOTS).fill(null);
+// Слоты крафта (до 9) и результат
+const craftSlots = new Array(9).fill(null);
+let craftResult = null;
+// Предмет «на курсоре» (взятый мышью)
+let cursorItem = null;
 
-// Полный инвентарь (стопки)
-const inventory = {}; // id -> count
+function maxStack(id) { return MAX_STACK; }
 
+// ---- Базовые операции со стопками ----
 function addToInventory(id, n = 1) {
-  inventory[id] = (inventory[id] || 0) + n;
-  // если этот блок уже есть в хотбаре — обновить счётчик
-  let inHotbar = false;
-  for (const s of hotbar) {
-    if (s && s.id === id) { s.count = inventory[id]; inHotbar = true; }
-  }
-  // иначе — положить в первый свободный слот хотбара (как в майнкрафте)
-  if (!inHotbar) {
-    for (let i = 0; i < HOTBAR_SIZE; i++) {
-      if (!hotbar[i]) { hotbar[i] = { id, count: inventory[id] }; break; }
+  // сначала докинуть в существующие стопки
+  for (let i = 0; i < TOTAL_SLOTS && n > 0; i++) {
+    const s = slots[i];
+    if (s && s.id === id && s.count < maxStack(id)) {
+      const can = Math.min(n, maxStack(id) - s.count);
+      s.count += can; n -= can;
     }
   }
-  renderHotbar();
-  if (invOpen) renderInventory();
+  // затем в пустые слоты (приоритет хотбару)
+  for (let i = 0; i < TOTAL_SLOTS && n > 0; i++) {
+    if (!slots[i]) {
+      const can = Math.min(n, maxStack(id));
+      slots[i] = { id, count: can }; n -= can;
+    }
+  }
+  refreshUI();
+  return n === 0; // false если не всё влезло
 }
 
+function countItem(id) {
+  let c = 0;
+  for (const s of slots) if (s && s.id === id) c += s.count;
+  return c;
+}
+
+// убрать n штук id из инвентаря (для постановки блока)
 function removeFromInventory(id, n = 1) {
-  if (!inventory[id] || inventory[id] < n) return false;
-  inventory[id] -= n;
-  for (let i = 0; i < HOTBAR_SIZE; i++) {
-    const s = hotbar[i];
+  if (countItem(id) < n) return false;
+  for (let i = 0; i < TOTAL_SLOTS && n > 0; i++) {
+    const s = slots[i];
     if (s && s.id === id) {
-      s.count = inventory[id];
-      if (s.count <= 0) hotbar[i] = null; // пустой слот очищается
+      const take = Math.min(n, s.count);
+      s.count -= take; n -= take;
+      if (s.count <= 0) slots[i] = null;
     }
   }
-  renderHotbar();
-  if (invOpen) renderInventory();
+  refreshUI();
   return true;
 }
 
-function selectSlot(i) {
-  activeSlot = i;
-  renderHotbar();
-}
+function selectSlot(i) { activeSlot = i; renderHotbar(); }
 
+// активный предмет хотбара (для постановки блоков)
+function activeItem() { return slots[activeSlot]; }
+
+// ---- Иконки блоков ----
 function iconCanvas(id, size) {
   const c = document.createElement('canvas');
   c.width = size; c.height = size;
   const ctx = c.getContext('2d');
-  // выбрать текстуру
   let tex = TEX.stone;
   if (id === BLOCK.GRASS) tex = TEX.grass_side;
   else if (id === BLOCK.DIRT) tex = TEX.dirt;
@@ -1061,24 +1211,30 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.BEDROCK) tex = TEX.bedrock;
   else if (id === BLOCK.WATER) tex = TEX.water;
   else if (id === BLOCK.SAND) tex = TEX.sand;
+  else if (id === BLOCK.WOOD) tex = TEX.wood_side;
+  else if (id === BLOCK.LEAVES) tex = TEX.leaves;
+  else if (id === BLOCK.PLANKS) tex = TEX.planks;
+  else if (id === BLOCK.CRAFTING_TABLE) tex = TEX.craft_top;
   ctx.imageSmoothingEnabled = false;
+  // фон для листвы (она прозрачная)
+  if (id === BLOCK.LEAVES) { ctx.fillStyle = '#2f6e22'; ctx.fillRect(0,0,size,size); }
   ctx.drawImage(tex, 0, 0, size, size);
   return c;
 }
 
+// ---- Хотбар (нижняя панель) ----
 const hotbarEl = document.getElementById('hotbar');
 function renderHotbar() {
   hotbarEl.innerHTML = '';
   for (let i = 0; i < HOTBAR_SIZE; i++) {
     const slot = document.createElement('div');
     slot.className = 'slot' + (i === activeSlot ? ' active' : '');
-    const item = hotbar[i];
+    const item = slots[i];
     if (item) {
       slot.appendChild(iconCanvas(item.id, 40));
-      if (item.count > 0) {
+      if (item.count > 1) {
         const cnt = document.createElement('div');
-        cnt.className = 'count';
-        cnt.textContent = item.count;
+        cnt.className = 'count'; cnt.textContent = item.count;
         slot.appendChild(cnt);
       }
     }
@@ -1087,47 +1243,252 @@ function renderHotbar() {
   }
 }
 
-const invGrid = document.getElementById('invGrid');
-function renderInventory() {
-  invGrid.innerHTML = '';
-  // показываем только реально имеющиеся блоки (count > 0)
-  const owned = PLACEABLE.filter(id => (inventory[id] || 0) > 0);
-  if (owned.length === 0) {
-    const empty = document.createElement('div');
-    empty.style.cssText = 'grid-column:1/-1;color:#444;font-size:12px;text-align:center;padding:8px;';
-    empty.textContent = 'Пусто — добывайте блоки!';
-    invGrid.appendChild(empty);
-    return;
-  }
-  for (const id of owned) {
-    const count = inventory[id] || 0;
-    const el = document.createElement('div');
-    el.className = 'inv-item';
-    el.appendChild(iconCanvas(id, 38));
-    const cnt = document.createElement('div');
-    cnt.className = 'count';
-    cnt.textContent = count > 0 ? count : '';
-    el.appendChild(cnt);
-    const nm = document.createElement('div');
-    nm.className = 'nm';
-    nm.textContent = BLOCK_NAMES[id];
-    el.appendChild(nm);
-    // клик: поместить в активный слот хотбара
-    el.addEventListener('click', () => {
-      hotbar[activeSlot] = { id, count };
-      renderHotbar();
-    });
-    invGrid.appendChild(el);
-  }
+// ============================================================
+//  Рецепты крафта
+// ============================================================
+// Каждый рецепт: { shapeless?, pattern (для формовых), result:{id,count} }
+// Для простоты: формовые задаются как массив строк с символами,
+// бесформенные — как набор {id:count}.
+const RECIPES = [
+  // 1 дерево -> 4 доски (бесформенно)
+  { shapeless: true, ingredients: { [BLOCK.WOOD]: 1 }, result: { id: BLOCK.PLANKS, count: 4 } },
+  // 4 доски в 2x2 -> верстак
+  { shaped: true, w: 2, h: 2,
+    cells: [BLOCK.PLANKS, BLOCK.PLANKS, BLOCK.PLANKS, BLOCK.PLANKS],
+    result: { id: BLOCK.CRAFTING_TABLE, count: 1 } },
+];
+
+// нормализовать содержимое сетки крафта к компактной матрице (обрезать пустые края)
+function craftMatrix(size) {
+  const n = size; // 2 или 3
+  const grid = [];
+  for (let r = 0; r < n; r++) { grid.push([]); for (let cc = 0; cc < n; cc++) grid[r].push(craftSlots[r*n+cc]); }
+  // границы непустых
+  let minR=n, maxR=-1, minC=n, maxC=-1;
+  for (let r=0;r<n;r++) for (let cc=0;cc<n;cc++) if (grid[r][cc]) { minR=Math.min(minR,r);maxR=Math.max(maxR,r);minC=Math.min(minC,cc);maxC=Math.max(maxC,cc); }
+  if (maxR<0) return null;
+  const m=[];
+  for (let r=minR;r<=maxR;r++){const row=[];for (let cc=minC;cc<=maxC;cc++)row.push(grid[r][cc]?grid[r][cc].id:0);m.push(row);}
+  return m;
 }
 
-function toggleInventory() {
+function craftTotals(size) {
+  const n = size; const tot = {};
+  for (let i=0;i<n*n;i++){const s=craftSlots[i];if(s)tot[s.id]=(tot[s.id]||0)+1;}
+  return tot;
+}
+
+function matchRecipe(size) {
+  const totals = craftTotals(size);
+  const totalCount = Object.values(totals).reduce((a,b)=>a+b,0);
+  if (totalCount === 0) return null;
+  for (const rec of RECIPES) {
+    if (rec.shapeless) {
+      const keys = Object.keys(rec.ingredients);
+      if (keys.length !== Object.keys(totals).length) continue;
+      let ok = true;
+      for (const k of keys) if ((totals[k]||0) !== rec.ingredients[k]) ok = false;
+      if (ok) return rec;
+    } else if (rec.shaped) {
+      const m = craftMatrix(size);
+      if (!m) continue;
+      if (m.length !== rec.h || m[0].length !== rec.w) continue;
+      let ok = true;
+      for (let r=0;r<rec.h;r++) for (let cc=0;cc<rec.w;cc++) {
+        if (m[r][cc] !== rec.cells[r*rec.w+cc]) ok = false;
+      }
+      if (ok) return rec;
+    }
+  }
+  return null;
+}
+
+function updateCraftResult() {
+  const size = craftMode === '3x3' ? 3 : 2;
+  const rec = matchRecipe(size);
+  craftResult = rec ? { ...rec.result } : null;
+}
+
+// забрать результат крафта (списать ингредиенты)
+function takeCraftResult() {
+  const size = craftMode === '3x3' ? 3 : 2;
+  const rec = matchRecipe(size);
+  if (!rec) return;
+  const res = rec.result;
+  // если на курсоре уже есть предмет — складываем, иначе берём
+  if (cursorItem && (cursorItem.id !== res.id || cursorItem.count + res.count > maxStack(res.id))) return;
+  // списать по одному из каждого занятого слота крафта
+  for (let i = 0; i < size*size; i++) {
+    if (craftSlots[i]) { craftSlots[i].count--; if (craftSlots[i].count<=0) craftSlots[i]=null; }
+  }
+  if (cursorItem) cursorItem.count += res.count;
+  else cursorItem = { id: res.id, count: res.count };
+  playSound('place', res.id);
+  updateCraftResult();
+  refreshUI();
+}
+
+// вернуть предметы из сетки крафта в инвентарь (при закрытии)
+function clearCraftToInventory() {
+  const n = 3;
+  for (let i=0;i<n*n;i++){ if (craftSlots[i]) { addToInventory(craftSlots[i].id, craftSlots[i].count); craftSlots[i]=null; } }
+  if (cursorItem) { addToInventory(cursorItem.id, cursorItem.count); cursorItem = null; }
+}
+
+// ============================================================
+//  Окно инвентаря (слоты, перетаскивание, разделение)
+// ============================================================
+const invPanel = document.getElementById('inventory');
+
+function refreshUI() {
+  renderHotbar();
+  if (invOpen) renderInventory();
+  renderCursor();
+}
+
+// клик по слоту инвентаря/хотбара (массив slots[index])
+function slotClick(arr, index, rightClick) {
+  const s = arr[index];
+  if (!cursorItem) {
+    if (!s) return;
+    if (rightClick) {
+      // взять половину
+      const half = Math.ceil(s.count / 2);
+      cursorItem = { id: s.id, count: half };
+      s.count -= half; if (s.count <= 0) arr[index] = null;
+    } else {
+      cursorItem = s; arr[index] = null; // взять всю стопку
+    }
+  } else {
+    if (!s) {
+      if (rightClick) {
+        // положить 1
+        arr[index] = { id: cursorItem.id, count: 1 };
+        cursorItem.count--; if (cursorItem.count <= 0) cursorItem = null;
+      } else {
+        arr[index] = cursorItem; cursorItem = null;
+      }
+    } else if (s.id === cursorItem.id) {
+      // объединить стопки
+      const space = maxStack(s.id) - s.count;
+      if (rightClick) {
+        if (space > 0) { s.count++; cursorItem.count--; if (cursorItem.count<=0) cursorItem=null; }
+      } else {
+        const move = Math.min(space, cursorItem.count);
+        s.count += move; cursorItem.count -= move;
+        if (cursorItem.count <= 0) cursorItem = null;
+      }
+    } else {
+      // обмен
+      arr[index] = cursorItem; cursorItem = s;
+    }
+  }
+  updateCraftResult();
+  refreshUI();
+}
+
+function makeSlotEl(arr, index, size) {
+  const el = document.createElement('div');
+  el.className = 'inv-slot';
+  const item = arr[index];
+  if (item) {
+    el.appendChild(iconCanvas(item.id, size));
+    if (item.count > 1) {
+      const cnt = document.createElement('div');
+      cnt.className = 'count'; cnt.textContent = item.count;
+      el.appendChild(cnt);
+    }
+    el.title = BLOCK_NAMES[item.id] || '';
+  }
+  el.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    slotClick(arr, index, e.button === 2);
+  });
+  el.addEventListener('contextmenu', e => e.preventDefault());
+  return el;
+}
+
+const invGrid = document.getElementById('invGrid');
+function renderInventory() {
+  // строим всю панель заново (заголовок задан в HTML)
+  invGrid.innerHTML = '';
+
+  // --- Зона крафта ---
+  const craftWrap = document.createElement('div');
+  craftWrap.className = 'craft-zone';
+  const size = craftMode === '3x3' ? 3 : 2;
+  const grid = document.createElement('div');
+  grid.className = 'craft-grid';
+  grid.style.gridTemplateColumns = `repeat(${size}, 44px)`;
+  for (let i = 0; i < size*size; i++) grid.appendChild(makeSlotEl(craftSlots, i, 34));
+  craftWrap.appendChild(grid);
+
+  const arrow = document.createElement('div');
+  arrow.className = 'craft-arrow'; arrow.textContent = '➜';
+  craftWrap.appendChild(arrow);
+
+  const resSlot = document.createElement('div');
+  resSlot.className = 'inv-slot craft-result';
+  if (craftResult) {
+    resSlot.appendChild(iconCanvas(craftResult.id, 34));
+    if (craftResult.count > 1) { const c=document.createElement('div'); c.className='count'; c.textContent=craftResult.count; resSlot.appendChild(c); }
+    resSlot.title = BLOCK_NAMES[craftResult.id] || '';
+  }
+  resSlot.addEventListener('mousedown', (e) => { e.preventDefault(); takeCraftResult(); });
+  craftWrap.appendChild(resSlot);
+  invGrid.appendChild(craftWrap);
+
+  const lbl = document.createElement('div');
+  lbl.className = 'inv-label';
+  lbl.textContent = craftMode === '3x3' ? 'Крафт 3×3 (верстак)' : 'Крафт 2×2';
+  invGrid.appendChild(lbl);
+
+  // --- Основное хранилище (27) ---
+  const storage = document.createElement('div');
+  storage.className = 'inv-storage';
+  for (let i = HOTBAR_SIZE; i < TOTAL_SLOTS; i++) storage.appendChild(makeSlotEl(slots, i, 34));
+  invGrid.appendChild(storage);
+
+  // --- Хотбар (9) внутри инвентаря ---
+  const hb = document.createElement('div');
+  hb.className = 'inv-hotbar';
+  for (let i = 0; i < HOTBAR_SIZE; i++) hb.appendChild(makeSlotEl(slots, i, 34));
+  invGrid.appendChild(hb);
+}
+
+// предмет на курсоре
+const cursorEl = document.getElementById('cursorItem');
+function renderCursor() {
+  cursorEl.innerHTML = '';
+  if (cursorItem) {
+    cursorEl.style.display = 'block';
+    cursorEl.appendChild(iconCanvas(cursorItem.id, 36));
+    if (cursorItem.count > 1) { const c=document.createElement('div'); c.className='count'; c.textContent=cursorItem.count; cursorEl.appendChild(c); }
+  } else {
+    cursorEl.style.display = 'none';
+  }
+}
+document.addEventListener('mousemove', (e) => {
+  if (cursorItem && invOpen) {
+    cursorEl.style.left = e.clientX + 'px';
+    cursorEl.style.top = e.clientY + 'px';
+  }
+});
+
+function toggleInventory(mode) {
   invOpen = !invOpen;
-  document.getElementById('inventory').classList.toggle('open', invOpen);
   if (invOpen) {
+    craftMode = mode || '2x2';
+    invPanel.classList.add('open');
+    document.getElementById('invTitle').textContent = craftMode === '3x3' ? 'Верстак' : 'Инвентарь';
     document.exitPointerLock();
+    updateCraftResult();
     renderInventory();
   } else {
+    clearCraftToInventory(); // вернуть предметы из крафта
+    craftMode = '2x2';
+    invPanel.classList.remove('open');
+    refreshUI();
     if (overlay.classList.contains('hidden')) canvas.requestPointerLock();
   }
 }
@@ -1211,6 +1572,10 @@ function soundProfile(block) {
     case BLOCK.GRASS:   return { freq: 1200, dur: 0.10, type: 'lowpass' };
     // песок: мягкое сыпучее «шшш» — высокочастотный шум через highpass
     case BLOCK.SAND:    return { freq: 2600, dur: 0.16, type: 'highpass', sand: true };
+    case BLOCK.WOOD:    return { freq: 520, dur: 0.13, type: 'lowpass' };
+    case BLOCK.PLANKS:  return { freq: 600, dur: 0.12, type: 'lowpass' };
+    case BLOCK.CRAFTING_TABLE: return { freq: 560, dur: 0.12, type: 'lowpass' };
+    case BLOCK.LEAVES:  return { freq: 3000, dur: 0.12, type: 'highpass' };
     default:            return { freq: 600, dur: 0.10, type: 'lowpass' };
   }
 }
@@ -1420,6 +1785,9 @@ function startFallingSand(id, x, y, z) {
   scene.add(mesh);
   fallingSand.push({ mesh, id, x, z, y: y, vel: 0 });
   playSound('sandfall');
+
+  // как только клетка освободилась — проверить песок над ней (каскадное падение столбика)
+  checkSand(x, y + 1, z);
 }
 
 function processSandQueue() {
@@ -1470,26 +1838,109 @@ function updateFallingSand(dt) {
 }
 
 // ============================================================
+//  Затухание листвы (если рядом нет ствола — листва осыпается со временем)
+// ============================================================
+const leafDecay = []; // {x,y,z, t} — таймеры
+const leafDecaySet = new Set();
+const LEAF_SUPPORT_RADIUS = 4; // в пределах скольких блоков нужен ствол
+
+// есть ли поблизости ствол (BFS по листве до ствола в радиусе)
+function leafHasSupport(sx, sy, sz) {
+  const visited = new Set();
+  const stack = [[sx, sy, sz, 0]];
+  visited.add(sx + ',' + sy + ',' + sz);
+  while (stack.length) {
+    const [x, y, z, d] = stack.pop();
+    // нашли ствол среди соседей?
+    const ns = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+    for (const [dx, dy, dz] of ns) {
+      const b = World.getBlock(x + dx, y + dy, z + dz);
+      if (b === BLOCK.WOOD) return true;
+      if (b === BLOCK.LEAVES && d + 1 <= LEAF_SUPPORT_RADIUS) {
+        const k = (x+dx) + ',' + (y+dy) + ',' + (z+dz);
+        if (!visited.has(k)) { visited.add(k); stack.push([x+dx, y+dy, z+dz, d+1]); }
+      }
+    }
+  }
+  return false;
+}
+
+function scheduleLeafDecay(x, y, z) {
+  if (World.getBlock(x, y, z) !== BLOCK.LEAVES) return;
+  const k = x + ',' + y + ',' + z;
+  if (leafDecaySet.has(k)) return;
+  leafDecaySet.add(k);
+  // случайная задержка как в майнкрафте
+  leafDecay.push({ x, y, z, t: 1.5 + Math.random() * 3.5 });
+}
+
+function scheduleLeafDecayAround(x, y, z) {
+  const r = 2;
+  for (let dx = -r; dx <= r; dx++)
+    for (let dy = -r; dy <= r; dy++)
+      for (let dz = -r; dz <= r; dz++) {
+        if (World.getBlock(x+dx, y+dy, z+dz) === BLOCK.LEAVES) scheduleLeafDecay(x+dx, y+dy, z+dz);
+      }
+}
+
+function updateLeafDecay(dt) {
+  for (let i = leafDecay.length - 1; i >= 0; i--) {
+    const L = leafDecay[i];
+    L.t -= dt;
+    if (L.t > 0) continue;
+    const k = L.x + ',' + L.y + ',' + L.z;
+    leafDecay.splice(i, 1);
+    leafDecaySet.delete(k);
+    if (World.getBlock(L.x, L.y, L.z) !== BLOCK.LEAVES) continue;
+    if (leafHasSupport(L.x, L.y, L.z)) continue; // ствол рядом — остаётся
+    // осыпается
+    World.setBlock(L.x, L.y, L.z, BLOCK.AIR);
+    rebuildAround(L.x, L.z);
+    playSound('break', BLOCK.LEAVES);
+    // соседняя листва тоже проверится
+    scheduleLeafDecayAround(L.x, L.y, L.z);
+  }
+}
+
+// ============================================================
 //  Ломать / ставить
 // ============================================================
 function finishBreak(t) {
   if (!t) return;
   if (t.block === BLOCK.BEDROCK) return; // бедрок не ломается
+  const broken = t.block;
   World.setBlock(t.x, t.y, t.z, BLOCK.AIR);
-  // дроп выпадает (трава -> земля, как в майнкрафте)
-  let dropId = t.block;
-  if (t.block === BLOCK.GRASS) dropId = BLOCK.DIRT;
-  spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
+
+  // что выпадает
+  let dropId = broken;
+  if (broken === BLOCK.GRASS) dropId = BLOCK.DIRT;
+  if (broken === BLOCK.LEAVES) {
+    dropId = null; // из листвы ничего не выпадает
+  }
+  if (dropId !== null) spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
+
   rebuildAround(t.x, t.z);
-  playSound('break', t.block);
+  playSound('break', broken);
   WaterSim.touchAround(t.x, t.y, t.z); // вода может затечь в дыру
   checkSandAround(t.x, t.y, t.z);      // песок сверху может обвалиться
+
+  // сломали ствол — листва вокруг начнёт затухать (проверяем зону)
+  if (broken === BLOCK.WOOD || broken === BLOCK.LEAVES) {
+    scheduleLeafDecayAround(t.x, t.y, t.z);
+  }
 }
 
 function placeBlock() {
   const t = getTargetBlock();
   if (!t) return;
-  const slot = hotbar[activeSlot];
+
+  // ПКМ по верстаку — открыть крафт 3x3
+  if (t.block === BLOCK.CRAFTING_TABLE) {
+    toggleInventory('3x3');
+    return;
+  }
+
+  const slot = activeItem();
   if (!slot || slot.count <= 0) return;
 
   const nx = t.x + t.face[0];
@@ -1502,12 +1953,16 @@ function placeBlock() {
   // не ставить блок внутрь игрока
   if (intersectsPlayer(nx, ny, nz)) return;
 
-  if (!removeFromInventory(slot.id, 1)) return;
-  World.setBlock(nx, ny, nz, slot.id);
+  const placeId = slot.id;
+  // списать 1 штуку из активного слота
+  slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+  refreshUI();
+
+  World.setBlock(nx, ny, nz, placeId);
   rebuildAround(nx, nz);
-  playSound('place', slot.id);
+  playSound('place', placeId);
   WaterSim.touchAround(nx, ny, nz); // вытеснение/перетекание воды
-  if (isFalling(slot.id)) checkSand(nx, ny, nz); // поставленный песок может упасть
+  if (isFalling(placeId)) checkSand(nx, ny, nz); // поставленный песок может упасть
 }
 
 function intersectsPlayer(bx, by, bz) {
@@ -1860,6 +2315,7 @@ function loop(now) {
 
   WaterSim.update(dt);
   updateFallingSand(dt);
+  updateLeafDecay(dt);
   updateChunks();
 
   // камера
@@ -1962,6 +2418,36 @@ document.getElementById('createWorldBtn').addEventListener('click', () => {
   const name = document.getElementById('newWorldName').value;
   const seed = document.getElementById('newWorldSeed').value;
   WorldManager.create(name, seed);
+});
+
+// ---- Настройка прорисовки чанков ----
+function setRenderDistance(rd) {
+  RENDER_DISTANCE = Math.max(2, Math.min(10, rd | 0));
+  localStorage.setItem('minicraft_render_dist', String(RENDER_DISTANCE));
+  // обновить туман
+  if (!PLAYER.submerged) {
+    scene.fog.near = RENDER_DISTANCE * CHUNK_SIZE * 0.6;
+    scene.fog.far = RENDER_DISTANCE * CHUNK_SIZE;
+  }
+  // сразу выгрузить ставшие лишними чанки
+  if (gameStarted) {
+    const pcx = Math.floor(PLAYER.pos.x / CHUNK_SIZE);
+    const pcz = Math.floor(PLAYER.pos.z / CHUNK_SIZE);
+    for (const [k, mesh] of loadedMeshes) {
+      const [cx, cz] = k.split(',').map(Number);
+      if (Math.abs(cx - pcx) > RENDER_DISTANCE + 1 || Math.abs(cz - pcz) > RENDER_DISTANCE + 1) {
+        scene.remove(mesh); disposeGroup(mesh); loadedMeshes.delete(k);
+      }
+    }
+  }
+}
+const renderDistEl = document.getElementById('renderDist');
+const rdValueEl = document.getElementById('rdValue');
+renderDistEl.value = RENDER_DISTANCE;
+rdValueEl.textContent = RENDER_DISTANCE;
+renderDistEl.addEventListener('input', () => {
+  rdValueEl.textContent = renderDistEl.value;
+  setRenderDistance(parseInt(renderDistEl.value, 10));
 });
 
 // открыть меню (пауза + менеджер миров)
