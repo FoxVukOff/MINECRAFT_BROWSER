@@ -24,26 +24,28 @@
   /* Хотбар */
   #hotbar {
     position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
-    display: flex; gap: 4px; z-index: 10; padding: 4px; background: rgba(0,0,0,0.35);
-    border: 2px solid rgba(0,0,0,0.5); border-radius: 4px;
+    display: flex; gap: 0; z-index: 10; padding: 3px; background: rgba(0,0,0,0.45);
+    border: 2px solid #2a2a2a; image-rendering: pixelated;
   }
   .slot {
-    width: 46px; height: 46px; background: rgba(0,0,0,0.25);
-    border: 2px solid rgba(120,120,120,0.6); position: relative; cursor: pointer;
+    width: 44px; height: 44px; background: rgba(40,40,40,0.5);
+    border: 2px solid #8b8b8b; border-right-color:#373737; border-bottom-color:#373737;
+    position: relative; cursor: pointer; box-sizing: border-box;
     display: flex; align-items: center; justify-content: center;
   }
-  .slot.active { border-color: #fff; box-shadow: 0 0 0 2px rgba(0,0,0,0.6); }
-  .slot canvas { width: 36px; height: 36px; image-rendering: pixelated; }
+  .slot.active { border: 3px solid #fff; }
+  .slot canvas { width: 34px; height: 34px; image-rendering: pixelated; }
   .slot .count {
     position: absolute; right: 2px; bottom: 0; color: #fff; font-size: 13px;
     text-shadow: 1px 1px 0 #000; font-weight: bold;
   }
 
-  /* Инвентарь (слоты как в Minecraft) */
+  /* Инвентарь (слоты как в Minecraft, пиксель-арт) */
   #inventory {
     position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    display: none; z-index: 20; background: #c6c6c6; border: 4px solid #555;
-    border-radius: 6px; padding: 14px 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    display: none; z-index: 20; background: #c6c6c6;
+    border: 4px solid #373737; border-top-color:#fff; border-left-color:#fff;
+    padding: 14px 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); image-rendering: pixelated;
   }
   #inventory.open { display: block; }
   #inventory h2 { font-size: 16px; color: #333; margin-bottom: 10px; text-align: center; }
@@ -51,8 +53,8 @@
   #invGrid { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 
   .inv-slot {
-    width: 42px; height: 42px; background: #8b8b8b; border: 2px solid #373737;
-    border-top-color:#5a5a5a; border-left-color:#5a5a5a;
+    width: 42px; height: 42px; background: #8b8b8b;
+    border: 2px solid #fff; border-right-color:#373737; border-bottom-color:#373737;
     position: relative; cursor: pointer; box-sizing: border-box;
     display: flex; align-items: center; justify-content: center;
   }
@@ -67,11 +69,11 @@
   .inv-label { font-size: 11px; color: #444; }
 
   /* Печь */
-  .furnace-zone { display: flex; align-items: center; gap: 14px; padding: 8px; background:#bdbdbd; border-radius:4px; }
+  .furnace-zone { display: flex; align-items: center; gap: 14px; padding: 8px; background:#bdbdbd; }
   .furnace-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .furnace-flame { font-size: 18px; height: 20px; }
-  .furnace-prog { width: 60px; height: 10px; background:#888; border:1px solid #555; border-radius:3px; overflow:hidden; }
-  .furnace-prog-fill { height: 100%; background:#d98a2b; width:0%; transition: width 0.1s linear; }
+  .furnace-flame { height: 20px; display:flex; align-items:center; justify-content:center; }
+  .furnace-prog { width: 60px; height: 12px; background:#6b6b6b; border:2px solid #3a3a3a; overflow:hidden; image-rendering: pixelated; }
+  .furnace-prog-fill { height: 100%; background: repeating-linear-gradient(90deg,#d98a2b 0 4px,#c47a20 4px 8px); width:0%; }
   .inv-storage { display: grid; grid-template-columns: repeat(9, 42px); gap: 3px; }
   .inv-hotbar { display: grid; grid-template-columns: repeat(9, 42px); gap: 3px; margin-top: 4px; padding-top: 8px; border-top: 2px solid #999; }
 
@@ -96,18 +98,25 @@
   }
   #waterOverlay.on { display: block; }
 
-  /* Шкала кислорода (пузырьки) */
-  #oxygen {
-    position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%);
-    z-index: 12; display: none; gap: 3px;
+  /* Полосы статуса (HP, голод, кислород) — пиксель-арт */
+  #statusBars {
+    position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%);
+    z-index: 12; display: none; flex-direction: column; align-items: center; gap: 2px;
+    pointer-events: none; width: 372px;
   }
-  #oxygen.on { display: flex; }
-  #oxygen .bubble {
-    width: 16px; height: 16px; border-radius: 50%;
-    background: radial-gradient(circle at 35% 30%, #cfeeff, #2a78c8);
-    box-shadow: 0 0 1px #000, inset 0 0 2px rgba(255,255,255,0.6);
+  #statusBars.on { display: flex; }
+  /* верхняя строка — кислород (по центру) */
+  #oxygenRow { display: flex; gap: 1px; justify-content: center; height: 11px; }
+  #oxygenRow.hidden { visibility: hidden; }
+  /* нижняя строка — слева сердца, справа голод */
+  #vitalRow { display: flex; justify-content: space-between; width: 100%; }
+  #heartsBar, #hungerBar { display: flex; gap: 1px; }
+  #statusBars canvas { image-rendering: pixelated; }
+  /* красная вспышка урона */
+  #damageFlash {
+    position: fixed; inset: 0; z-index: 9; pointer-events: none;
+    background: rgba(180,20,20,0); transition: background 0.1s;
   }
-  #oxygen .bubble.empty { background: none; box-shadow: none; }
 
   /* Подсказки / меню старта */
   #overlay {
@@ -168,7 +177,14 @@
 <canvas id="game"></canvas>
 <div id="crosshair"></div>
 <div id="waterOverlay"></div>
-<div id="oxygen"></div>
+<div id="damageFlash"></div>
+<div id="statusBars">
+  <div id="oxygenRow"></div>
+  <div id="vitalRow">
+    <div id="heartsBar"></div>
+    <div id="hungerBar"></div>
+  </div>
+</div>
 
 <div id="hud"></div>
 <button id="menuBtn">Меню (Esc)</button>

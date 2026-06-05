@@ -32,6 +32,10 @@ const ITEM = {
   STICK:          100, // палка
   WOODEN_PICKAXE: 101, // деревянная кирка
   DOOR:           102, // предмет-дверь (ставится как два блока)
+  PORK_RAW:       103, // сырая свинина
+  PORK_COOKED:    104, // жареная свинина
+  BEEF_RAW:       105, // сырая говядина
+  BEEF_COOKED:    106, // жареная говядина
 };
 
 const BLOCK_NAMES = {
@@ -55,7 +59,20 @@ const BLOCK_NAMES = {
   [ITEM.STICK]:    'Палки',
   [ITEM.WOODEN_PICKAXE]: 'Деревянная кирка',
   [ITEM.DOOR]:     'Дверь',
+  [ITEM.PORK_RAW]: 'Сырая свинина',
+  [ITEM.PORK_COOKED]: 'Жареная свинина',
+  [ITEM.BEEF_RAW]: 'Сырая говядина',
+  [ITEM.BEEF_COOKED]: 'Жареная говядина',
 };
+
+// Еда: сколько голода восстанавливает
+const FOOD = {
+  [ITEM.PORK_RAW]:    2,
+  [ITEM.PORK_COOKED]: 6,
+  [ITEM.BEEF_RAW]:    2,
+  [ITEM.BEEF_COOKED]: 6,
+};
+function isFood(id) { return FOOD[id] !== undefined; }
 
 const MAX_STACK = 64; // максимум в стопке
 
@@ -142,6 +159,23 @@ function noiseFill(ctx, base, variance) {
   }
 }
 
+// Детерминированная пиксель-заливка из палитры (для чёткого пиксель-арта).
+// palette — массив цветов '#..'; weights — относит. частоты. seed — для стабильности.
+function pixelFillRegion(ctx, ox, oy, w, h, palette, weights, seed) {
+  let s = (seed || 1) >>> 0;
+  const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  const total = weights.reduce((a,b)=>a+b,0);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let r = rnd() * total, idx = 0;
+    while (r > weights[idx] && idx < weights.length-1) { r -= weights[idx]; idx++; }
+    ctx.fillStyle = palette[idx];
+    ctx.fillRect(ox + x, oy + y, 1, 1);
+  }
+}
+function pixelFill(ctx, palette, weights, seed) {
+  pixelFillRegion(ctx, 0, 0, 16, 16, palette, weights, seed);
+}
+
 function shade(hex, amt) {
   let r = (hex >> 16) & 255, g = (hex >> 8) & 255, b = hex & 255;
   r = Math.max(0, Math.min(255, r + amt));
@@ -151,53 +185,73 @@ function shade(hex, amt) {
 }
 
 function buildTextures() {
-  TEX.grass_top  = makeTex(ctx => noiseFill(ctx, 0x5f9e3a, 28));
-  TEX.grass_side = makeTex(ctx => {
-    noiseFill(ctx, 0x8a6a3f, 24);                 // земля
-    for (let x = 0; x < 16; x++) {                // зелёная кромка сверху
-      const h = 3 + (Math.random() * 3 | 0);
-      for (let y = 0; y < h; y++) {
-        ctx.fillStyle = shade(0x5f9e3a, (Math.random()-0.5)*28);
-        ctx.fillRect(x, y, 1, 1);
-      }
-    }
+  // --- Новая фаза: более чистый пиксель-арт, насыщенные палитры ---
+  // трава сверху — три оттенка зелёного, детерминированный паттерн
+  TEX.grass_top  = makeTex(ctx => {
+    pixelFill(ctx, ['#6ab04c','#5a9e3a','#4f8c33','#76bd57'], [4,5,3,2], 101);
   });
-  TEX.dirt    = makeTex(ctx => noiseFill(ctx, 0x8a6a3f, 26));
-  TEX.stone   = makeTex(ctx => noiseFill(ctx, 0x888888, 30));
-  TEX.bedrock = makeTex(ctx => noiseFill(ctx, 0x4a4a4a, 40));
-  TEX.water   = makeTex(ctx => noiseFill(ctx, 0x3a6ea5, 18));
-  TEX.sand    = makeTex(ctx => noiseFill(ctx, 0xd9cd9a, 16));
+  // земля — тёплая коричневая палитра с редкими камешками
+  const dirtDraw = (ctx) => {
+    pixelFill(ctx, ['#8a6a40','#7d5e36','#96754a','#6e5430'], [5,4,3,2], 202);
+    // редкие камешки
+    ctx.fillStyle = '#5e4628';
+    for (const [gx,gy] of [[3,11],[10,4],[13,12],[6,7]]) ctx.fillRect(gx,gy,2,1);
+  };
+  TEX.dirt    = makeTex(dirtDraw);
+  // бок травы — земля снизу + ровная зелёная кромка сверху (3-4px) с «свесом»
+  TEX.grass_side = makeTex(ctx => {
+    dirtDraw(ctx);
+    // зелёная шапка
+    pixelFillRegion(ctx, 0, 0, 16, 4, ['#6ab04c','#5a9e3a','#4f8c33'], [4,4,2], 303);
+    // неровный нижний край шапки (свес)
+    ctx.fillStyle = '#5a9e3a';
+    for (let x = 0; x < 16; x++) if ((x*37+11)%5 < 2) ctx.fillRect(x, 4, 1, 1);
+  });
+  // камень — серый с тёмными вкраплениями, аккуратнее
+  TEX.stone   = makeTex(ctx => {
+    pixelFill(ctx, ['#909090','#828282','#9a9a9a','#777777'], [5,4,3,2], 404);
+    ctx.fillStyle = '#6c6c6c';
+    for (const [gx,gy] of [[2,3],[11,2],[5,9],[12,11],[7,13]]) ctx.fillRect(gx,gy,2,1);
+  });
+  TEX.bedrock = makeTex(ctx => pixelFill(ctx, ['#3a3a3a','#4a4a4a','#2c2c2c','#565656'], [4,4,3,2], 505));
+  TEX.water   = makeTex(ctx => pixelFill(ctx, ['#3a6ea5','#3566a0','#4078b0','#315f96'], [5,4,3,2], 606));
+  // песок — светлый, мягкие точки
+  TEX.sand    = makeTex(ctx => {
+    pixelFill(ctx, ['#ddd2a0','#e6dcae','#d4c894','#cfc088'], [5,4,3,2], 707);
+  });
 
   // дерево: бок — кора с вертикальными полосами
   TEX.wood_side = makeTex(ctx => {
-    noiseFill(ctx, 0x6b4f2a, 18);
-    for (let x = 0; x < 16; x += 3 + (Math.random()*2|0)) {
-      ctx.fillStyle = shade(0x6b4f2a, -22);
-      for (let y = 0; y < 16; y++) ctx.fillRect(x, y, 1, 1);
-    }
+    pixelFill(ctx, ['#6b4f2a','#5e4424','#785931','#523c20'], [5,4,3,2], 808);
+    // вертикальные тёмные волокна коры
+    ctx.fillStyle = '#46331b';
+    for (const x of [2,6,10,13]) for (let y=0;y<16;y++) if ((y+x)%3) ctx.fillRect(x,y,1,1);
   });
   // дерево: торец — годовые кольца
   TEX.wood_top = makeTex(ctx => {
-    noiseFill(ctx, 0x9c7842, 14);
-    ctx.strokeStyle = shade(0x6b4f2a, -10);
-    ctx.lineWidth = 1;
+    pixelFill(ctx, ['#9c7842','#8a6a38','#a8854c'], [5,4,2], 909);
+    ctx.strokeStyle = '#6b4f2a'; ctx.lineWidth = 1;
     for (let r = 2; r < 8; r += 2) { ctx.beginPath(); ctx.arc(8, 8, r, 0, Math.PI*2); ctx.stroke(); }
+    ctx.fillStyle = '#5e4628'; ctx.fillRect(7,7,2,2); // сердцевина
   });
-  // листва — зелёная с прозрачными «дырками» (рисуем шум, прозрачность даст материал)
+  // листва — насыщенная зелень с прозрачными «дырками»
   TEX.leaves = makeTex(ctx => {
     ctx.clearRect(0,0,16,16);
+    let s = 1212>>>0; const rnd=()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};
+    const pal = ['#3f8b2e','#357a26','#4a9c36','#2e6b20'];
     for (let y=0;y<16;y++) for (let x=0;x<16;x++) {
-      if (Math.random() < 0.12) continue; // дырки
-      ctx.fillStyle = shade(0x3f8b2e, (Math.random()-0.5)*36);
+      if (rnd() < 0.14) continue; // дырки
+      ctx.fillStyle = pal[(rnd()*pal.length)|0];
       ctx.fillRect(x,y,1,1);
     }
   });
-  // доски — горизонтальные планки
+  // доски — ровные горизонтальные доски с тёмными стыками
   TEX.planks = makeTex(ctx => {
-    noiseFill(ctx, 0xb98e4d, 14);
-    ctx.fillStyle = shade(0xb98e4d, -30);
-    for (let y = 0; y < 16; y += 4) for (let x=0;x<16;x++) ctx.fillRect(x, y, 1, 1);
-    for (let y=0;y<16;y++){ ctx.fillRect(7, y, 1, 1); } // вертикальный стык
+    pixelFill(ctx, ['#bd9252','#b08549','#c79c5d'], [5,4,2], 1313);
+    ctx.fillStyle = '#7a5a30';
+    for (let y = 3; y < 16; y += 4) ctx.fillRect(0, y, 16, 1);   // линии досок
+    ctx.fillStyle = '#8a663a';
+    ctx.fillRect(7,0,1,3); ctx.fillRect(3,4,1,4); ctx.fillRect(11,8,1,4); ctx.fillRect(6,12,1,4); // короткие стыки
   });
   // верстак: верх — сетка инструментов, бок — доски с полосой
   TEX.craft_top = makeTex(ctx => {
@@ -215,10 +269,15 @@ function buildTextures() {
 
   // булыжник — крупные камни
   TEX.cobble = makeTex(ctx => {
-    noiseFill(ctx, 0x7d7d7d, 22);
-    ctx.fillStyle = '#5a5a5a';
-    const cells=[[0,0,7,5],[8,0,7,4],[0,6,5,5],[6,5,9,6],[0,12,6,4],[7,12,8,4]];
-    for (const [x,y,w,h] of cells){ ctx.strokeStyle='#5a5a5a'; ctx.strokeRect(x+0.5,y+0.5,w-1,h-1); }
+    // булыжник — отдельные камни с тёмными швами (чистый пиксель-арт)
+    pixelFill(ctx, ['#7d7d7d','#6f6f6f','#888888','#656565'], [5,4,3,2], 1414);
+    ctx.fillStyle = '#4f4f4f';
+    // тёмные швы между камнями
+    ctx.fillRect(0,5,16,1); ctx.fillRect(0,10,16,1);
+    ctx.fillRect(6,0,1,5); ctx.fillRect(10,6,1,4); ctx.fillRect(4,11,1,5); ctx.fillRect(11,11,1,5);
+    // блики на камнях
+    ctx.fillStyle = '#9a9a9a';
+    ctx.fillRect(2,2,2,1); ctx.fillRect(11,2,2,1); ctx.fillRect(2,7,2,1); ctx.fillRect(12,7,2,1); ctx.fillRect(7,12,2,1);
   });
   // стекло — почти прозрачное с рамкой/бликом
   TEX.glass = makeTex(ctx => {
@@ -1215,6 +1274,14 @@ const PLAYER = {
   oxygen: 10,        // запас воздуха (0..10 «пузырьков»)
   maxOxygen: 10,
   drownTimer: 0,
+  hp: 20,            // здоровье (0..20 = 10 сердец)
+  maxHp: 20,
+  hunger: 20,        // голод (0..20 = 10 кусков)
+  maxHunger: 20,
+  exhaustion: 0,     // накопитель истощения -> расход голода
+  regenTimer: 0,
+  starveTimer: 0,
+  damageFlash: 0,    // вспышка урона на экране
 };
 
 const GRAVITY = 26;
@@ -1264,9 +1331,9 @@ const WorldManager = {
     WaterSim.queue.length = 0; WaterSim.inQueue.clear();
     leafDecay.length = 0; leafDecaySet.clear();
     // свиньи
-    for (const p of pigs) scene.remove(p.mesh);
-    pigs.length = 0;
-    pigSpawnTimer = 4;
+    for (const p of mobs) scene.remove(p.mesh);
+    mobs.length = 0;
+    mobSpawnTimer = 4;
     // инвентарь / крафт
     for (let i = 0; i < TOTAL_SLOTS; i++) slots[i] = null;
     for (let i = 0; i < craftSlots.length; i++) craftSlots[i] = null;
@@ -1274,6 +1341,9 @@ const WorldManager = {
     activeSlot = 0;
     PLAYER.vel.set(0, 0, 0);
     PLAYER.oxygen = PLAYER.maxOxygen;
+    PLAYER.hp = PLAYER.maxHp;
+    PLAYER.hunger = PLAYER.maxHunger;
+    PLAYER.exhaustion = 0;
   },
 
   // создать новый мир
@@ -1301,7 +1371,7 @@ const WorldManager = {
       player: {
         x: PLAYER.pos.x, y: PLAYER.pos.y, z: PLAYER.pos.z,
         yaw: PLAYER.yaw, pitch: PLAYER.pitch,
-        oxygen: PLAYER.oxygen,
+        oxygen: PLAYER.oxygen, hp: PLAYER.hp, hunger: PLAYER.hunger,
       },
       slots: slots.map(s => s ? { id: s.id, count: s.count } : null),
       activeSlot,
@@ -1381,6 +1451,9 @@ const WorldManager = {
     PLAYER.yaw = p.yaw || 0;
     PLAYER.pitch = p.pitch || 0;
     PLAYER.oxygen = p.oxygen ?? PLAYER.maxOxygen;
+    PLAYER.hp = p.hp ?? PLAYER.maxHp;
+    PLAYER.hunger = p.hunger ?? PLAYER.maxHunger;
+    PLAYER.exhaustion = 0;
 
     // пере-запустить воду и песок вокруг изменённых клеток, чтобы каналы/обвалы восстановились
     for (const k of World.edits.keys()) {
@@ -1462,7 +1535,7 @@ canvas.addEventListener('mousedown', (e) => {
   if (!pointerLocked) return;
   if (e.button === 0) {
     // сначала пробуем ударить свинью; если попали — не ломаем блок
-    if (!tryAttackPig()) leftHeld = true;       // удержание = непрерывное ломание
+    if (!tryAttackMob()) leftHeld = true;       // удержание = непрерывное ломание
   }
   if (e.button === 2) placeBlock();
 });
@@ -1624,6 +1697,29 @@ function iconCanvas(id, size) {
     ctx.fillStyle = '#3a2712'; ctx.fillRect(size*0.62, size*0.5, size*0.07, size*0.07);
     return c;
   }
+  // мясо: кусок с косточкой; сырое — розовое, жареное — коричневое
+  if (id === ITEM.PORK_RAW || id === ITEM.PORK_COOKED || id === ITEM.BEEF_RAW || id === ITEM.BEEF_COOKED) {
+    const cooked = (id === ITEM.PORK_COOKED || id === ITEM.BEEF_COOKED);
+    const beef = (id === ITEM.BEEF_RAW || id === ITEM.BEEF_COOKED);
+    let meat, edge;
+    if (cooked) { meat = beef ? '#7a4a28' : '#9c6038'; edge = '#4f2e18'; }
+    else        { meat = beef ? '#c45a4e' : '#e89aa0'; edge = beef ? '#8e3a32' : '#c06b72'; }
+    const u = size/16;
+    // мякоть (скруглённый кусок)
+    ctx.fillStyle = meat;
+    ctx.fillRect(4*u,4*u,9*u,8*u);
+    ctx.fillRect(3*u,6*u,11*u,5*u);
+    ctx.fillStyle = edge; // контур-тень снизу/справа
+    ctx.fillRect(4*u,11*u,9*u,1*u); ctx.fillRect(12*u,5*u,1*u,6*u);
+    // прожилки жира (у сырого светлее, у жареного — тёмные)
+    ctx.fillStyle = cooked ? '#3a2414' : '#f6c9cf';
+    ctx.fillRect(6*u,6*u,4*u,1*u); ctx.fillRect(5*u,9*u,5*u,1*u);
+    // косточка
+    ctx.fillStyle = '#efe6cf';
+    ctx.fillRect(11*u,3*u,3*u,2*u); ctx.fillRect(12*u,4*u,3*u,2*u);
+    ctx.fillStyle = '#cfc4a6'; ctx.fillRect(13*u,3*u,1*u,1*u);
+    return c;
+  }
 
   // Блоки — рисуем текстуру верхней/боковой грани
   let tex = TEX.stone;
@@ -1646,6 +1742,47 @@ function iconCanvas(id, size) {
   if (id === BLOCK.LEAVES) { ctx.fillStyle = '#2f6e22'; ctx.fillRect(0,0,size,size); }
   if (id === BLOCK.GLASS) { ctx.fillStyle = 'rgba(180,215,235,0.25)'; ctx.fillRect(0,0,size,size); }
   ctx.drawImage(tex, 0, 0, size, size);
+  return c;
+}
+
+// Пиксельная иконка пламени (для печи), lit=горит
+function makeFlameIcon(lit) {
+  const c = document.createElement('canvas');
+  c.width = 16; c.height = 16;
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  if (lit) {
+    // внешнее пламя
+    x.fillStyle = '#ff7a18';
+    x.fillRect(6,4,4,9); x.fillRect(5,7,6,6); x.fillRect(4,10,8,4);
+    // среднее
+    x.fillStyle = '#ffb52e';
+    x.fillRect(6,7,4,6); x.fillRect(5,10,6,4);
+    // ядро
+    x.fillStyle = '#ffe96b';
+    x.fillRect(7,10,2,4);
+    // искры сверху
+    x.fillStyle = '#ff7a18'; x.fillRect(7,2,2,2);
+  } else {
+    // потухшее — серый контур пламени
+    x.fillStyle = '#6a6a6a';
+    x.fillRect(6,5,4,8); x.fillRect(5,8,6,5);
+    x.fillStyle = '#555'; x.fillRect(7,9,2,4);
+  }
+  c.style.width = '18px'; c.style.height = '18px'; c.style.imageRendering = 'pixelated';
+  return c;
+}
+
+// Пиксельная стрелка прогресса (для крафта)
+function makeArrowIcon() {
+  const c = document.createElement('canvas');
+  c.width = 16; c.height = 16;
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  x.fillStyle = '#555';
+  x.fillRect(2,7,9,2);          // стержень
+  x.fillRect(10,4,2,2); x.fillRect(12,6,2,4); x.fillRect(10,10,2,2); // наконечник
+  c.style.width = '22px'; c.style.height = '22px'; c.style.imageRendering = 'pixelated';
   return c;
 }
 
@@ -1956,8 +2093,8 @@ function renderInventory() {
     const fz = document.createElement('div'); fz.className = 'furnace-zone';
     const col = document.createElement('div'); col.className = 'furnace-col';
     col.appendChild(makeFurnaceSlot(f, 'input'));   // вверху — что плавим
-    const flame = document.createElement('div'); flame.className = 'furnace-flame';
-    flame.textContent = f.burn > 0 ? '🔥' : '▢';
+    const flame = document.createElement('div'); flame.className = 'furnace-flame' + (f.burn > 0 ? ' lit' : '');
+    flame.appendChild(makeFlameIcon(f.burn > 0));   // пиксельная иконка пламени
     col.appendChild(flame);
     col.appendChild(makeFurnaceSlot(f, 'fuel'));    // внизу — топливо
     fz.appendChild(col);
@@ -1973,7 +2110,7 @@ function renderInventory() {
     invGrid.appendChild(fz);
 
     const lbl = document.createElement('div'); lbl.className='inv-label';
-    lbl.textContent = 'Печь: песок → стекло (топливо: доски/дерево/двери)';
+    lbl.textContent = 'Печь: песок -> стекло, мясо -> жареное (топливо: доски/дерево/двери/верстак/сундук)';
     invGrid.appendChild(lbl);
   } else {
     // --- Зона крафта ---
@@ -1987,7 +2124,7 @@ function renderInventory() {
     craftWrap.appendChild(grid);
 
     const arrow = document.createElement('div');
-    arrow.className = 'craft-arrow'; arrow.textContent = '➜';
+    arrow.className = 'craft-arrow'; arrow.appendChild(makeArrowIcon());
     craftWrap.appendChild(arrow);
 
     const resSlot = document.createElement('div');
@@ -2174,6 +2311,15 @@ function playSound(kind, block) {
     pigOink(false);
   } else if (kind === 'oink_hurt') {
     pigOink(true);
+  } else if (kind === 'moo') {
+    cowMoo(false);
+  } else if (kind === 'moo_hurt') {
+    cowMoo(true);
+  } else if (kind === 'eat') {
+    // звук еды — несколько коротких «чавканий»
+    noiseBurst(0.06, 800, 0.25, 'lowpass');
+    setTimeout(() => noiseBurst(0.06, 700, 0.22, 'lowpass'), 130);
+    setTimeout(() => noiseBurst(0.05, 900, 0.2, 'lowpass'), 260);
   }
 }
 
@@ -2195,6 +2341,28 @@ function pigOink(hurt) {
   filt.type = 'bandpass'; filt.frequency.value = 700; filt.Q.value = 2;
   osc.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
   osc.start(t0); osc.stop(t0 + 0.2);
+}
+
+// мычание коровы — низкий протяжный звук с лёгким понижением
+function cowMoo(hurt) {
+  if (!AudioEngine.ctx) return;
+  const ctx = AudioEngine.ctx;
+  const t0 = ctx.currentTime;
+  const dur = hurt ? 0.35 : 0.7;
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  const base = hurt ? 200 : 150;
+  osc.frequency.setValueAtTime(base, t0);
+  osc.frequency.linearRampToValueAtTime(base * 1.25, t0 + dur * 0.35);
+  osc.frequency.linearRampToValueAtTime(base * 0.8, t0 + dur);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(hurt ? 0.42 : 0.34, t0 + 0.06);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'lowpass'; filt.frequency.value = 900;
+  osc.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
+  osc.start(t0); osc.stop(t0 + dur + 0.05);
 }
 
 // --- Атмосферная музыка (медленные аккорды/арпеджио, спокойный мажор) ---
@@ -2511,99 +2679,125 @@ function updateLeafDecay(dt) {
 }
 
 // ============================================================
-//  Свиньи (мобы): модель, ИИ, анимации, звуки
+//  Мобы (свиньи, коровы): модель, ИИ, анимации, звуки
 // ============================================================
-const pigs = [];
-const MAX_PIGS = 8;
+const mobs = [];
+const MAX_MOBS = 10;
 
-// текстура «кожи» свиньи (розовая с пятнышками)
-let PIG_MAT = null, PIG_SNOUT_MAT = null;
-function buildPigMaterials() {
-  const c = makeTex(ctx => {
-    noiseFill(ctx, 0xeaa0a8, 10);
+// Материалы мобов (строятся лениво)
+const MOB_MAT = {};
+function buildMobMaterials() {
+  // --- Свинья ---
+  MOB_MAT.pig_body = texToMaterial(makeTex(ctx => {
+    noiseFill(ctx, 0xeaa0a8, 8);
     ctx.fillStyle = '#d98a93';
-    for (let i=0;i<8;i++) ctx.fillRect((Math.random()*14)|0,(Math.random()*14)|0,2,2);
-  });
-  PIG_MAT = texToMaterial(c);
-  const s = makeTex(ctx => {
-    noiseFill(ctx, 0xd07f88, 8);
-    ctx.fillStyle = '#9c5a62'; ctx.fillRect(4,5,3,3); ctx.fillRect(9,5,3,3); // ноздри
-  });
-  PIG_SNOUT_MAT = texToMaterial(s);
+    for (let i=0;i<6;i++) ctx.fillRect((Math.random()*14)|0,(Math.random()*14)|0,2,2);
+  }));
+  MOB_MAT.pig_snout = texToMaterial(makeTex(ctx => {
+    noiseFill(ctx, 0xd07f88, 6);
+    ctx.fillStyle = '#9c5a62'; ctx.fillRect(4,6,3,4); ctx.fillRect(9,6,3,4); // ноздри
+  }));
+  // --- Корова ---
+  MOB_MAT.cow_body = texToMaterial(makeTex(ctx => {
+    noiseFill(ctx, 0x4a3526, 6);             // тёмно-коричневая основа
+    ctx.fillStyle = '#e8e2d8';               // белые пятна
+    ctx.fillRect(2,3,5,5); ctx.fillRect(9,8,5,5); ctx.fillRect(7,2,3,3);
+    ctx.fillStyle = '#3a2a1c';
+    ctx.fillRect(11,4,3,3); ctx.fillRect(3,10,3,3);
+  }));
+  MOB_MAT.cow_head = texToMaterial(makeTex(ctx => {
+    noiseFill(ctx, 0x4a3526, 6);
+    ctx.fillStyle = '#e8e2d8'; ctx.fillRect(5,4,6,5); // белая морда
+  }));
+  MOB_MAT.cow_snout = texToMaterial(makeTex(ctx => {
+    noiseFill(ctx, 0xb98a8a, 6);
+    ctx.fillStyle = '#7a5050'; ctx.fillRect(4,7,3,3); ctx.fillRect(9,7,3,3);
+  }));
+  MOB_MAT.horn = texToMaterial(makeTex(ctx => noiseFill(ctx, 0xe8e2cf, 6)));
 }
 
-function makePigMesh() {
-  const g = new THREE.Group();
-  const box = (w,h,d,mat) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat || PIG_MAT);
-    if (SHADOWS_ON) { m.castShadow = true; }
-    return m;
-  };
-  // тело (горизонтальное)
-  const body = box(0.9, 0.7, 1.3);
-  body.position.set(0, 0.65, 0);
-  g.add(body);
-  // голова
-  const head = new THREE.Group();
-  const skull = box(0.62, 0.6, 0.55);
-  head.add(skull);
-  const snout = box(0.34, 0.28, 0.18, PIG_SNOUT_MAT);
-  snout.position.set(0, -0.05, 0.36);
-  head.add(snout);
-  // глаза
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
-  const eL = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.08,0.02), eyeMat); eL.position.set(-0.18,0.1,0.28); head.add(eL);
-  const eR = eL.clone(); eR.position.x = 0.18; head.add(eR);
-  head.position.set(0, 0.78, 0.78);
-  g.add(head);
-  g.userData.head = head;
-  // ноги
-  const legs = [];
-  const legPos = [[-0.28,0,0.45],[0.28,0,0.45],[-0.28,0,-0.45],[0.28,0,-0.45]];
-  for (const [lx,,lz] of legPos) {
-    const leg = box(0.26, 0.55, 0.26);
-    leg.geometry.translate(0, -0.275, 0); // ось вращения сверху
-    leg.position.set(lx, 0.55, lz);
-    g.add(leg); legs.push(leg);
-  }
-  g.userData.legs = legs;
-  return g;
-}
+const EYE_MAT = () => new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
 
-function spawnPig(x, y, z) {
-  if (!PIG_MAT) buildPigMaterials();
-  const mesh = makePigMesh();
+// Определения видов мобов
+const MOB_TYPES = {
+  pig: {
+    spawnOn: BLOCK.GRASS, drop: ITEM.PORK_RAW, dropCount: () => 1 + (Math.random()*2|0),
+    idleSound: 'oink', hurtSound: 'oink_hurt',
+    build() {
+      const g = new THREE.Group();
+      const box = (w,h,d,mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat||MOB_MAT.pig_body); if (SHADOWS_ON) m.castShadow=true; return m; };
+      const body = box(0.9, 0.7, 1.3); body.position.set(0, 0.65, 0); g.add(body);
+      const head = new THREE.Group();
+      head.add(box(0.62, 0.6, 0.55));
+      const snout = box(0.34, 0.28, 0.18, MOB_MAT.pig_snout); snout.position.set(0,-0.05,0.36); head.add(snout);
+      const eL = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.08,0.02), EYE_MAT()); eL.position.set(-0.18,0.1,0.28); head.add(eL);
+      const eR = eL.clone(); eR.position.x = 0.18; head.add(eR);
+      head.position.set(0, 0.78, 0.78); g.add(head); g.userData.head = head;
+      const legs = []; const lp = [[-0.28,0.45],[0.28,0.45],[-0.28,-0.45],[0.28,-0.45]];
+      for (const [lx,lz] of lp) { const leg = box(0.26,0.55,0.26); leg.geometry.translate(0,-0.275,0); leg.position.set(lx,0.55,lz); g.add(leg); legs.push(leg); }
+      g.userData.legs = legs;
+      return g;
+    },
+    width: 0.9, height: 0.95, hp: 10,
+  },
+  cow: {
+    spawnOn: BLOCK.GRASS, drop: ITEM.BEEF_RAW, dropCount: () => 1 + (Math.random()*2|0),
+    idleSound: 'moo', hurtSound: 'moo_hurt',
+    build() {
+      const g = new THREE.Group();
+      const box = (w,h,d,mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat||MOB_MAT.cow_body); if (SHADOWS_ON) m.castShadow=true; return m; };
+      const body = box(1.0, 0.8, 1.5); body.position.set(0, 0.78, 0); g.add(body);
+      const head = new THREE.Group();
+      head.add(box(0.6, 0.6, 0.55, MOB_MAT.cow_head));
+      const snout = box(0.4, 0.32, 0.16, MOB_MAT.cow_snout); snout.position.set(0,-0.08,0.34); head.add(snout);
+      const eL = new THREE.Mesh(new THREE.BoxGeometry(0.09,0.09,0.02), EYE_MAT()); eL.position.set(-0.18,0.12,0.28); head.add(eL);
+      const eR = eL.clone(); eR.position.x = 0.18; head.add(eR);
+      // рожки
+      const hL = box(0.08,0.16,0.08, MOB_MAT.horn); hL.position.set(-0.2,0.35,0.05); head.add(hL);
+      const hR = hL.clone(); hR.position.x = 0.2; head.add(hR);
+      head.position.set(0, 0.92, 0.92); g.add(head); g.userData.head = head;
+      const legs = []; const lp = [[-0.32,0.52],[0.32,0.52],[-0.32,-0.52],[0.32,-0.52]];
+      for (const [lx,lz] of lp) { const leg = box(0.28,0.7,0.28); leg.geometry.translate(0,-0.35,0); leg.position.set(lx,0.7,lz); g.add(leg); legs.push(leg); }
+      g.userData.legs = legs;
+      return g;
+    },
+    width: 1.0, height: 1.2, hp: 10,
+  },
+};
+
+function spawnMob(type, x, y, z) {
+  if (!MOB_MAT.pig_body) buildMobMaterials();
+  const def = MOB_TYPES[type];
+  const mesh = def.build();
   mesh.position.set(x, y, z);
   scene.add(mesh);
-  pigs.push({
-    mesh, pos: new THREE.Vector3(x, y, z), vel: new THREE.Vector3(0,0,0),
-    yaw: Math.random()*Math.PI*2, width: 0.9, height: 0.95,
+  mobs.push({
+    type, def, mesh, pos: new THREE.Vector3(x, y, z), vel: new THREE.Vector3(0,0,0),
+    yaw: Math.random()*Math.PI*2, width: def.width, height: def.height,
     onGround: false, state: 'idle', stateT: 1+Math.random()*2,
-    walkPhase: 0, hp: 10, hurtT: 0, oinkT: 3+Math.random()*6,
-    flee: 0,
+    walkPhase: 0, hp: def.hp, hurtT: 0, idleT: 3+Math.random()*8, flee: 0,
   });
 }
 
-// спавн свиней рядом с игроком на траве
-let pigSpawnTimer = 4;
-function trySpawnPigs(dt) {
-  pigSpawnTimer -= dt;
-  if (pigSpawnTimer > 0) return;
-  pigSpawnTimer = 6 + Math.random()*6;
-  if (pigs.length >= MAX_PIGS) return;
-  // пытаемся найти травяную клетку в кольце 12..24 блока вокруг игрока
+// спавн мобов рядом с игроком на траве
+let mobSpawnTimer = 4;
+function trySpawnMobs(dt) {
+  mobSpawnTimer -= dt;
+  if (mobSpawnTimer > 0) return;
+  mobSpawnTimer = 6 + Math.random()*6;
+  if (mobs.length >= MAX_MOBS) return;
+  const type = Math.random() < 0.5 ? 'pig' : 'cow';
   for (let tries = 0; tries < 8; tries++) {
     const ang = Math.random()*Math.PI*2;
     const dist = 12 + Math.random()*12;
     const px = Math.floor(PLAYER.pos.x + Math.cos(ang)*dist);
     const pz = Math.floor(PLAYER.pos.z + Math.sin(ang)*dist);
-    // найти высоту поверхности
     for (let y = WORLD_HEIGHT-2; y > 1; y--) {
       const below = World.getBlock(px, y-1, pz);
       const here = World.getBlock(px, y, pz);
       const above = World.getBlock(px, y+1, pz);
-      if (below === BLOCK.GRASS && here === BLOCK.AIR && above === BLOCK.AIR) {
-        spawnPig(px + 0.5, y, pz + 0.5);
+      if (below === MOB_TYPES[type].spawnOn && here === BLOCK.AIR && above === BLOCK.AIR) {
+        spawnMob(type, px + 0.5, y, pz + 0.5);
         return;
       }
     }
@@ -2618,8 +2812,8 @@ function mobSolid(x, y, z) {
   return true;
 }
 
-// коллизия AABB для свиньи по одной оси
-function pigCollide(p, axis, amount) {
+// коллизия AABB для моба по одной оси
+function mobCollide(p, axis, amount) {
   const hw = p.width/2, h = p.height;
   p.pos[axis] += amount;
   const minX = Math.floor(p.pos.x - hw), maxX = Math.floor(p.pos.x + hw);
@@ -2635,29 +2829,28 @@ function pigCollide(p, axis, amount) {
   return false;
 }
 
-function updatePigs(dt) {
-  trySpawnPigs(dt);
+function updateMobs(dt) {
+  trySpawnMobs(dt);
   const pcx = Math.floor(PLAYER.pos.x / CHUNK_SIZE);
   const pcz = Math.floor(PLAYER.pos.z / CHUNK_SIZE);
 
-  for (let i = pigs.length - 1; i >= 0; i--) {
-    const p = pigs[i];
+  for (let i = mobs.length - 1; i >= 0; i--) {
+    const p = mobs[i];
 
-    // выгрузка слишком далёких свиней
+    // выгрузка слишком далёких мобов
     const dcx = Math.floor(p.pos.x / CHUNK_SIZE) - pcx;
     const dcz = Math.floor(p.pos.z / CHUNK_SIZE) - pcz;
     if (Math.abs(dcx) > RENDER_DISTANCE + 2 || Math.abs(dcz) > RENDER_DISTANCE + 2) {
-      scene.remove(p.mesh); pigs.splice(i, 1); continue;
+      scene.remove(p.mesh); mobs.splice(i, 1); continue;
     }
 
     // --- ИИ ---
     p.hurtT = Math.max(0, p.hurtT - dt);
-    p.oinkT -= dt;
-    if (p.oinkT <= 0) { p.oinkT = 6 + Math.random()*10; if (dist2ToPlayer(p) < 24*24) playSound('oink'); }
+    p.idleT -= dt;
+    if (p.idleT <= 0) { p.idleT = 6 + Math.random()*10; if (dist2ToPlayer(p) < 26*26) playSound(p.def.idleSound); }
 
     let moving = false;
     if (p.flee > 0) {
-      // убегает от игрока
       p.flee -= dt;
       const ax = p.pos.x - PLAYER.pos.x, az = p.pos.z - PLAYER.pos.z;
       p.yaw = Math.atan2(ax, az);
@@ -2665,68 +2858,53 @@ function updatePigs(dt) {
     } else {
       p.stateT -= dt;
       if (p.stateT <= 0) {
-        // случайно меняем состояние
         if (Math.random() < 0.5) { p.state = 'walk'; p.yaw = Math.random()*Math.PI*2; p.stateT = 2+Math.random()*4; }
         else { p.state = 'idle'; p.stateT = 1.5+Math.random()*3; }
       }
       moving = (p.state === 'walk');
     }
 
-    // движение в направлении yaw
-    const speed = p.flee > 0 ? 3.2 : 1.5;
+    const speed = p.flee > 0 ? 3.2 : 1.4;
     if (moving) {
       const dirx = Math.sin(p.yaw), dirz = Math.cos(p.yaw);
-      p.vel.x = dirx * speed;
-      p.vel.z = dirz * speed;
-      // авто-прыжок через 1 блок (если впереди стенка, а над ней свободно)
+      p.vel.x = dirx * speed; p.vel.z = dirz * speed;
       const fx = Math.floor(p.pos.x + dirx*0.6), fz = Math.floor(p.pos.z + dirz*0.6);
       const fy = Math.floor(p.pos.y);
-      if (p.onGround && mobSolid(fx, fy, fz) && !mobSolid(fx, fy+1, fz)) {
-        p.vel.y = 7;
-        p.onGround = false;
-      }
+      if (p.onGround && mobSolid(fx, fy, fz) && !mobSolid(fx, fy+1, fz)) { p.vel.y = 7; p.onGround = false; }
     } else { p.vel.x = 0; p.vel.z = 0; }
 
-    // гравитация
     p.vel.y -= GRAVITY * dt;
     if (p.vel.y < -55) p.vel.y = -55;
-    // плавание (выталкивание из воды)
     const inWater = isLiquid(World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y+0.3), Math.floor(p.pos.z)));
     if (inWater) { p.vel.y += GRAVITY*0.5*dt + 2.5*dt; if (p.vel.y < -2) p.vel.y = -2; }
 
     p.onGround = false;
-    pigCollide(p, 'y', p.vel.y * dt);
-    pigCollide(p, 'x', p.vel.x * dt);
-    pigCollide(p, 'z', p.vel.z * dt);
+    mobCollide(p, 'y', p.vel.y * dt);
+    mobCollide(p, 'x', p.vel.x * dt);
+    mobCollide(p, 'z', p.vel.z * dt);
 
-    // если уперлась в стенку при ходьбе — сменить направление
     if (moving && Math.abs(p.vel.x) < 0.01 && Math.abs(p.vel.z) < 0.01 && p.onGround && p.flee <= 0) {
       p.yaw = Math.random()*Math.PI*2; p.stateT = Math.min(p.stateT, 0.4);
     }
 
-    // провалилась в пустоту мира
-    if (p.pos.y < -8) { scene.remove(p.mesh); pigs.splice(i, 1); continue; }
+    if (p.pos.y < -8) { scene.remove(p.mesh); mobs.splice(i, 1); continue; }
 
     // --- Анимация ---
     p.mesh.position.copy(p.pos);
-    // плавный поворот к yaw
     let dy = p.yaw - p.mesh.rotation.y;
     while (dy > Math.PI) dy -= Math.PI*2; while (dy < -Math.PI) dy += Math.PI*2;
     p.mesh.rotation.y += dy * Math.min(1, dt*10);
 
+    const legs = p.mesh.userData.legs;
     if (moving) {
       p.walkPhase += dt * (p.flee>0?14:8);
       const sw = Math.sin(p.walkPhase) * 0.6;
-      const legs = p.mesh.userData.legs;
       if (legs) { legs[0].rotation.x = sw; legs[1].rotation.x = -sw; legs[2].rotation.x = -sw; legs[3].rotation.x = sw; }
-    } else {
-      const legs = p.mesh.userData.legs;
-      if (legs) for (const l of legs) l.rotation.x *= (1 - Math.min(1, dt*8));
+    } else if (legs) {
+      for (const l of legs) l.rotation.x *= (1 - Math.min(1, dt*8));
     }
-    // голова чуть качается / краснеет при уроне
     const head = p.mesh.userData.head;
     if (head) head.rotation.x = Math.sin(p.walkPhase*0.5) * 0.05;
-    // эффект урона — подёргивание
     p.mesh.scale.setScalar(p.hurtT > 0 ? 1.0 + Math.sin(p.hurtT*40)*0.06 : 1.0);
   }
 }
@@ -2736,25 +2914,23 @@ function dist2ToPlayer(p) {
   return dx*dx + dy*dy + dz*dz;
 }
 
-// атака по свинье из прицела (вызывается при ЛКМ)
-function tryAttackPig() {
-  // луч из камеры
+// атака по мобу из прицела (вызывается при ЛКМ)
+function tryAttackMob() {
   const origin = new THREE.Vector3(PLAYER.pos.x, PLAYER.pos.y + (PLAYER.crouching?PLAYER.crouchEye:PLAYER.eye), PLAYER.pos.z);
   const dir = new THREE.Vector3(
     -Math.sin(PLAYER.yaw)*Math.cos(PLAYER.pitch),
     Math.sin(PLAYER.pitch),
     -Math.cos(PLAYER.yaw)*Math.cos(PLAYER.pitch)
   ).normalize();
-  let best = null, bestT = 4.0; // досягаемость атаки
-  for (const p of pigs) {
-    // AABB свиньи
+  let best = null, bestT = 4.0;
+  for (const p of mobs) {
     const hw = p.width/2;
     const bmin = new THREE.Vector3(p.pos.x-hw, p.pos.y, p.pos.z-hw);
     const bmax = new THREE.Vector3(p.pos.x+hw, p.pos.y+p.height, p.pos.z+hw);
     const tHit = rayAABB(origin, dir, bmin, bmax);
     if (tHit !== null && tHit < bestT) { bestT = tHit; best = p; }
   }
-  if (best) { hurtPig(best); return true; }
+  if (best) { hurtMob(best); return true; }
   return false;
 }
 
@@ -2773,23 +2949,25 @@ function rayAABB(o, d, mn, mx) {
   return tmin >= 0 ? tmin : (tmax >= 0 ? 0 : null);
 }
 
-function hurtPig(p) {
+function hurtMob(p) {
   p.hp -= 4;
   p.hurtT = 0.3;
   p.flee = 3 + Math.random()*2;
-  playSound('oink_hurt');
-  // отбрасывание
+  addExhaustion(0.1); // атака тратит голод
+  playSound(p.def.hurtSound);
   const ax = p.pos.x - PLAYER.pos.x, az = p.pos.z - PLAYER.pos.z;
   const len = Math.hypot(ax, az) || 1;
   p.vel.x += (ax/len) * 4; p.vel.z += (az/len) * 4; p.vel.y = 4;
   if (p.hp <= 0) {
-    // смерть: пока ничего не выпадает
-    const idx = pigs.indexOf(p);
+    // выпадает мясо
+    const n = p.def.dropCount();
+    for (let k = 0; k < n; k++) spawnDrop(p.def.drop, p.pos.x + (Math.random()-0.5)*0.4, p.pos.y + 0.4, p.pos.z + (Math.random()-0.5)*0.4);
+    const idx = mobs.indexOf(p);
     scene.remove(p.mesh);
-    if (idx >= 0) pigs.splice(idx, 1);
-    playSound('oink_hurt');
+    if (idx >= 0) mobs.splice(idx, 1);
   }
 }
+
 
 // ============================================================
 //  Ломать / ставить
@@ -2854,6 +3032,7 @@ function finishBreak(t) {
 
   if (dropId !== null) spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
 
+  addExhaustion(0.05); // ломание блоков тратит голод
   rebuildAround(t.x, t.z);
   playSound('break', broken);
   WaterSim.touchAround(t.x, t.y, t.z); // вода может затечь в дыру
@@ -2901,6 +3080,8 @@ function placeBlock() {
 
   const slot = activeItem();
   if (!slot || slot.count <= 0) return;
+  // еда — съедаем по ПКМ
+  if (isFood(slot.id)) { tryEat(); return; }
   // палка/кирка не ставятся
   if (!isBlock(slot.id) && slot.id !== ITEM.DOOR) return;
 
@@ -2963,6 +3144,8 @@ function placeBlock() {
 // Что во что плавится
 const SMELT = {
   [BLOCK.SAND]: { id: BLOCK.GLASS, count: 1 },
+  [ITEM.PORK_RAW]: { id: ITEM.PORK_COOKED, count: 1 },
+  [ITEM.BEEF_RAW]: { id: ITEM.BEEF_COOKED, count: 1 },
 };
 function isSmeltable(id) { return SMELT[id] !== undefined; }
 // Топливо: сколько предметов сжигает 1 единица
@@ -2970,6 +3153,9 @@ const FUEL = {
   [BLOCK.PLANKS]: 1.5,
   [BLOCK.WOOD]: 1.5,
   [ITEM.DOOR]: 1,
+  [ITEM.STICK]: 0.5,
+  [BLOCK.CRAFTING_TABLE]: 1.5,
+  [BLOCK.CHEST]: 1.5,
 };
 function isFuel(id) { return FUEL[id] !== undefined; }
 
@@ -3271,7 +3457,14 @@ function updatePlayer(dt) {
     if (keys['Space'] && PLAYER.onGround) {
       PLAYER.vel.y = PLAYER.jumpV;
       PLAYER.onGround = false;
+      addExhaustion(0.2); // прыжок тратит голод
     }
+  }
+
+  // отслеживание высоты падения для урона
+  const wasOnGround = PLAYER.onGround;
+  if (!PLAYER.onGround && PLAYER.vel.y < 0 && !PLAYER.inWater) {
+    PLAYER.fallStart = (PLAYER.fallStart === undefined) ? PLAYER.pos.y : Math.max(PLAYER.fallStart, PLAYER.pos.y);
   }
 
   PLAYER.onGround = false;
@@ -3295,6 +3488,16 @@ function updatePlayer(dt) {
   // а не швырять с огромной скоростью под текстуры
   antiSuffocate(dt);
 
+  // урон от падения при приземлении
+  if (!wasOnGround && PLAYER.onGround && PLAYER.fallStart !== undefined) {
+    const fall = PLAYER.fallStart - PLAYER.pos.y;
+    if (fall > 3 && !PLAYER.inWater) {
+      damagePlayer(Math.floor(fall - 3));
+    }
+    PLAYER.fallStart = undefined;
+  }
+  if (PLAYER.onGround) PLAYER.fallStart = undefined;
+
   // шаги
   const horizSpeed = Math.hypot(PLAYER.vel.x, PLAYER.vel.z);
   if (PLAYER.onGround && horizSpeed > 0.5) {
@@ -3306,6 +3509,7 @@ function updatePlayer(dt) {
         Math.floor(PLAYER.pos.x), Math.floor(PLAYER.pos.y - 0.1), Math.floor(PLAYER.pos.z)
       );
       playSound('step', groundBlock || BLOCK.DIRT);
+      addExhaustion(keys['ControlLeft'] ? 0.06 : 0.03); // ходьба/бег тратят голод
     }
   }
 
@@ -3314,19 +3518,77 @@ function updatePlayer(dt) {
 }
 
 // ---- Кислород / утопление ----
+// ---- Голод, регенерация, урон ----
+function updateSurvival(dt) {
+  // истощение -> расход голода (4 единицы истощения = 1 голод)
+  if (PLAYER.exhaustion >= 4) {
+    PLAYER.exhaustion -= 4;
+    if (PLAYER.hunger > 0) PLAYER.hunger -= 1;
+  }
+  // регенерация: если голод высокий и здоровье не полное
+  if (PLAYER.hunger >= 18 && PLAYER.hp < PLAYER.maxHp) {
+    PLAYER.regenTimer += dt;
+    if (PLAYER.regenTimer >= 3.5) {
+      PLAYER.regenTimer = 0;
+      PLAYER.hp = Math.min(PLAYER.maxHp, PLAYER.hp + 1);
+      PLAYER.exhaustion += 1.5; // регенерация тратит голод
+    }
+  } else { PLAYER.regenTimer = 0; }
+  // голодание: при 0 голода — урон
+  if (PLAYER.hunger <= 0) {
+    PLAYER.starveTimer += dt;
+    if (PLAYER.starveTimer >= 4) {
+      PLAYER.starveTimer = 0;
+      if (PLAYER.hp > 1) damagePlayer(1); // голод не убивает до 1 hp (как в normal)
+    }
+  } else { PLAYER.starveTimer = 0; }
+
+  if (PLAYER.damageFlash > 0) PLAYER.damageFlash = Math.max(0, PLAYER.damageFlash - dt * 2);
+}
+
+// добавить истощения (расход голода)
+function addExhaustion(v) { PLAYER.exhaustion += v; }
+
+// нанести урон игроку
+function damagePlayer(amount) {
+  PLAYER.hp = Math.max(0, PLAYER.hp - amount);
+  PLAYER.damageFlash = 1;
+  if (PLAYER.hp <= 0) respawnPlayer();
+}
+
+// возрождение
+function respawnPlayer() {
+  PLAYER.hp = PLAYER.maxHp;
+  PLAYER.hunger = PLAYER.maxHunger;
+  PLAYER.oxygen = PLAYER.maxOxygen;
+  PLAYER.exhaustion = 0;
+  PLAYER.vel.set(0,0,0);
+  spawnPlayer();
+}
+
+// съесть еду из активного слота
+function tryEat() {
+  const slot = activeItem();
+  if (!slot || !isFood(slot.id)) return false;
+  if (PLAYER.hunger >= PLAYER.maxHunger) return false; // сыт
+  PLAYER.hunger = Math.min(PLAYER.maxHunger, PLAYER.hunger + FOOD[slot.id]);
+  slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+  refreshUI();
+  playSound('eat');
+  return true;
+}
+
 function updateOxygen(dt) {
   if (PLAYER.submerged) {
     // под водой — расход воздуха
     PLAYER.oxygen -= dt * (10 / 12); // полный запас на ~12 секунд
     if (PLAYER.oxygen <= 0) {
       PLAYER.oxygen = 0;
-      // начинаем «тонуть»: периодически выталкиваем игрока к поверхности
+      // нет воздуха — урон от утопления каждые ~1с
       PLAYER.drownTimer += dt;
-      if (PLAYER.drownTimer >= 1.5) {
+      if (PLAYER.drownTimer >= 1.0) {
         PLAYER.drownTimer = 0;
-        playSound('splash');
-        // спасение: телепорт на ближайшую поверхность над водой
-        rescueToSurface();
+        damagePlayer(2);
       }
     }
   } else {
@@ -3401,24 +3663,159 @@ function spawnPlayer() {
 // ============================================================
 const hudEl = document.getElementById('hud');
 const waterOverlayEl = document.getElementById('waterOverlay');
-const oxygenEl = document.getElementById('oxygen');
-let lastBubbles = -1;
+const statusBarsEl = document.getElementById('statusBars');
+const oxygenRowEl = document.getElementById('oxygenRow');
+const heartsBarEl = document.getElementById('heartsBar');
+const hungerBarEl = document.getElementById('hungerBar');
+const damageFlashEl = document.getElementById('damageFlash');
 
+// --- Пиксель-арт иконки статуса (рисуем на 9x9, масштаб x2) ---
+const ICON_PX = 9, ICON_SCALE = 2;
+function statusCanvas(draw) {
+  const c = document.createElement('canvas');
+  c.width = ICON_PX; c.height = ICON_PX;
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  draw(x);
+  c.style.width = (ICON_PX*ICON_SCALE) + 'px';
+  c.style.height = (ICON_PX*ICON_SCALE) + 'px';
+  c.style.imageRendering = 'pixelated';
+  return c;
+}
+function px(x, c, gx, gy, w, h) { x.fillStyle = c; x.fillRect(gx, gy, w||1, h||1); }
+
+// сердце: full | half | empty
+function heartIcon(state) {
+  return statusCanvas(x => {
+    const back = '#3b1414';
+    // фон-контур (пустое сердце всегда виден как тёмная подложка)
+    const shape = [
+      [1,1],[2,1],[6,1],[7,1],
+      [0,2],[1,2],[2,2],[3,2],[5,2],[6,2],[7,2],[8,2],
+      [0,3],[1,3],[2,3],[3,3],[4,3],[5,3],[6,3],[7,3],[8,3],
+      [1,4],[2,4],[3,4],[4,4],[5,4],[6,4],[7,4],
+      [2,5],[3,5],[4,5],[5,5],[6,5],
+      [3,6],[4,6],[5,6],
+      [4,7],
+    ];
+    // тёмная подложка чуть больше
+    for (const [gx,gy] of shape) px(x, back, gx, gy);
+    if (state === 'empty') return;
+    const red = '#e22';
+    const hi = '#ff7a7a';
+    for (const [gx,gy] of shape) {
+      if (state === 'half' && gx > 4) continue; // правая половина пустая
+      px(x, red, gx, gy);
+    }
+    // блик
+    px(x, hi, 1, 2); px(x, hi, 2, 2);
+    if (state === 'full') { px(x, hi, 6, 2); }
+  });
+}
+
+// голод (ножка/drumstick): full | half | empty
+function hungerIcon(state) {
+  return statusCanvas(x => {
+    const back = '#241a0c';
+    const meat = '#9c5a2a', meatHi = '#c47a3e';
+    const bone = '#efe6cf';
+    // форма мяса (округлый верх) + кость снизу-справа
+    const shape = [
+      [2,1],[3,1],[4,1],[5,1],
+      [1,2],[2,2],[3,2],[4,2],[5,2],[6,2],
+      [1,3],[2,3],[3,3],[4,3],[5,3],[6,3],
+      [1,4],[2,4],[3,4],[4,4],[5,4],[6,4],
+      [2,5],[3,5],[4,5],[5,5],
+      [3,6],[4,6],
+    ];
+    for (const [gx,gy] of shape) px(x, back, gx, gy);
+    if (state !== 'empty') {
+      for (const [gx,gy] of shape) {
+        if (state === 'half' && gx > 3) continue;
+        px(x, meat, gx, gy);
+      }
+      px(x, meatHi, 2, 2); px(x, meatHi, 3, 2);
+    }
+    // кость (всегда видна, торчит вниз-вправо)
+    px(x, bone, 4, 6); px(x, bone, 5, 6); px(x, bone, 5, 7); px(x, bone, 6, 7);
+    px(x, '#cfc4a6', 6, 6);
+  });
+}
+
+// пузырёк воздуха: full | half(лопается) | empty
+function bubbleIcon(state) {
+  return statusCanvas(x => {
+    if (state === 'empty') return;
+    const ring = '#0a2a4a', fill = '#3a86d8', hi = '#bfe3ff';
+    const shape = [
+      [3,1],[4,1],[5,1],
+      [2,2],[3,2],[4,2],[5,2],[6,2],
+      [1,3],[2,3],[3,3],[4,3],[5,3],[6,3],[7,3],
+      [1,4],[2,4],[3,4],[4,4],[5,4],[6,4],[7,4],
+      [2,5],[3,5],[4,5],[5,5],[6,5],
+      [3,6],[4,6],[5,6],
+    ];
+    // контур
+    for (const [gx,gy] of shape) px(x, ring, gx, gy);
+    if (state === 'full') {
+      // заливка чуть внутри
+      const inner = [[3,2],[4,2],[5,2],[2,3],[3,3],[4,3],[5,3],[6,3],[2,4],[3,4],[4,4],[5,4],[6,4],[3,5],[4,5],[5,5],[4,6]];
+      for (const [gx,gy] of inner) px(x, fill, gx, gy);
+      px(x, hi, 3, 2); px(x, hi, 2, 3); // блик
+    } else {
+      // half — лопающийся, частичная заливка
+      const inner = [[3,2],[4,2],[2,3],[3,3],[4,3],[5,3],[3,4],[4,4],[5,4]];
+      for (const [gx,gy] of inner) px(x, fill, gx, gy);
+      px(x, hi, 3, 2);
+    }
+  });
+}
+
+let _lastStatus = '';
 function updateWaterUI() {
   // синий оверлей когда голова под водой
   waterOverlayEl.classList.toggle('on', !!PLAYER.submerged);
+  // красная вспышка урона
+  damageFlashEl.style.background = 'rgba(180,20,20,' + (PLAYER.damageFlash * 0.35).toFixed(3) + ')';
 
-  // пузырьки кислорода — показываем только под водой и пока не полный
-  const showOxygen = PLAYER.submerged || PLAYER.oxygen < PLAYER.maxOxygen - 0.01;
-  oxygenEl.classList.toggle('on', showOxygen && PLAYER.submerged);
-  const bubbles = Math.ceil(PLAYER.oxygen);
-  if (bubbles !== lastBubbles) {
-    lastBubbles = bubbles;
-    oxygenEl.innerHTML = '';
-    for (let i = 0; i < PLAYER.maxOxygen; i++) {
-      const b = document.createElement('div');
-      b.className = 'bubble' + (i < bubbles ? '' : ' empty');
-      oxygenEl.appendChild(b);
+  // показываем полосы в игре
+  const inGame = gameStarted && overlay.classList.contains('hidden');
+  statusBarsEl.classList.toggle('on', inGame);
+  if (!inGame) return;
+
+  // подпись состояния, чтобы не перерисовывать каждый кадр
+  const hp = Math.max(0, Math.round(PLAYER.hp));
+  const hunger = Math.max(0, Math.round(PLAYER.hunger));
+  const oxy = Math.max(0, Math.ceil(PLAYER.oxygen));
+  const showOxy = PLAYER.submerged || PLAYER.oxygen < PLAYER.maxOxygen - 0.01;
+  const sig = hp + '|' + hunger + '|' + (showOxy ? oxy : 'x');
+  if (sig === _lastStatus) return;
+  _lastStatus = sig;
+
+  // --- сердца (10 шт = 20 hp) ---
+  heartsBarEl.innerHTML = '';
+  for (let i = 0; i < 10; i++) {
+    const v = hp - i * 2;
+    const st = v >= 2 ? 'full' : (v === 1 ? 'half' : 'empty');
+    heartsBarEl.appendChild(heartIcon(st));
+  }
+  // --- голод (10 шт = 20) справа, рисуем в обратном порядке (визуально как в MC) ---
+  hungerBarEl.innerHTML = '';
+  for (let i = 0; i < 10; i++) {
+    const idxR = 9 - i; // правый край = первый
+    const v = hunger - idxR * 2;
+    const st = v >= 2 ? 'full' : (v === 1 ? 'half' : 'empty');
+    hungerBarEl.appendChild(hungerIcon(st));
+  }
+  // --- кислород (только под водой) ---
+  oxygenRowEl.innerHTML = '';
+  oxygenRowEl.classList.toggle('hidden', !showOxy);
+  if (showOxy) {
+    for (let i = 0; i < 10; i++) {
+      const v = oxy - i * 1; // 10 пузырьков = maxOxygen(10)
+      const st = v >= 1 ? 'full' : 'empty';
+      if (st !== 'empty') oxygenRowEl.appendChild(bubbleIcon(st));
+      else { const sp = document.createElement('canvas'); sp.width=ICON_PX; sp.height=ICON_PX; sp.style.width=(ICON_PX*ICON_SCALE)+'px'; sp.style.height=(ICON_PX*ICON_SCALE)+'px'; oxygenRowEl.appendChild(sp); }
     }
   }
 }
@@ -3432,7 +3829,7 @@ function updateHUD() {
     `Мир: ${WorldManager.current || '—'} · Сид: ${WORLD_SEED}<br>` +
     `XYZ: ${PLAYER.pos.x.toFixed(1)}, ${PLAYER.pos.y.toFixed(1)}, ${PLAYER.pos.z.toFixed(1)}<br>` +
     `Чанков: ${loadedMeshes.size} · FPS: ${fps}<br>` +
-    `${PLAYER.inWater ? '🌊 В воде' : (PLAYER.crouching ? 'Присел' : 'Выживание')}<br>` +
+    `${PLAYER.inWater ? 'В воде' : (PLAYER.crouching ? 'Присел' : 'Выживание')}<br>` +
     `Цель: ${targetName}`;
 }
 
@@ -3451,6 +3848,7 @@ function loop(now) {
   if (overlay.classList.contains('hidden') && !invOpen) {
     updatePlayer(dt);
     updateOxygen(dt);
+    updateSurvival(dt);
     updateDrops(dt);
     updateMining(dt);
   } else if (mining.active) {
@@ -3461,7 +3859,7 @@ function loop(now) {
   updateFallingSand(dt);
   updateLeafDecay(dt);
   updateFurnaces(dt);
-  if (!invOpen && overlay.classList.contains('hidden')) updatePigs(dt);
+  if (!invOpen && overlay.classList.contains('hidden')) updateMobs(dt);
   updateChunks();
 
   // солнце следует за игроком (чтобы тени были вокруг него)
