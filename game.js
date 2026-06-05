@@ -25,6 +25,7 @@ const BLOCK = {
   DOOR_BOTTOM: 15, // дверь, нижняя половина
   DOOR_TOP:   16, // дверь, верхняя половина
   CHEST:      17, // сундук (хранилище)
+  COAL_ORE:   18, // угольная руда (в камне под землёй)
 };
 
 // Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
@@ -36,6 +37,9 @@ const ITEM = {
   PORK_COOKED:    104, // жареная свинина
   BEEF_RAW:       105, // сырая говядина
   BEEF_COOKED:    106, // жареная говядина
+  STONE_PICKAXE:  107, // каменная кирка
+  COAL:           108, // уголь (топливо, горит долго)
+  CHARCOAL:       109, // древесный уголь (переплавка дерева, среднее топливо)
 };
 
 const BLOCK_NAMES = {
@@ -56,13 +60,17 @@ const BLOCK_NAMES = {
   [BLOCK.DOOR_BOTTOM]: 'Дверь',
   [BLOCK.DOOR_TOP]: 'Дверь',
   [BLOCK.CHEST]:   'Сундук',
+  [BLOCK.COAL_ORE]: 'Угольная руда',
   [ITEM.STICK]:    'Палки',
   [ITEM.WOODEN_PICKAXE]: 'Деревянная кирка',
+  [ITEM.STONE_PICKAXE]: 'Каменная кирка',
   [ITEM.DOOR]:     'Дверь',
   [ITEM.PORK_RAW]: 'Сырая свинина',
   [ITEM.PORK_COOKED]: 'Жареная свинина',
   [ITEM.BEEF_RAW]: 'Сырая говядина',
   [ITEM.BEEF_COOKED]: 'Жареная говядина',
+  [ITEM.COAL]:     'Уголь',
+  [ITEM.CHARCOAL]: 'Древесный уголь',
 };
 
 // Еда: сколько голода восстанавливает
@@ -105,10 +113,12 @@ const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND,
                    BLOCK.COBBLESTONE, BLOCK.GLASS, BLOCK.FURNACE, BLOCK.CHEST, ITEM.DOOR];
 
 // Инструменты-кирки (ускоряют добычу камня и позволяют получить булыжник)
-function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE; }
+function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE; }
+// Уровень кирки: 1 — деревянная, 2 — каменная (быстрее)
+function pickaxeTier(id) { return id === ITEM.STONE_PICKAXE ? 2 : (id === ITEM.WOODEN_PICKAXE ? 1 : 0); }
 
 // Блоки, для добычи которых нужна кирка (иначе ломается, но ничего не выпадает)
-function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE; }
+function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE; }
 
 // Время ломания (в секундах, без инструментов) — как в современном майне
 const BREAK_TIME = {
@@ -126,6 +136,7 @@ const BREAK_TIME = {
   [BLOCK.DOOR_BOTTOM]: 0.8,
   [BLOCK.DOOR_TOP]: 0.8,
   [BLOCK.CHEST]:   1.4,
+  [BLOCK.COAL_ORE]: 3.0, // руда крепкая
   [BLOCK.BEDROCK]: Infinity, // неразрушим
   [BLOCK.WATER]:   Infinity, // воду нельзя сломать
   [BLOCK.WATER_FLOW]: Infinity,
@@ -278,6 +289,16 @@ function buildTextures() {
     // блики на камнях
     ctx.fillStyle = '#9a9a9a';
     ctx.fillRect(2,2,2,1); ctx.fillRect(11,2,2,1); ctx.fillRect(2,7,2,1); ctx.fillRect(12,7,2,1); ctx.fillRect(7,12,2,1);
+  });
+  // угольная руда — камень с чёрными вкраплениями угля
+  TEX.coal_ore = makeTex(ctx => {
+    pixelFill(ctx, ['#909090','#828282','#9a9a9a','#777777'], [5,4,3,2], 404); // та же база, что камень
+    // чёрные «жилы» угля
+    ctx.fillStyle = '#1c1c1c';
+    const blobs = [[3,3,3,2],[10,4,3,3],[5,9,4,3],[11,10,2,3],[2,11,2,2]];
+    for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx,by,bw,bh);
+    ctx.fillStyle = '#3a3a3a';
+    for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
   });
   // стекло — почти прозрачное с рамкой/бликом
   TEX.glass = makeTex(ctx => {
@@ -455,6 +476,7 @@ function buildMaterials() {
   const mCraftTop  = texToMaterial(TEX.craft_top);
   const mCraftSide = texToMaterial(TEX.craft_side);
   const mCobble    = texToMaterial(TEX.cobble);
+  const mCoalOre   = texToMaterial(TEX.coal_ore);
   const mFurSide   = texToMaterial(TEX.furnace_side);
   const mFurTop    = texToMaterial(TEX.furnace_top);
   const mFurFront  = texToMaterial(TEX.furnace_front);
@@ -494,6 +516,7 @@ function buildMaterials() {
   MATERIALS[BLOCK.PLANKS]  = [mPlanks, mPlanks, mPlanks, mPlanks, mPlanks, mPlanks];
   MATERIALS[BLOCK.CRAFTING_TABLE] = [mCraftSide, mCraftSide, mCraftTop, mPlanks, mCraftSide, mCraftSide];
   MATERIALS[BLOCK.COBBLESTONE] = [mCobble, mCobble, mCobble, mCobble, mCobble, mCobble];
+  MATERIALS[BLOCK.COAL_ORE] = [mCoalOre, mCoalOre, mCoalOre, mCoalOre, mCoalOre, mCoalOre];
   MATERIALS[BLOCK.GLASS]   = [mGlass, mGlass, mGlass, mGlass, mGlass, mGlass];
   // печь: перед — топка (+Z), остальное булыжник
   MATERIALS[BLOCK.FURNACE] = [mFurSide, mFurSide, mFurTop, mFurTop, mFurFront, mFurSide];
@@ -565,6 +588,14 @@ function terrainHeight(wx, wz) {
   return Math.floor(12 + h * 26); // диапазон ~12..38
 }
 
+// 3D-хеш для размещения руды (детерминированно, зависит от сида)
+function oreHash(x, y, z) {
+  let h = (x | 0) * 73856093 ^ (y | 0) * 19349663 ^ (z | 0) * 83492791 ^ Math.imul(WORLD_SEED, 2654435761);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
 // отдельный хеш для решений о деревьях (не зависит от рельефного шума)
 function treeHash(wx, wz) {
   let h = (wx | 0) * 1597334677 + (wz | 0) * 3812015801 + Math.imul(WORLD_SEED, 22695477);
@@ -624,7 +655,11 @@ const World = {
         for (let y = 0; y < WORLD_HEIGHT; y++) {
           let b = BLOCK.AIR;
           if (y === 0) b = BLOCK.BEDROCK;
-          else if (y < h - 4) b = BLOCK.STONE;
+          else if (y < h - 4) {
+            b = BLOCK.STONE;
+            // угольная руда — залежи в камне (детерминированно по координатам/сиду)
+            if (y < h - 6 && oreHash(wx, y, wz) < 0.035) b = BLOCK.COAL_ORE;
+          }
           else if (y < h - 1) b = beach ? BLOCK.SAND : BLOCK.DIRT; // под верхним слоем тоже песок на пляже
           else if (y < h) {
             // верхний слой
@@ -1338,6 +1373,7 @@ const WorldManager = {
     for (let i = 0; i < TOTAL_SLOTS; i++) slots[i] = null;
     for (let i = 0; i < craftSlots.length; i++) craftSlots[i] = null;
     cursorItem = null; craftResult = null;
+    discovered = new Set();
     activeSlot = 0;
     PLAYER.vel.set(0, 0, 0);
     PLAYER.oxygen = PLAYER.maxOxygen;
@@ -1360,7 +1396,7 @@ const WorldManager = {
     arr.push({ name, seed, updated: Date.now() });
     this.saveIndex(arr);
     this.save(); // первичное сохранение
-    beginGame();
+    startWorldLoading();
   },
 
   // сохранить текущий мир в localStorage
@@ -1385,6 +1421,7 @@ const WorldManager = {
         k, items: arr.map(s => s ? { id: s.id, count: s.count } : null),
       })),
       facing: Array.from(World.facing.entries()).map(([k, v]) => k + ':' + v),
+      discovered: Array.from(discovered),
     };
     try {
       localStorage.setItem(this.LS_PREFIX + this.current, JSON.stringify(data));
@@ -1436,6 +1473,8 @@ const WorldManager = {
       const i = s.lastIndexOf(':');
       World.facing.set(s.slice(0, i), parseInt(s.slice(i + 1), 10));
     }
+    // открытые рецепты (справочник)
+    discovered = new Set((data.discovered || []).map(Number));
     // инвентарь (новый формат слотов; старые сейвы без slots -> пустой инвентарь)
     if (Array.isArray(data.slots)) {
       for (let i = 0; i < TOTAL_SLOTS; i++) {
@@ -1462,7 +1501,7 @@ const WorldManager = {
       checkSandAround(x, y, z);
     }
 
-    beginGame();
+    startWorldLoading();
   },
 
   delete(name) {
@@ -1472,7 +1511,83 @@ const WorldManager = {
   },
 };
 
-// запустить игровой процесс (после выбора мира)
+// ============================================================
+//  Экран загрузки: предгенерация чанков перед стартом (без лагов)
+// ============================================================
+const LOADING_TIPS = [
+  'Совет: каменная кирка добывает быстрее деревянной.',
+  'Совет: уголь горит дольше дерева — отличное топливо.',
+  'Совет: переплавь дерево в печи, чтобы получить древесный уголь.',
+  'Совет: открывай рецепты, добывая новые ресурсы (клавиша J).',
+  'Совет: свиньи и коровы дают мясо — пожарь его в печи.',
+  'Совет: уголь встречается в камне глубоко под землёй.',
+  'Совет: держи голод полным, чтобы восстанавливать здоровье.',
+];
+
+function startWorldLoading() {
+  const ls = document.getElementById('loadingScreen');
+  const bar = document.getElementById('loadBar');
+  const sub = document.getElementById('loadSub');
+  const tip = document.getElementById('loadTip');
+  overlay.classList.add('hidden');
+  ls.classList.add('on');
+  tip.textContent = LOADING_TIPS[(Math.random()*LOADING_TIPS.length)|0];
+  bar.style.width = '0%';
+
+  // центр прогрузки — около игрока
+  const pcx = Math.floor(PLAYER.pos.x / CHUNK_SIZE);
+  const pcz = Math.floor(PLAYER.pos.z / CHUNK_SIZE);
+  // список чанков в радиусе, отсортированный от центра
+  const list = [];
+  for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++)
+    for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++)
+      list.push({ cx: pcx + dx, cz: pcz + dz, dist: dx*dx + dz*dz });
+  list.sort((a, b) => a.dist - b.dist);
+
+  const totalSteps = list.length * 2; // генерация + меширование
+  let done = 0;
+  let i = 0;       // индекс для генерации
+  let j = 0;       // индекс для меширования
+  let phase = 0;   // 0 — генерируем, 1 — мешируем
+
+  function step() {
+    const t0 = performance.now();
+    // работаем кусками по времени, чтобы не было фриза (макс ~12мс за кадр)
+    while (performance.now() - t0 < 12) {
+      if (phase === 0) {
+        if (i >= list.length) { phase = 1; sub.textContent = 'Построение чанков'; continue; }
+        const it = list[i++];
+        World.getChunk(it.cx, it.cz); // генерация (кешируется)
+        done++;
+      } else {
+        if (j >= list.length) break;
+        const it = list[j++];
+        const c = World.getChunk(it.cx, it.cz);
+        const k = World.key(it.cx, it.cz);
+        if (!loadedMeshes.has(k)) {
+          const mesh = buildChunkMesh(c);
+          scene.add(mesh);
+          loadedMeshes.set(k, mesh);
+          c.dirty = false;
+        }
+        done++;
+      }
+    }
+    bar.style.width = Math.min(100, Math.round(done / totalSteps * 100)) + '%';
+
+    if (j >= list.length && phase === 1) {
+      // готово — небольшая пауза для плавности, затем старт
+      bar.style.width = '100%';
+      sub.textContent = 'Готово!';
+      setTimeout(() => { ls.classList.remove('on'); beginGame(); }, 250);
+    } else {
+      requestAnimationFrame(step);
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+// запустить игровой процесс (после предзагрузки чанков)
 function beginGame() {
   gameStarted = true;
   overlay.classList.add('hidden');
@@ -1511,9 +1626,32 @@ document.addEventListener('keydown', (e) => {
   // игнорировать игровые клавиши, когда печатаем в поле ввода или мир ещё не запущен
   const typing = e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
   if (typing) return;
+
+  // Блокируем браузерные сочетания, которые мешают игре (Ctrl+W закрывает вкладку,
+  // Ctrl+D — закладка, Ctrl+S — сохранить страницу, Ctrl+T/N, Tab и т.д.),
+  // но только когда мы реально в игре (мир запущен и не печатаем).
+  if (gameStarted) {
+    const code = e.code;
+    const gameKeys = code === 'KeyW' || code === 'KeyA' || code === 'KeyS' || code === 'KeyD' ||
+                     code === 'KeyE' || code === 'KeyR' || code === 'KeyT' || code === 'KeyN' ||
+                     code === 'KeyP' || code === 'KeyO' || code === 'KeyJ' || code === 'KeyF' ||
+                     code === 'Tab' || code === 'Space' || code.startsWith('Digit');
+    // Перехватываем любые Ctrl/Meta/Alt-комбинации с игровыми клавишами
+    if ((e.ctrlKey || e.metaKey || e.altKey) && gameKeys) {
+      e.preventDefault();
+    }
+    // Tab и Space прокручивают/переключают — гасим всегда в игре
+    if (code === 'Tab' || code === 'Space') e.preventDefault();
+    // одиночный Ctrl+S / Ctrl+P и подобные — тоже гасим
+    if ((e.ctrlKey || e.metaKey) && (code === 'KeyS' || code === 'KeyP' || code === 'KeyU' || code === 'KeyG')) {
+      e.preventDefault();
+    }
+  }
+
   keys[e.code] = true;
   if (!gameStarted) return;
   if (e.code === 'KeyE') { toggleInventory(); }
+  if (e.code === 'KeyJ') { toggleInventory('guide'); } // справочник рецептов
   if (e.code.startsWith('Digit')) {
     const n = parseInt(e.code.slice(5), 10);
     if (n >= 1 && n <= HOTBAR_SIZE) selectSlot(n - 1);
@@ -1576,10 +1714,11 @@ function updateMining(dt) {
 
   let time = BREAK_TIME[mining.block] || 1;
   const held = activeItem();
-  const havePick = held && isPickaxe(held.id);
+  const tier = held ? pickaxeTier(held.id) : 0;
   if (needsPickaxe(mining.block)) {
-    if (havePick) time *= 0.35;  // кирка добывает быстрее
-    else time *= 2.2;            // без кирки — заметно медленнее
+    if (tier >= 2) time *= 0.22;      // каменная кирка — заметно быстрее
+    else if (tier === 1) time *= 0.35; // деревянная кирка
+    else time *= 2.2;                 // без кирки — медленно
   }
   mining.progress += dt / time;
 
@@ -1619,10 +1758,23 @@ let craftResult = null;
 // Предмет «на курсоре» (взятый мышью)
 let cursorItem = null;
 
+// Открытые ресурсы (для справочника): id предметов, которые игрок держал в руках
+let discovered = new Set();
+// отметить ресурс как полученный (открывает связанные рецепты в справочнике)
+function onObtain(id) {
+  if (id === undefined || id === null) return;
+  if (!discovered.has(id)) {
+    discovered.add(id);
+    // если открыт справочник — обновить
+    if (invOpen && craftMode === 'guide') renderInventory();
+  }
+}
+
 function maxStack(id) { return MAX_STACK; }
 
 // ---- Базовые операции со стопками ----
 function addToInventory(id, n = 1) {
+  onObtain(id); // открыть ресурс для справочника
   // сначала докинуть в существующие стопки
   for (let i = 0; i < TOTAL_SLOTS && n > 0; i++) {
     const s = slots[i];
@@ -1681,13 +1833,27 @@ function iconCanvas(id, size) {
     ctx.beginPath(); ctx.moveTo(size*0.7, size*0.2); ctx.lineTo(size*0.3, size*0.8); ctx.stroke();
     return c;
   }
-  if (id === ITEM.WOODEN_PICKAXE) {
+  if (id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE) {
     // ручка
     ctx.strokeStyle = '#7a5326'; ctx.lineWidth = Math.max(2, size/8);
     ctx.beginPath(); ctx.moveTo(size*0.62, size*0.28); ctx.lineTo(size*0.34, size*0.82); ctx.stroke();
-    // головка из досок
-    ctx.strokeStyle = '#b98e4d'; ctx.lineWidth = Math.max(3, size/6);
+    // головка: дерево или камень
+    ctx.strokeStyle = (id === ITEM.STONE_PICKAXE) ? '#8a8a8a' : '#b98e4d';
+    ctx.lineWidth = Math.max(3, size/6);
     ctx.beginPath(); ctx.moveTo(size*0.3, size*0.32); ctx.quadraticCurveTo(size*0.62, size*0.18, size*0.82, size*0.34); ctx.stroke();
+    return c;
+  }
+  // уголь / древесный уголь — кусочек угля
+  if (id === ITEM.COAL || id === ITEM.CHARCOAL) {
+    const u = size/16;
+    const base = (id === ITEM.CHARCOAL) ? '#3a2e26' : '#202020';
+    const hi = (id === ITEM.CHARCOAL) ? '#5a463a' : '#3c3c3c';
+    ctx.fillStyle = base;
+    ctx.fillRect(4*u,4*u,8*u,8*u); ctx.fillRect(3*u,6*u,10*u,5*u); ctx.fillRect(5*u,3*u,6*u,10*u);
+    ctx.fillStyle = hi; // блики-грани
+    ctx.fillRect(5*u,5*u,2*u,1*u); ctx.fillRect(9*u,6*u,2*u,1*u); ctx.fillRect(6*u,9*u,3*u,1*u);
+    ctx.fillStyle = '#0d0d0d';
+    ctx.fillRect(4*u,11*u,8*u,1*u); ctx.fillRect(11*u,5*u,1*u,6*u);
     return c;
   }
   if (id === ITEM.DOOR) {
@@ -1734,6 +1900,7 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.PLANKS) tex = TEX.planks;
   else if (id === BLOCK.CRAFTING_TABLE) tex = TEX.craft_top;
   else if (id === BLOCK.COBBLESTONE) tex = TEX.cobble;
+  else if (id === BLOCK.COAL_ORE) tex = TEX.coal_ore;
   else if (id === BLOCK.GLASS) tex = TEX.glass;
   else if (id === BLOCK.FURNACE) tex = TEX.furnace_front;
   else if (id === BLOCK.CHEST) tex = TEX.chest_front;
@@ -1826,6 +1993,11 @@ const RECIPES = [
     cells: [P,P,P,
             O,S,O,
             O,S,O], result: { id: ITEM.WOODEN_PICKAXE, count: 1 } },
+  // каменная кирка: ряд булыжника + 2 палки (3x3)
+  { shaped: true, w: 3, h: 3, need3x3: true,
+    cells: [C,C,C,
+            O,S,O,
+            O,S,O], result: { id: ITEM.STONE_PICKAXE, count: 1 } },
   // дверь: 2 в ширину, 3 в высоту из досок (6 досок) -> предмет двери.
   // (полный столбец 2x3, чтобы не путать с верстаком 2x2)
   { shaped: true, w: 2, h: 3, need3x3: true,
@@ -1881,6 +2053,29 @@ function shapedFits(rec, grid, size, or, oc) {
     if (grid[r][cc] !== want) return false;
   }
   return true;
+}
+
+// набор уникальных id-ингредиентов рецепта (для справочника)
+function recipeIngredients(rec) {
+  const set = new Set();
+  if (rec.shapeless) { for (const k of Object.keys(rec.ingredients)) set.add(+k); }
+  else if (rec.cells) { for (const c of rec.cells) if (c) set.add(c); }
+  return [...set];
+}
+// рецепт открыт, если игрок держал все его ингредиенты
+function recipeUnlocked(rec) {
+  return recipeIngredients(rec).every(id => discovered.has(id));
+}
+// список ячеек рецепта для отображения сетки (нормализованный до w×h; SMELT — особый)
+function recipeGridCells(rec) {
+  if (rec.shapeless) {
+    // разложить ингредиенты по ячейкам 3x3 подряд
+    const cells = [];
+    for (const k of Object.keys(rec.ingredients)) for (let i = 0; i < rec.ingredients[k]; i++) cells.push(+k);
+    while (cells.length < 4) cells.push(0);
+    return { w: 2, h: 2, cells: cells.slice(0, 4) };
+  }
+  return { w: rec.w, h: rec.h, cells: rec.cells };
 }
 
 function matchRecipe(size) {
@@ -1940,6 +2135,7 @@ function takeCraftResult() {
   }
   if (cursorItem) cursorItem.count += res.count;
   else cursorItem = { id: res.id, count: res.count };
+  onObtain(res.id); // открыть рецепт результата в справочнике
   playSound('place', res.id);
   updateCraftResult();
   refreshUI();
@@ -2032,6 +2228,7 @@ function furnaceSlotClick(f, field, rightClick) {
     // только забрать
     const s = f.output;
     if (!s) return;
+    onObtain(s.id); // переплавленный предмет открывает рецепт
     if (!cursorItem) { cursorItem = s; f.output = null; }
     else if (cursorItem.id === s.id && cursorItem.count + s.count <= MAX_STACK) { cursorItem.count += s.count; f.output = null; }
     refreshUI(); return;
@@ -2073,9 +2270,111 @@ function makeFurnaceSlot(f, field) {
   return el;
 }
 
+// мини-иконка рецепта (без интерактива)
+function recipeIconEl(id, size) {
+  const el = document.createElement('div');
+  el.className = 'guide-cell' + (id ? '' : ' empty');
+  if (id) { el.appendChild(iconCanvas(id, size)); el.title = BLOCK_NAMES[id] || ''; }
+  return el;
+}
+
+// Справочник рецептов — открывается постепенно по мере добычи ресурсов
+function renderGuide() {
+  const wrap = document.createElement('div');
+  wrap.className = 'guide-wrap';
+
+  const intro = document.createElement('div');
+  intro.className = 'guide-intro';
+  const total = RECIPES.length + Object.keys(SMELT).length;
+  let unlocked = RECIPES.filter(recipeUnlocked).length +
+                 Object.keys(SMELT).filter(k => discovered.has(+k)).length;
+  intro.textContent = 'Справочник рецептов — открыто ' + unlocked + ' из ' + total +
+                      '. Добывайте новые ресурсы, чтобы открыть больше.';
+  wrap.appendChild(intro);
+
+  // --- Крафт-рецепты ---
+  for (const rec of RECIPES) {
+    const row = document.createElement('div');
+    row.className = 'guide-row';
+    const un = recipeUnlocked(rec);
+    if (!un) {
+      row.classList.add('locked');
+      const q = document.createElement('div'); q.className = 'guide-locked';
+      q.textContent = '??? — добудьте: ' +
+        recipeIngredients(rec).map(id => BLOCK_NAMES[id] || '?').join(', ');
+      row.appendChild(q);
+      wrap.appendChild(row);
+      continue;
+    }
+    const g = recipeGridCells(rec);
+    const grid = document.createElement('div'); grid.className = 'guide-grid';
+    grid.style.gridTemplateColumns = `repeat(${g.w}, 24px)`;
+    for (let i = 0; i < g.w * g.h; i++) grid.appendChild(recipeIconEl(g.cells[i] || 0, 20));
+    row.appendChild(grid);
+    const arr = document.createElement('div'); arr.className = 'guide-arrow'; arr.appendChild(makeArrowIcon());
+    row.appendChild(arr);
+    const res = recipeIconEl(rec.result.id, 24); res.classList.add('guide-result');
+    if (rec.result.count > 1) { const c=document.createElement('span'); c.className='guide-count'; c.textContent='×'+rec.result.count; res.appendChild(c); }
+    row.appendChild(res);
+    const nm = document.createElement('div'); nm.className = 'guide-name';
+    nm.textContent = BLOCK_NAMES[rec.result.id] || '';
+    row.appendChild(nm);
+    wrap.appendChild(row);
+  }
+
+  // --- Плавка (печь) ---
+  const smHdr = document.createElement('div'); smHdr.className = 'guide-intro'; smHdr.style.marginTop = '8px';
+  smHdr.textContent = 'Плавка в печи:';
+  wrap.appendChild(smHdr);
+  for (const k of Object.keys(SMELT)) {
+    const inId = +k, out = SMELT[k];
+    const row = document.createElement('div'); row.className = 'guide-row';
+    if (!discovered.has(inId)) {
+      row.classList.add('locked');
+      const q = document.createElement('div'); q.className = 'guide-locked';
+      q.textContent = '??? — добудьте: ' + (BLOCK_NAMES[inId] || '?');
+      row.appendChild(q); wrap.appendChild(row); continue;
+    }
+    const inCell = recipeIconEl(inId, 24); row.appendChild(inCell);
+    const fl = document.createElement('div'); fl.className = 'guide-arrow'; fl.appendChild(makeFlameIcon(true)); row.appendChild(fl);
+    const res = recipeIconEl(out.id, 24); res.classList.add('guide-result'); row.appendChild(res);
+    const nm = document.createElement('div'); nm.className = 'guide-name'; nm.textContent = BLOCK_NAMES[out.id] || '';
+    row.appendChild(nm);
+    wrap.appendChild(row);
+  }
+
+  invGrid.appendChild(wrap);
+}
+
+// вкладки переключения Инвентарь/Справочник
+function makeTabs() {
+  const tabs = document.createElement('div');
+  tabs.className = 'inv-tabs';
+  const t1 = document.createElement('div');
+  t1.className = 'inv-tab' + (craftMode !== 'guide' ? ' active' : '');
+  t1.textContent = 'Инвентарь';
+  t1.addEventListener('click', () => { if (craftMode === 'guide') { craftMode = '2x2'; document.getElementById('invTitle').textContent = 'Инвентарь'; updateCraftResult(); renderInventory(); } });
+  const t2 = document.createElement('div');
+  t2.className = 'inv-tab' + (craftMode === 'guide' ? ' active' : '');
+  t2.textContent = 'Справочник (J)';
+  t2.addEventListener('click', () => { if (craftMode !== 'guide') { clearCraftToInventory(); craftMode = 'guide'; document.getElementById('invTitle').textContent = 'Справочник'; renderInventory(); } });
+  tabs.appendChild(t1); tabs.appendChild(t2);
+  return tabs;
+}
+
 function renderInventory() {
   // строим всю панель заново (заголовок задан в HTML)
   invGrid.innerHTML = '';
+
+  // вкладки показываем только в обычном инвентаре и справочнике
+  if (craftMode === '2x2' || craftMode === 'guide') {
+    invGrid.appendChild(makeTabs());
+  }
+
+  if (craftMode === 'guide') {
+    renderGuide();
+    return; // справочник занимает всю панель
+  }
 
   if (craftMode === 'chest') {
     // --- Сундук: 27 слотов (3x9) ---
@@ -2181,7 +2480,7 @@ function toggleInventory(mode) {
   if (invOpen) {
     craftMode = mode || '2x2';
     invPanel.classList.add('open');
-    const title = craftMode === '3x3' ? 'Верстак' : (craftMode === 'furnace' ? 'Печь' : (craftMode === 'chest' ? 'Сундук' : 'Инвентарь'));
+    const title = craftMode === '3x3' ? 'Верстак' : (craftMode === 'furnace' ? 'Печь' : (craftMode === 'chest' ? 'Сундук' : (craftMode === 'guide' ? 'Справочник' : 'Инвентарь')));
     document.getElementById('invTitle').textContent = title;
     document.exitPointerLock();
     updateCraftResult();
@@ -3029,8 +3328,12 @@ function finishBreak(t) {
   else if (broken === BLOCK.STONE) dropId = havePick ? BLOCK.COBBLESTONE : null; // камень -> булыжник только киркой
   else if (broken === BLOCK.COBBLESTONE) dropId = havePick ? BLOCK.COBBLESTONE : null;
   else if (broken === BLOCK.FURNACE) dropId = havePick ? BLOCK.FURNACE : null;
+  else if (broken === BLOCK.COAL_ORE) dropId = havePick ? ITEM.COAL : null; // уголь только киркой
 
-  if (dropId !== null) spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
+  if (dropId !== null) {
+    spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
+    onObtain(dropId); // отметить как открытый ресурс (для справочника)
+  }
 
   addExhaustion(0.05); // ломание блоков тратит голод
   rebuildAround(t.x, t.z);
@@ -3146,9 +3449,10 @@ const SMELT = {
   [BLOCK.SAND]: { id: BLOCK.GLASS, count: 1 },
   [ITEM.PORK_RAW]: { id: ITEM.PORK_COOKED, count: 1 },
   [ITEM.BEEF_RAW]: { id: ITEM.BEEF_COOKED, count: 1 },
+  [BLOCK.WOOD]: { id: ITEM.CHARCOAL, count: 1 }, // дерево -> древесный уголь
 };
 function isSmeltable(id) { return SMELT[id] !== undefined; }
-// Топливо: сколько предметов сжигает 1 единица
+// Топливо: сколько предметов сжигает 1 единица (больше = горит дольше)
 const FUEL = {
   [BLOCK.PLANKS]: 1.5,
   [BLOCK.WOOD]: 1.5,
@@ -3156,6 +3460,8 @@ const FUEL = {
   [ITEM.STICK]: 0.5,
   [BLOCK.CRAFTING_TABLE]: 1.5,
   [BLOCK.CHEST]: 1.5,
+  [ITEM.CHARCOAL]: 8,  // древесный уголь — золотая середина
+  [ITEM.COAL]: 10,     // уголь — лучшее топливо
 };
 function isFuel(id) { return FUEL[id] !== undefined; }
 

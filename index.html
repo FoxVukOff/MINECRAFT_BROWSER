@@ -50,6 +50,29 @@
   #inventory.open { display: block; }
   #inventory h2 { font-size: 16px; color: #333; margin-bottom: 10px; text-align: center; }
   .inv-hint { font-size: 10px; color: #555; text-align: center; margin-top: 10px; }
+
+  /* Справочник рецептов */
+  .guide-wrap { width: 420px; max-height: 60vh; overflow-y: auto; padding-right: 4px; }
+  .guide-intro { font-size: 11px; color: #333; margin-bottom: 6px; }
+  .guide-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; margin-bottom: 3px;
+    background: #b8b8b8; border: 2px solid #fff; border-right-color:#5a5a5a; border-bottom-color:#5a5a5a; }
+  .guide-row.locked { background: #9a9a9a; opacity: 0.8; }
+  .guide-grid { display: grid; gap: 2px; }
+  .guide-cell { width: 24px; height: 24px; background: #8b8b8b; border: 1px solid #5a5a5a;
+    display:flex; align-items:center; justify-content:center; }
+  .guide-cell.empty { background: #9d9d9d; border-color:#888; }
+  .guide-cell canvas { width: 20px; height: 20px; image-rendering: pixelated; }
+  .guide-arrow { width: 22px; display:flex; align-items:center; justify-content:center; }
+  .guide-result { width: 30px !important; height: 30px !important; position: relative; }
+  .guide-result canvas { width: 26px; height: 26px; image-rendering: pixelated; }
+  .guide-count { position:absolute; right:-2px; bottom:-3px; font-size:10px; color:#fff; text-shadow:1px 1px 0 #000; }
+  .guide-name { font-size: 11px; color: #222; flex:1; }
+  .guide-locked { font-size: 11px; color: #444; font-style: italic; }
+  /* Вкладки инвентаря */
+  .inv-tabs { display: flex; gap: 4px; justify-content: center; margin-bottom: 8px; }
+  .inv-tab { font-size: 11px; padding: 4px 10px; cursor: pointer; background:#9a9a9a;
+    border: 2px solid #fff; border-right-color:#5a5a5a; border-bottom-color:#5a5a5a; color:#222; }
+  .inv-tab.active { background:#c6c6c6; font-weight: bold; }
   #invGrid { display: flex; flex-direction: column; align-items: center; gap: 10px; }
 
   .inv-slot {
@@ -117,6 +140,33 @@
     position: fixed; inset: 0; z-index: 9; pointer-events: none;
     background: rgba(180,20,20,0); transition: background 0.1s;
   }
+
+  /* Экран загрузки (генерация чанков) */
+  #loadingScreen {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    align-items: center; justify-content: center;
+    background:
+      repeating-linear-gradient(45deg, #1d2a16 0 14px, #213018 14px 28px);
+    color: #fff; font-family: monospace;
+  }
+  #loadingScreen.on { display: flex; }
+  .load-box { width: 460px; max-width: 90vw; text-align: center; padding: 24px; }
+  .load-logo {
+    font-size: 44px; letter-spacing: 4px; font-weight: bold; margin-bottom: 6px;
+    color: #bfe89a; text-shadow: 3px 3px 0 #000, 0 0 12px rgba(120,200,80,0.4);
+  }
+  .load-status { font-size: 15px; color: #e6f5d8; margin-bottom: 16px; }
+  .load-barwrap {
+    width: 100%; height: 26px; background: #0d140a; border: 3px solid #000;
+    box-shadow: inset 0 0 0 2px #2c3a22; padding: 3px; image-rendering: pixelated;
+  }
+  .load-bar {
+    height: 100%; width: 0%;
+    background: repeating-linear-gradient(90deg, #6fbf3f 0 10px, #5aa531 10px 20px);
+    box-shadow: inset 0 -4px 0 rgba(0,0,0,0.25); transition: width 0.08s linear;
+  }
+  .load-sub { font-size: 12px; color: #9fc77f; margin-top: 8px; }
+  .load-tip { font-size: 11px; color: #88a070; margin-top: 18px; font-style: italic; min-height: 16px; }
 
   /* Подсказки / меню старта */
   #overlay {
@@ -195,9 +245,19 @@
 <div id="inventory">
   <h2 id="invTitle">Инвентарь</h2>
   <div id="invGrid"></div>
-  <p class="inv-hint">ЛКМ — взять/положить стопку · ПКМ — половина/по одному · E/Esc — закрыть</p>
+  <p class="inv-hint">ЛКМ — взять/положить · ПКМ — половина/по одному · J — справочник · E/Esc — закрыть</p>
 </div>
 <div id="cursorItem"></div>
+
+<div id="loadingScreen">
+  <div class="load-box">
+    <div class="load-logo">MiniCraft</div>
+    <div class="load-status" id="loadStatus">Генерация мира…</div>
+    <div class="load-barwrap"><div class="load-bar" id="loadBar"></div></div>
+    <div class="load-sub" id="loadSub">Подготовка чанков</div>
+    <div class="load-tip" id="loadTip"></div>
+  </div>
+</div>
 
 <div id="overlay">
   <div class="box">
@@ -232,7 +292,8 @@
       <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> — движение · <kbd>Ctrl</kbd> — бег</p>
       <p><kbd>Space</kbd> — прыжок/всплыть · <kbd>Shift</kbd> — присесть/нырять</p>
       <p><kbd>ЛКМ</kbd> (удерж.) — ломать · <kbd>ПКМ</kbd> — ставить / открыть верстак</p>
-      <p><kbd>E</kbd> — инвентарь · <kbd>1-9</kbd>/колесо — слот · <kbd>O</kbd> — сохранить</p>
+      <p><kbd>E</kbd> — инвентарь · <kbd>J</kbd> — справочник рецептов</p>
+      <p><kbd>1-9</kbd>/колесо — слот · <kbd>O</kbd> — сохранить · <kbd>Esc</kbd> — меню</p>
     </div>
   </div>
 </div>
