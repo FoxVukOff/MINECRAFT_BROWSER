@@ -64,12 +64,25 @@
     text-shadow: 1px 1px 0 #000; font-size: 13px; line-height: 1.5; pointer-events: none;
   }
 
-  #soundBtn {
-    position: fixed; right: 10px; top: 10px; z-index: 15;
-    width: 38px; height: 38px; font-size: 18px; cursor: pointer;
-    background: rgba(0,0,0,0.4); color: #fff; border: 2px solid rgba(255,255,255,0.4);
-    border-radius: 4px;
+  /* Синий оверлей под водой */
+  #waterOverlay {
+    position: fixed; inset: 0; z-index: 8; pointer-events: none;
+    background: rgba(40, 90, 160, 0.38); display: none;
   }
+  #waterOverlay.on { display: block; }
+
+  /* Шкала кислорода (пузырьки) */
+  #oxygen {
+    position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%);
+    z-index: 12; display: none; gap: 3px;
+  }
+  #oxygen.on { display: flex; }
+  #oxygen .bubble {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #cfeeff, #2a78c8);
+    box-shadow: 0 0 1px #000, inset 0 0 2px rgba(255,255,255,0.6);
+  }
+  #oxygen .bubble.empty { background: none; box-shadow: none; }
 
   /* Подсказки / меню старта */
   #overlay {
@@ -92,9 +105,10 @@
 <body>
 <canvas id="game"></canvas>
 <div id="crosshair"></div>
+<div id="waterOverlay"></div>
+<div id="oxygen"></div>
 
 <div id="hud"></div>
-<button id="soundBtn" title="Звук вкл/выкл">🔊</button>
 
 <div id="hotbar"></div>
 
@@ -109,7 +123,7 @@
     <p>Бесконечный мир в духе старого Minecraft</p>
     <div class="keys">
       <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> — движение</p>
-      <p><kbd>Space</kbd> — прыжок · <kbd>Shift</kbd> — присесть</p>
+      <p><kbd>Space</kbd> — прыжок / всплыть · <kbd>Shift</kbd> — присесть / нырять</p>
       <p><kbd>ЛКМ</kbd> (удерживать) — ломать · <kbd>ПКМ</kbd> — ставить</p>
       <p><kbd>E</kbd> — инвентарь · <kbd>1-5</kbd> / колесо — выбор слота</p>
       <p><kbd>Ctrl</kbd> — бег</p>

@@ -12,6 +12,7 @@ const BLOCK = {
   DIRT:    2,
   STONE:   3,
   BEDROCK: 4,
+  WATER:   5,
 };
 
 const BLOCK_NAMES = {
@@ -19,10 +20,18 @@ const BLOCK_NAMES = {
   [BLOCK.DIRT]:    'Земля',
   [BLOCK.STONE]:   'Камень',
   [BLOCK.BEDROCK]: 'Бедрок',
+  [BLOCK.WATER]:   'Вода',
 };
 
+// Прозрачные блоки (через них видно грани соседей)
+function isTransparent(b) { return b === BLOCK.AIR || b === BLOCK.WATER; }
+// Жидкости (не твёрдые для коллизий)
+function isLiquid(b) { return b === BLOCK.WATER; }
+// Уровень моря
+const SEA_LEVEL = 22;
+
 // Какие блоки игрок может держать/ставить (бедрок не ставится обычно, но дадим)
-const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.BEDROCK];
+const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE];
 
 // Время ломания (в секундах, без инструментов) — как в современном майне
 const BREAK_TIME = {
@@ -30,6 +39,7 @@ const BREAK_TIME = {
   [BLOCK.DIRT]:    0.75,
   [BLOCK.STONE]:   1.9,
   [BLOCK.BEDROCK]: Infinity, // неразрушим
+  [BLOCK.WATER]:   Infinity, // воду нельзя сломать
 };
 
 // Размеры чанка
@@ -83,6 +93,7 @@ function buildTextures() {
   TEX.dirt    = makeTex(ctx => noiseFill(ctx, 0x8a6a3f, 26));
   TEX.stone   = makeTex(ctx => noiseFill(ctx, 0x888888, 30));
   TEX.bedrock = makeTex(ctx => noiseFill(ctx, 0x4a4a4a, 40));
+  TEX.water   = makeTex(ctx => noiseFill(ctx, 0x3a6ea5, 18));
 }
 
 buildTextures();
@@ -132,6 +143,16 @@ function texToMaterial(canvas) {
   return new THREE.MeshLambertMaterial({ map: t });
 }
 
+function waterMaterial(canvas) {
+  const t = new THREE.CanvasTexture(canvas);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  return new THREE.MeshLambertMaterial({
+    map: t, transparent: true, opacity: 0.72,
+    depthWrite: false, side: THREE.DoubleSide,
+  });
+}
+
 // Материалы по граням: [px, nx, py, ny, pz, nz] (Three.js BoxGeometry порядок)
 let MATERIALS = {};
 function buildMaterials() {
@@ -140,11 +161,13 @@ function buildMaterials() {
   const mDirt      = texToMaterial(TEX.dirt);
   const mStone     = texToMaterial(TEX.stone);
   const mBedrock   = texToMaterial(TEX.bedrock);
+  const mWater     = waterMaterial(TEX.water);
 
   MATERIALS[BLOCK.GRASS]   = [mGrassSide, mGrassSide, mGrassTop, mDirt, mGrassSide, mGrassSide];
   MATERIALS[BLOCK.DIRT]    = [mDirt, mDirt, mDirt, mDirt, mDirt, mDirt];
   MATERIALS[BLOCK.STONE]   = [mStone, mStone, mStone, mStone, mStone, mStone];
   MATERIALS[BLOCK.BEDROCK] = [mBedrock, mBedrock, mBedrock, mBedrock, mBedrock, mBedrock];
+  MATERIALS[BLOCK.WATER]   = [mWater, mWater, mWater, mWater, mWater, mWater];
 }
 buildMaterials();
 
@@ -160,10 +183,11 @@ const BLOCK_COLOR = {
 //  Шум для генерации мира (детерминированный value-noise)
 // ============================================================
 function hash2(x, z) {
-  let h = x * 374761393 + z * 668265263;
-  h = (h ^ (h >> 13)) * 1274126177;
-  h = h ^ (h >> 16);
-  return (h >>> 0) / 4294967295;
+  // целочисленный хеш с полным 32-битным диапазоном (0..1)
+  let h = (x | 0) * 374761393 + (z | 0) * 668265263;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 }
 function smooth(t) { return t * t * (3 - 2 * t); }
 function valueNoise(x, z) {
@@ -179,13 +203,14 @@ function valueNoise(x, z) {
   );
 }
 function terrainHeight(wx, wz) {
-  let h = 0, amp = 1, freq = 0.012, sum = 0;
+  let h = 0, amp = 1, freq = 0.011, sum = 0;
   for (let o = 0; o < 4; o++) {
     h += valueNoise(wx * freq, wz * freq) * amp;
     sum += amp; amp *= 0.5; freq *= 2;
   }
-  h /= sum;
-  return Math.floor(20 + h * 18); // базовый уровень + вариация
+  h /= sum; // 0..1
+  // расширенная вариация: впадины уходят ниже уровня моря -> озёра/моря
+  return Math.floor(12 + h * 26); // диапазон ~12..38
 }
 
 // ============================================================
@@ -205,12 +230,18 @@ const World = {
         const wx = cx * CHUNK_SIZE + lx;
         const wz = cz * CHUNK_SIZE + lz;
         const h = terrainHeight(wx, wz);
+        const underwater = h <= SEA_LEVEL; // эта колонка под/у уровня моря
         for (let y = 0; y < WORLD_HEIGHT; y++) {
           let b = BLOCK.AIR;
           if (y === 0) b = BLOCK.BEDROCK;
           else if (y < h - 4) b = BLOCK.STONE;
           else if (y < h - 1) b = BLOCK.DIRT;
-          else if (y < h) b = BLOCK.GRASS;
+          else if (y < h) {
+            // верхний слой: под водой и у берега — земля, иначе трава
+            b = underwater ? BLOCK.DIRT : BLOCK.GRASS;
+          } else if (y <= SEA_LEVEL) {
+            b = BLOCK.WATER; // заливаем впадины водой до уровня моря
+          }
           blocks[idx(lx, y, lz)] = b;
         }
       }
@@ -283,6 +314,93 @@ function idx(x, y, z) {
 }
 
 // ============================================================
+//  Симуляция воды (растекание) — простая флуд-модель
+// ============================================================
+const WaterSim = {
+  queue: new Set(),     // "x,y,z" ячейки для проверки
+  tickAcc: 0,
+  tickRate: 0.18,       // секунд между тиками
+
+  // поставить ячейку и её окрестность в очередь
+  touch(x, y, z) {
+    const k = x + ',' + y + ',' + z;
+    this.queue.add(k);
+  },
+  touchAround(x, y, z) {
+    this.touch(x, y, z);
+    this.touch(x + 1, y, z); this.touch(x - 1, y, z);
+    this.touch(x, y, z + 1); this.touch(x, y, z - 1);
+    this.touch(x, y + 1, z); this.touch(x, y - 1, z);
+  },
+
+  update(dt) {
+    this.tickAcc += dt;
+    if (this.tickAcc < this.tickRate) return;
+    this.tickAcc = 0;
+    if (this.queue.size === 0) return;
+
+    const current = Array.from(this.queue);
+    this.queue.clear();
+    const changedChunks = new Set();
+
+    const setWater = (x, y, z, id) => {
+      World.setBlock(x, y, z, id);
+      const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+      changedChunks.add(cx + ',' + cz);
+      // соседние чанки на границе
+      changedChunks.add((cx+1)+','+cz); changedChunks.add((cx-1)+','+cz);
+      changedChunks.add(cx+','+(cz+1)); changedChunks.add(cx+','+(cz-1));
+      this.touchAround(x, y, z);
+    };
+
+    for (const k of current) {
+      const [x, y, z] = k.split(',').map(Number);
+      if (y < 1 || y >= WORLD_HEIGHT) continue;
+      const here = World.getBlock(x, y, z);
+
+      if (here === BLOCK.AIR) {
+        // должна ли сюда прийти вода?
+        const above = World.getBlock(x, y + 1, z);
+        let fed = (above === BLOCK.WATER); // льётся сверху
+        if (!fed) {
+          // горизонтальный источник + не выше уровня моря (чтобы не заливать всё бесконечно вверх)
+          if (y <= SEA_LEVEL) {
+            if (World.getBlock(x + 1, y, z) === BLOCK.WATER ||
+                World.getBlock(x - 1, y, z) === BLOCK.WATER ||
+                World.getBlock(x, y, z + 1) === BLOCK.WATER ||
+                World.getBlock(x, y, z - 1) === BLOCK.WATER) {
+              fed = true;
+            }
+          }
+        }
+        if (fed) setWater(x, y, z, BLOCK.WATER);
+      } else if (here === BLOCK.WATER) {
+        // проверить, не должна ли вода исчезнуть (нет питания) — простая «высыхание»
+        const above = World.getBlock(x, y + 1, z);
+        let supported = (above === BLOCK.WATER) || (y <= SEA_LEVEL);
+        if (!supported) {
+          // питается ли с боков водой, которая выше уровня моря? оставим простую логику:
+          // если выше уровня моря и сверху не вода — высыхает
+          World.setBlock(x, y, z, BLOCK.AIR);
+          const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+          changedChunks.add(cx + ',' + cz);
+          this.touchAround(x, y, z);
+        } else {
+          // распространять дальше вниз/вбок
+          this.touchAround(x, y, z);
+        }
+      }
+    }
+
+    // перестроить изменённые чанки
+    for (const ck of changedChunks) {
+      const [cx, cz] = ck.split(',').map(Number);
+      World.markDirty(cx, cz);
+    }
+  },
+};
+
+// ============================================================
 //  Меширование чанков (объединённая геометрия, только видимые грани)
 // ============================================================
 // Грани: dir vector + 4 угла (CCW при взгляде снаружи) + uv + материал-индекс
@@ -334,16 +452,26 @@ function buildChunkMesh(c) {
         const b = c.blocks[idx(lx, y, lz)];
         if (b === BLOCK.AIR) continue;
         const wx = x0 + lx, wz = z0 + lz;
+        const water = isLiquid(b);
         for (const f of FACES) {
           const nb = World.getBlock(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
-          if (nb !== BLOCK.AIR) continue; // грань скрыта
+          if (water) {
+            // вода: рисуем грань только если сосед — воздух (между водой и водой/блоком грани нет)
+            if (nb !== BLOCK.AIR) continue;
+          } else {
+            // твёрдый блок: грань видна, если сосед прозрачный (воздух или вода)
+            if (!isTransparent(nb)) continue;
+          }
           const material = MATERIALS[b][f.mat];
           const mi = getMatIndex(material);
           let buf = byMat.get(mi);
-          if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [] }; byMat.set(mi, buf); }
+          if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], water }; byMat.set(mi, buf); }
           const base = buf.positions.length / 3;
+          // вода чуть ниже полного блока — опускаем верхние вершины
+          const topDrop = water ? 0.12 : 0;
           for (const cv of f.corners) {
-            buf.positions.push(lx + cv[0], y + cv[1], lz + cv[2]);
+            const vy = y + cv[1] - (cv[1] === 1 ? topDrop : 0);
+            buf.positions.push(lx + cv[0], vy, lz + cv[2]);
             buf.normals.push(f.dir[0], f.dir[1], f.dir[2]);
           }
           // UV под порядок углов [нл, нп, вп, вл]
@@ -363,6 +491,7 @@ function buildChunkMesh(c) {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(buf.uvs, 2));
     geo.setIndex(buf.indices);
     const mesh = new THREE.Mesh(geo, matList[mi]);
+    if (buf.water) mesh.renderOrder = 1; // вода рисуется после непрозрачного
     group.add(mesh);
   }
 
@@ -436,6 +565,11 @@ const PLAYER = {
   speed: 4.3,
   sprintMul: 1.55,
   jumpV: 8.2,
+  inWater: false,
+  submerged: false,
+  oxygen: 10,        // запас воздуха (0..10 «пузырьков»)
+  maxOxygen: 10,
+  drownTimer: 0,
 };
 
 const GRAVITY = 26;
@@ -611,6 +745,7 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.DIRT) tex = TEX.dirt;
   else if (id === BLOCK.STONE) tex = TEX.stone;
   else if (id === BLOCK.BEDROCK) tex = TEX.bedrock;
+  else if (id === BLOCK.WATER) tex = TEX.water;
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(tex, 0, 0, size, size);
   return c;
@@ -640,7 +775,16 @@ function renderHotbar() {
 const invGrid = document.getElementById('invGrid');
 function renderInventory() {
   invGrid.innerHTML = '';
-  for (const id of PLACEABLE) {
+  // показываем только реально имеющиеся блоки (count > 0)
+  const owned = PLACEABLE.filter(id => (inventory[id] || 0) > 0);
+  if (owned.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'grid-column:1/-1;color:#444;font-size:12px;text-align:center;padding:8px;';
+    empty.textContent = 'Пусто — добывайте блоки!';
+    invGrid.appendChild(empty);
+    return;
+  }
+  for (const id of owned) {
     const count = inventory[id] || 0;
     const el = document.createElement('div');
     el.className = 'inv-item';
@@ -765,6 +909,12 @@ function playSound(kind, block) {
     noiseBurst(p.dur * 1.3, p.freq, 0.45, p.type);
   } else if (kind === 'step') {
     noiseBurst(0.07, p.freq * 0.8, 0.18, p.type);
+  } else if (kind === 'pickup') {
+    // характерный "поп" подбора, как в майнкрафте — короткий тон с подъёмом
+    tone(600, 0.08, 0.25, 'square');
+    setTimeout(() => tone(900, 0.07, 0.2, 'square'), 35);
+  } else if (kind === 'splash') {
+    noiseBurst(0.25, 900, 0.3, 'lowpass');
   }
 }
 
@@ -804,14 +954,6 @@ function startMusic() {
   scheduleNote();
 }
 
-// Кнопка переключения звука
-function toggleAudio() {
-  AudioEngine.enabled = !AudioEngine.enabled;
-  if (AudioEngine.master) AudioEngine.master.gain.value = AudioEngine.enabled ? 0.8 : 0;
-  const btn = document.getElementById('soundBtn');
-  if (btn) btn.textContent = AudioEngine.enabled ? '🔊' : '🔇';
-}
-
 // ============================================================
 //  Raycast по вокселям (DDA)
 // ============================================================
@@ -844,7 +986,7 @@ function getTargetBlock(maxDist = 6) {
   let dist = 0;
   while (dist <= maxDist) {
     const b = World.getBlock(x, y, z);
-    if (b !== BLOCK.AIR) {
+    if (b !== BLOCK.AIR && !isLiquid(b)) { // воду нельзя выделить/сломать — луч проходит сквозь
       return { x, y, z, block: b, face };
     }
     if (tMaxX < tMaxY && tMaxX < tMaxZ) {
@@ -914,6 +1056,7 @@ function updateDrops(dt) {
       }
       if (distSq < 0.6 * 0.6) {
         addToInventory(d.id, 1);
+        playSound('pickup');
         scene.remove(d.mesh);
         d.mesh.geometry.dispose();
         drops.splice(i, 1);
@@ -935,6 +1078,7 @@ function finishBreak(t) {
   spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
   rebuildAround(t.x, t.z);
   playSound('break', t.block);
+  WaterSim.touchAround(t.x, t.y, t.z); // вода может затечь в дыру
 }
 
 function placeBlock() {
@@ -947,7 +1091,8 @@ function placeBlock() {
   const ny = t.y + t.face[1];
   const nz = t.z + t.face[2];
   if (ny < 0 || ny >= WORLD_HEIGHT) return;
-  if (World.getBlock(nx, ny, nz) !== BLOCK.AIR) return;
+  const target = World.getBlock(nx, ny, nz);
+  if (target !== BLOCK.AIR && !isLiquid(target)) return; // можно ставить только в воздух/воду
 
   // не ставить блок внутрь игрока
   if (intersectsPlayer(nx, ny, nz)) return;
@@ -956,6 +1101,7 @@ function placeBlock() {
   World.setBlock(nx, ny, nz, slot.id);
   rebuildAround(nx, nz);
   playSound('place', slot.id);
+  WaterSim.touchAround(nx, ny, nz); // вытеснение/перетекание воды
 }
 
 function intersectsPlayer(bx, by, bz) {
@@ -1037,7 +1183,8 @@ function collide(axis, amount) {
   for (let x = minX; x <= maxX; x++) {
     for (let y = minY; y <= maxY; y++) {
       for (let z = minZ; z <= maxZ; z++) {
-        if (World.getBlock(x, y, z) === BLOCK.AIR) continue;
+        const bb = World.getBlock(x, y, z);
+        if (bb === BLOCK.AIR || isLiquid(bb)) continue; // вода не сталкивается
         // пересечение есть -> откат по оси
         if (axis === 'x') {
           if (amount > 0) PLAYER.pos.x = x - hw - 1e-3;
@@ -1072,20 +1219,44 @@ function updatePlayer(dt) {
   if (keys['KeyA']) move.sub(right);
   if (move.lengthSq() > 0) move.normalize();
 
+  // в воде ли игрок (ноги / голова)
+  const feetInWater = blockAtPlayer(0.2) === BLOCK.WATER;
+  const headY = PLAYER.pos.y + (PLAYER.crouching ? PLAYER.crouchEye : PLAYER.eye);
+  const headInWater = World.getBlock(
+    Math.floor(PLAYER.pos.x), Math.floor(headY), Math.floor(PLAYER.pos.z)
+  ) === BLOCK.WATER;
+  const wasInWater = PLAYER.inWater;
+  PLAYER.inWater = feetInWater || headInWater;
+  PLAYER.submerged = headInWater;
+  if (PLAYER.inWater !== wasInWater) playSound('splash'); // всплеск при входе/выходе
+
   let speed = PLAYER.speed;
   if (keys['ControlLeft']) speed *= PLAYER.sprintMul; // спринт
   if (PLAYER.crouching) speed *= 0.45;
 
-  // горизонтальная скорость
-  PLAYER.vel.x = move.x * speed;
-  PLAYER.vel.z = move.z * speed;
-  // гравитация
-  PLAYER.vel.y -= GRAVITY * dt;
-  if (PLAYER.vel.y < -55) PLAYER.vel.y = -55;
-  // прыжок
-  if (keys['Space'] && PLAYER.onGround) {
-    PLAYER.vel.y = PLAYER.jumpV;
-    PLAYER.onGround = false;
+  if (PLAYER.inWater) {
+    // ---- плавание ----
+    const swimSpeed = PLAYER.speed * 0.55;
+    PLAYER.vel.x = move.x * swimSpeed;
+    PLAYER.vel.z = move.z * swimSpeed;
+    // плавучесть + вязкость
+    PLAYER.vel.y -= GRAVITY * 0.28 * dt;   // ослабленная гравитация
+    PLAYER.vel.y *= 0.86;                    // сопротивление воды
+    if (keys['Space']) PLAYER.vel.y = 3.2;   // грести вверх / всплывать
+    else if (keys['ShiftLeft']) PLAYER.vel.y -= 3.0 * dt; // нырять
+    if (PLAYER.vel.y < -6) PLAYER.vel.y = -6;
+    // лёгкое всплытие, если игрок не нажимает вниз
+    if (!keys['ShiftLeft'] && !keys['Space']) PLAYER.vel.y += 1.2 * dt;
+  } else {
+    // ---- обычная физика ----
+    PLAYER.vel.x = move.x * speed;
+    PLAYER.vel.z = move.z * speed;
+    PLAYER.vel.y -= GRAVITY * dt;
+    if (PLAYER.vel.y < -55) PLAYER.vel.y = -55;
+    if (keys['Space'] && PLAYER.onGround) {
+      PLAYER.vel.y = PLAYER.jumpV;
+      PLAYER.onGround = false;
+    }
   }
 
   PLAYER.onGround = false;
@@ -1123,6 +1294,57 @@ function updatePlayer(dt) {
   if (PLAYER.pos.y < -10) { PLAYER.pos.set(8, 60, 8); PLAYER.vel.set(0,0,0); }
 }
 
+// ---- Кислород / утопление ----
+function updateOxygen(dt) {
+  if (PLAYER.submerged) {
+    // под водой — расход воздуха
+    PLAYER.oxygen -= dt * (10 / 12); // полный запас на ~12 секунд
+    if (PLAYER.oxygen <= 0) {
+      PLAYER.oxygen = 0;
+      // начинаем «тонуть»: периодически выталкиваем игрока к поверхности
+      PLAYER.drownTimer += dt;
+      if (PLAYER.drownTimer >= 1.5) {
+        PLAYER.drownTimer = 0;
+        playSound('splash');
+        // спасение: телепорт на ближайшую поверхность над водой
+        rescueToSurface();
+      }
+    }
+  } else {
+    // на воздухе — быстрое восстановление
+    PLAYER.oxygen = Math.min(PLAYER.maxOxygen, PLAYER.oxygen + dt * 8);
+    PLAYER.drownTimer = 0;
+  }
+}
+
+// поднять игрока на поверхность воды/суши над текущей колонкой
+function rescueToSurface() {
+  const x = Math.floor(PLAYER.pos.x), z = Math.floor(PLAYER.pos.z);
+  for (let y = Math.floor(PLAYER.pos.y); y < WORLD_HEIGHT - 1; y++) {
+    const here = World.getBlock(x, y, z);
+    const above = World.getBlock(x, y + 1, z);
+    // первая ячейка воздуха над водой/блоком
+    if (here !== BLOCK.AIR && above === BLOCK.AIR) {
+      PLAYER.pos.y = y + 1.01;
+      PLAYER.vel.y = 0;
+      PLAYER.oxygen = PLAYER.maxOxygen * 0.4;
+      return;
+    }
+  }
+  // если поверхность не нашли — поднять чуть вверх
+  PLAYER.pos.y += 1;
+  PLAYER.vel.y = 2;
+}
+
+// блок в точке тела игрока (offset по высоте от ног)
+function blockAtPlayer(yOffset) {
+  return World.getBlock(
+    Math.floor(PLAYER.pos.x),
+    Math.floor(PLAYER.pos.y + yOffset),
+    Math.floor(PLAYER.pos.z)
+  );
+}
+
 function hasGroundUnder() {
   const hw = PLAYER.width / 2;
   const y = Math.floor(PLAYER.pos.y - 0.05);
@@ -1138,9 +1360,20 @@ function hasGroundUnder() {
 //  Спавн игрока на поверхности
 // ============================================================
 function spawnPlayer() {
-  const sx = 8, sz = 8;
-  const h = terrainHeight(sx, sz);
-  PLAYER.pos.set(sx + 0.5, h + 1, sz + 0.5);
+  // ищем сушу около (0,0), чтобы не появиться в воде
+  for (let r = 0; r < 60; r++) {
+    for (let a = 0; a < 8; a++) {
+      const sx = Math.round(r * Math.cos(a)) + 8;
+      const sz = Math.round(r * Math.sin(a)) + 8;
+      const h = terrainHeight(sx, sz);
+      if (h > SEA_LEVEL) { // суша
+        PLAYER.pos.set(sx + 0.5, h + 1, sz + 0.5);
+        return;
+      }
+    }
+  }
+  const h = terrainHeight(8, 8);
+  PLAYER.pos.set(8.5, Math.max(h, SEA_LEVEL) + 2, 8.5);
 }
 spawnPlayer();
 
@@ -1148,6 +1381,29 @@ spawnPlayer();
 //  HUD
 // ============================================================
 const hudEl = document.getElementById('hud');
+const waterOverlayEl = document.getElementById('waterOverlay');
+const oxygenEl = document.getElementById('oxygen');
+let lastBubbles = -1;
+
+function updateWaterUI() {
+  // синий оверлей когда голова под водой
+  waterOverlayEl.classList.toggle('on', !!PLAYER.submerged);
+
+  // пузырьки кислорода — показываем только под водой и пока не полный
+  const showOxygen = PLAYER.submerged || PLAYER.oxygen < PLAYER.maxOxygen - 0.01;
+  oxygenEl.classList.toggle('on', showOxygen && PLAYER.submerged);
+  const bubbles = Math.ceil(PLAYER.oxygen);
+  if (bubbles !== lastBubbles) {
+    lastBubbles = bubbles;
+    oxygenEl.innerHTML = '';
+    for (let i = 0; i < PLAYER.maxOxygen; i++) {
+      const b = document.createElement('div');
+      b.className = 'bubble' + (i < bubbles ? '' : ' empty');
+      oxygenEl.appendChild(b);
+    }
+  }
+}
+
 let fpsTime = 0, fpsCount = 0, fps = 0;
 function updateHUD() {
   const t = getTargetBlock();
@@ -1156,7 +1412,7 @@ function updateHUD() {
     `MiniCraft<br>` +
     `XYZ: ${PLAYER.pos.x.toFixed(1)}, ${PLAYER.pos.y.toFixed(1)}, ${PLAYER.pos.z.toFixed(1)}<br>` +
     `Чанков: ${loadedMeshes.size} · FPS: ${fps}<br>` +
-    `${PLAYER.crouching ? 'Присел' : 'Выживание'}<br>` +
+    `${PLAYER.inWater ? '🌊 В воде' : (PLAYER.crouching ? 'Присел' : 'Выживание')}<br>` +
     `Цель: ${targetName}`;
 }
 
@@ -1171,12 +1427,14 @@ function loop(now) {
 
   if (overlay.classList.contains('hidden') && !invOpen) {
     updatePlayer(dt);
+    updateOxygen(dt);
     updateDrops(dt);
     updateMining(dt);
   } else if (mining.active) {
     resetMining();
   }
 
+  WaterSim.update(dt);
   updateChunks();
 
   // камера
@@ -1201,6 +1459,19 @@ function loop(now) {
   // fps
   fpsCount++; fpsTime += dt;
   if (fpsTime >= 0.5) { fps = Math.round(fpsCount / fpsTime); fpsCount = 0; fpsTime = 0; }
+  // подводная атмосфера: синий туман и фон
+  if (PLAYER.submerged) {
+    scene.fog.color.setHex(0x2a5aa0);
+    scene.fog.near = 1; scene.fog.far = 18;
+    scene.background.setHex(0x2a5aa0);
+  } else {
+    scene.fog.color.setHex(0x87ceeb);
+    scene.fog.near = RENDER_DISTANCE * CHUNK_SIZE * 0.6;
+    scene.fog.far = RENDER_DISTANCE * CHUNK_SIZE;
+    scene.background.setHex(0x87ceeb);
+  }
+
+  updateWaterUI();
   updateHUD();
 
   renderer.render(scene, camera);
@@ -1209,13 +1480,5 @@ function loop(now) {
 
 // Начинаем с пустыми руками — всё добываем сами (как в выживании)
 renderHotbar();
-
-// Кнопка звука
-const soundBtn = document.getElementById('soundBtn');
-soundBtn.addEventListener('click', (e) => {
-  e.stopPropagation();
-  if (!AudioEngine.ctx) initAudio();
-  toggleAudio();
-});
 
 requestAnimationFrame(loop);
