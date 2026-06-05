@@ -14,6 +14,7 @@ const BLOCK = {
   BEDROCK:    4,
   WATER:      5, // источник (бесконечный)
   WATER_FLOW: 6, // течение (имеет уровень 1..7, может убывать/исчезать)
+  SAND:       7, // песок (падает под действием гравитации)
 };
 
 const BLOCK_NAMES = {
@@ -23,7 +24,11 @@ const BLOCK_NAMES = {
   [BLOCK.BEDROCK]: 'Бедрок',
   [BLOCK.WATER]:   'Вода',
   [BLOCK.WATER_FLOW]: 'Вода',
+  [BLOCK.SAND]:    'Песок',
 };
+
+// Гравитационные блоки (падают, если под ними нет опоры)
+function isFalling(b) { return b === BLOCK.SAND; }
 
 // Прозрачные блоки (через них видно грани соседей)
 function isTransparent(b) { return b === BLOCK.AIR || b === BLOCK.WATER || b === BLOCK.WATER_FLOW; }
@@ -35,13 +40,14 @@ const WATER_MAX = 8;
 const SEA_LEVEL = 22;
 
 // Какие блоки игрок может держать/ставить (бедрок не ставится обычно, но дадим)
-const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE];
+const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND];
 
 // Время ломания (в секундах, без инструментов) — как в современном майне
 const BREAK_TIME = {
   [BLOCK.GRASS]:   0.6,
   [BLOCK.DIRT]:    0.75,
   [BLOCK.STONE]:   1.9,
+  [BLOCK.SAND]:    0.5,  // песок ломается быстро
   [BLOCK.BEDROCK]: Infinity, // неразрушим
   [BLOCK.WATER]:   Infinity, // воду нельзя сломать
   [BLOCK.WATER_FLOW]: Infinity,
@@ -99,6 +105,7 @@ function buildTextures() {
   TEX.stone   = makeTex(ctx => noiseFill(ctx, 0x888888, 30));
   TEX.bedrock = makeTex(ctx => noiseFill(ctx, 0x4a4a4a, 40));
   TEX.water   = makeTex(ctx => noiseFill(ctx, 0x3a6ea5, 18));
+  TEX.sand    = makeTex(ctx => noiseFill(ctx, 0xd9cd9a, 16));
 }
 
 buildTextures();
@@ -167,6 +174,7 @@ function buildMaterials() {
   const mStone     = texToMaterial(TEX.stone);
   const mBedrock   = texToMaterial(TEX.bedrock);
   const mWater     = waterMaterial(TEX.water);
+  const mSand      = texToMaterial(TEX.sand);
 
   MATERIALS[BLOCK.GRASS]   = [mGrassSide, mGrassSide, mGrassTop, mDirt, mGrassSide, mGrassSide];
   MATERIALS[BLOCK.DIRT]    = [mDirt, mDirt, mDirt, mDirt, mDirt, mDirt];
@@ -174,6 +182,7 @@ function buildMaterials() {
   MATERIALS[BLOCK.BEDROCK] = [mBedrock, mBedrock, mBedrock, mBedrock, mBedrock, mBedrock];
   MATERIALS[BLOCK.WATER]      = [mWater, mWater, mWater, mWater, mWater, mWater];
   MATERIALS[BLOCK.WATER_FLOW] = [mWater, mWater, mWater, mWater, mWater, mWater];
+  MATERIALS[BLOCK.SAND]    = [mSand, mSand, mSand, mSand, mSand, mSand];
 }
 buildMaterials();
 
@@ -186,11 +195,29 @@ const BLOCK_COLOR = {
 };
 
 // ============================================================
-//  Шум для генерации мира (детерминированный value-noise)
+//  Шум для генерации мира (детерминированный value-noise + сид)
 // ============================================================
+let WORLD_SEED = 0; // устанавливается при создании/загрузке мира
+
+// Превратить строковый сид в число (как в майнкрафте: число или хеш строки)
+function parseSeed(str) {
+  if (str == null) return (Math.random() * 2147483647) | 0;
+  str = String(str).trim();
+  if (str === '') return (Math.random() * 2147483647) | 0;
+  // если это просто число — используем его
+  if (/^-?\d+$/.test(str)) return parseInt(str, 10) | 0;
+  // иначе — хешируем строку
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 2654435761);
+    h ^= h >>> 15;
+  }
+  return h | 0;
+}
+
 function hash2(x, z) {
-  // целочисленный хеш с полным 32-битным диапазоном (0..1)
-  let h = (x | 0) * 374761393 + (z | 0) * 668265263;
+  // целочисленный хеш с полным 32-битным диапазоном (0..1), зависящий от сида
+  let h = (x | 0) * 374761393 + (z | 0) * 668265263 + Math.imul(WORLD_SEED, 2246822519);
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   h ^= h >>> 16;
   return (h >>> 0) / 4294967296;
@@ -252,14 +279,17 @@ const World = {
         const wz = cz * CHUNK_SIZE + lz;
         const h = terrainHeight(wx, wz);
         const underwater = h <= SEA_LEVEL; // эта колонка под/у уровня моря
+        // Пляжи/дно: верх рядом с уровнем моря (немного выше и до 3 блоков под водой) — песок
+        const beach = (h >= SEA_LEVEL - 3 && h <= SEA_LEVEL + 1);
         for (let y = 0; y < WORLD_HEIGHT; y++) {
           let b = BLOCK.AIR;
           if (y === 0) b = BLOCK.BEDROCK;
           else if (y < h - 4) b = BLOCK.STONE;
-          else if (y < h - 1) b = BLOCK.DIRT;
+          else if (y < h - 1) b = beach ? BLOCK.SAND : BLOCK.DIRT; // под верхним слоем тоже песок на пляже
           else if (y < h) {
-            // верхний слой: под водой и у берега — земля, иначе трава
-            b = underwater ? BLOCK.DIRT : BLOCK.GRASS;
+            // верхний слой
+            if (beach) b = BLOCK.SAND;             // берег / дно реки
+            else b = underwater ? BLOCK.DIRT : BLOCK.GRASS;
           } else if (y <= SEA_LEVEL) {
             b = BLOCK.WATER; // заливаем впадины водой до уровня моря
           }
@@ -715,13 +745,159 @@ const keys = {};
 
 // ---------- Управление ----------
 let pointerLocked = false;
+let gameStarted = false; // true после загрузки/создания мира
 const overlay = document.getElementById('overlay');
 
-document.getElementById('startBtn').addEventListener('click', () => {
+// ============================================================
+//  Менеджер миров (создание, сохранение, загрузка, сиды)
+// ============================================================
+const WorldManager = {
+  current: null, // имя текущего мира
+  LS_INDEX: 'minicraft_worlds',     // список миров
+  LS_PREFIX: 'minicraft_world_',    // данные мира
+
+  list() {
+    try { return JSON.parse(localStorage.getItem(this.LS_INDEX) || '[]'); }
+    catch (e) { return []; }
+  },
+  saveIndex(arr) {
+    localStorage.setItem(this.LS_INDEX, JSON.stringify(arr));
+  },
+
+  // сбросить мир в памяти перед загрузкой/созданием нового
+  resetState() {
+    // удалить меши
+    for (const [, mesh] of loadedMeshes) { scene.remove(mesh); disposeGroup(mesh); }
+    loadedMeshes.clear();
+    World.chunks.clear();
+    World.edits.clear();
+    World.waterLevel.clear();
+    // очистить сущности
+    for (const d of drops) { scene.remove(d.mesh); }
+    drops.length = 0;
+    for (const s of fallingSand) { scene.remove(s.mesh); }
+    fallingSand.length = 0;
+    sandCheckQueue.length = 0; sandInQueue.clear();
+    WaterSim.queue.length = 0; WaterSim.inQueue.clear();
+    // инвентарь / хотбар
+    for (const k in inventory) delete inventory[k];
+    for (let i = 0; i < hotbar.length; i++) hotbar[i] = null;
+    activeSlot = 0;
+    PLAYER.vel.set(0, 0, 0);
+    PLAYER.oxygen = PLAYER.maxOxygen;
+  },
+
+  // создать новый мир
+  create(name, seedStr) {
+    name = (name || '').trim() || ('Мир ' + (this.list().length + 1));
+    const seed = parseSeed(seedStr);
+    this.resetState();
+    WORLD_SEED = seed;
+    this.current = name;
+    spawnPlayer();
+    renderHotbar();
+
+    const arr = this.list().filter(w => w.name !== name);
+    arr.push({ name, seed, updated: Date.now() });
+    this.saveIndex(arr);
+    this.save(); // первичное сохранение
+    beginGame();
+  },
+
+  // сохранить текущий мир в localStorage
+  save() {
+    if (!this.current) return false;
+    const data = {
+      seed: WORLD_SEED,
+      player: {
+        x: PLAYER.pos.x, y: PLAYER.pos.y, z: PLAYER.pos.z,
+        yaw: PLAYER.yaw, pitch: PLAYER.pitch,
+        oxygen: PLAYER.oxygen,
+      },
+      inventory: { ...inventory },
+      hotbar: hotbar.map(s => s ? { id: s.id, count: s.count } : null),
+      activeSlot,
+      // правки блоков: "x,y,z:id"  (только постоянные изменения игрока)
+      edits: Array.from(World.edits.entries()).map(([k, v]) => k + ':' + v),
+    };
+    try {
+      localStorage.setItem(this.LS_PREFIX + this.current, JSON.stringify(data));
+      const arr = this.list();
+      const w = arr.find(x => x.name === this.current);
+      if (w) { w.updated = Date.now(); this.saveIndex(arr); }
+      return true;
+    } catch (e) {
+      console.warn('Не удалось сохранить мир:', e);
+      return false;
+    }
+  },
+
+  // загрузить мир по имени
+  load(name) {
+    let data;
+    try { data = JSON.parse(localStorage.getItem(this.LS_PREFIX + name)); }
+    catch (e) { data = null; }
+    if (!data) { alert('Мир не найден или повреждён'); return; }
+
+    this.resetState();
+    WORLD_SEED = data.seed | 0;
+    this.current = name;
+
+    // восстановить правки блоков
+    for (const s of (data.edits || [])) {
+      const i = s.lastIndexOf(':');
+      const k = s.slice(0, i), v = parseInt(s.slice(i + 1), 10);
+      World.edits.set(k, v);
+    }
+    // инвентарь
+    Object.assign(inventory, data.inventory || {});
+    if (Array.isArray(data.hotbar)) {
+      for (let i = 0; i < hotbar.length; i++) {
+        hotbar[i] = data.hotbar[i] ? { id: data.hotbar[i].id, count: data.hotbar[i].count } : null;
+      }
+    }
+    activeSlot = data.activeSlot || 0;
+    renderHotbar();
+
+    // игрок
+    const p = data.player || {};
+    PLAYER.pos.set(p.x ?? 8, p.y ?? 50, p.z ?? 8);
+    PLAYER.yaw = p.yaw || 0;
+    PLAYER.pitch = p.pitch || 0;
+    PLAYER.oxygen = p.oxygen ?? PLAYER.maxOxygen;
+
+    // пере-запустить воду и песок вокруг изменённых клеток, чтобы каналы/обвалы восстановились
+    for (const k of World.edits.keys()) {
+      const [x, y, z] = k.split(',').map(Number);
+      WaterSim.touchAround(x, y, z);
+      checkSandAround(x, y, z);
+    }
+
+    beginGame();
+  },
+
+  delete(name) {
+    localStorage.removeItem(this.LS_PREFIX + name);
+    this.saveIndex(this.list().filter(w => w.name !== name));
+    renderWorldList();
+  },
+};
+
+// запустить игровой процесс (после выбора мира)
+function beginGame() {
+  gameStarted = true;
   overlay.classList.add('hidden');
+  document.getElementById('menuBtn').style.display = 'block';
   initAudio();
   canvas.requestPointerLock();
-});
+  // автосохранение каждые 20 секунд
+  if (!WorldManager._autosave) {
+    WorldManager._autosave = setInterval(() => { if (gameStarted) WorldManager.save(); }, 20000);
+  }
+}
+
+// сохранять при выходе со страницы
+window.addEventListener('beforeunload', () => { if (gameStarted) WorldManager.save(); });
 
 canvas.addEventListener('click', () => {
   if (!pointerLocked && overlay.classList.contains('hidden') && !invOpen) {
@@ -749,7 +925,7 @@ document.addEventListener('keydown', (e) => {
     const n = parseInt(e.code.slice(5), 10);
     if (n >= 1 && n <= HOTBAR_SIZE) selectSlot(n - 1);
   }
-  if (e.code === 'Escape' && invOpen) toggleInventory();
+  // Escape обрабатывается в отдельном обработчике ниже (инвентарь/меню)
 });
 document.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
@@ -884,6 +1060,7 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.STONE) tex = TEX.stone;
   else if (id === BLOCK.BEDROCK) tex = TEX.bedrock;
   else if (id === BLOCK.WATER) tex = TEX.water;
+  else if (id === BLOCK.SAND) tex = TEX.sand;
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(tex, 0, 0, size, size);
   return c;
@@ -1032,6 +1209,8 @@ function soundProfile(block) {
     case BLOCK.BEDROCK: return { freq: 300, dur: 0.14, type: 'lowpass' };
     case BLOCK.DIRT:    return { freq: 700, dur: 0.10, type: 'lowpass' };
     case BLOCK.GRASS:   return { freq: 1200, dur: 0.10, type: 'lowpass' };
+    // песок: мягкое сыпучее «шшш» — высокочастотный шум через highpass
+    case BLOCK.SAND:    return { freq: 2600, dur: 0.16, type: 'highpass', sand: true };
     default:            return { freq: 600, dur: 0.10, type: 'lowpass' };
   }
 }
@@ -1053,6 +1232,9 @@ function playSound(kind, block) {
     setTimeout(() => tone(900, 0.07, 0.2, 'square'), 35);
   } else if (kind === 'splash') {
     noiseBurst(0.25, 900, 0.3, 'lowpass');
+  } else if (kind === 'sandfall') {
+    // мягкий сыпучий звук падения песка
+    noiseBurst(0.22, 2400, 0.22, 'highpass');
   }
 }
 
@@ -1204,6 +1386,90 @@ function updateDrops(dt) {
 }
 
 // ============================================================
+//  Падающий песок (гравитационные блоки)
+// ============================================================
+const fallingSand = []; // {mesh, id, x, z, y(float), vel}
+const sandCheckQueue = [];      // координаты для проверки падения
+const sandInQueue = new Set();
+
+function canFallInto(b) { return b === BLOCK.AIR || isLiquid(b); }
+
+// поставить блок-кандидат на проверку падения
+function checkSand(x, y, z) {
+  if (y < 1 || y >= WORLD_HEIGHT) return;
+  const k = x + ',' + y + ',' + z;
+  if (sandInQueue.has(k)) return;
+  sandInQueue.add(k);
+  sandCheckQueue.push(k);
+}
+// проверить столбик и соседей сверху (после удаления опоры)
+function checkSandAround(x, y, z) {
+  checkSand(x, y + 1, z);
+  checkSand(x, y, z);
+}
+
+function startFallingSand(id, x, y, z) {
+  // убрать блок из мира и создать падающую сущность
+  World.setBlock(x, y, z, BLOCK.AIR, true);
+  rebuildAround(x, z);
+  WaterSim.touchAround(x, y, z); // вода может занять освободившееся место
+
+  const geo = new THREE.BoxGeometry(0.98, 0.98, 0.98);
+  const mesh = new THREE.Mesh(geo, MATERIALS[id]);
+  mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+  scene.add(mesh);
+  fallingSand.push({ mesh, id, x, z, y: y, vel: 0 });
+  playSound('sandfall');
+}
+
+function processSandQueue() {
+  if (sandCheckQueue.length === 0) return;
+  let processed = 0;
+  while (sandCheckQueue.length > 0 && processed < 200) {
+    const k = sandCheckQueue.shift();
+    sandInQueue.delete(k);
+    processed++;
+    const [x, y, z] = k.split(',').map(Number);
+    if (World.getBlock(x, y, z) !== BLOCK.SAND) continue;
+    if (canFallInto(World.getBlock(x, y - 1, z))) {
+      startFallingSand(BLOCK.SAND, x, y, z);
+    }
+  }
+}
+
+function updateFallingSand(dt) {
+  processSandQueue();
+  // сортируем по убыванию Y; идём с конца (i--), значит нижний песок обрабатываем первым
+  fallingSand.sort((a, b) => b.y - a.y);
+  for (let i = fallingSand.length - 1; i >= 0; i--) {
+    const s = fallingSand[i];
+    s.vel -= GRAVITY * dt;
+    if (s.vel < -40) s.vel = -40;
+    s.y += s.vel * dt;
+
+    // ячейка под текущим положением
+    const belowY = Math.floor(s.y - 0.0001);
+    const restBlock = World.getBlock(s.x, belowY, s.z);
+    if (!canFallInto(restBlock)) {
+      // приземлился: ставим песок на belowY+1
+      let placeY = belowY + 1;
+      // если место занято (вода) — всё равно ставим песок, вытесняя воду
+      World.setBlock(s.x, placeY, s.z, BLOCK.SAND);
+      rebuildAround(s.x, s.z);
+      WaterSim.touchAround(s.x, placeY, s.z);
+      playSound('sandfall', BLOCK.SAND);
+      scene.remove(s.mesh);
+      s.mesh.geometry.dispose();
+      fallingSand.splice(i, 1);
+      // вдруг сверху ещё песок — пусть тоже падает
+      checkSand(s.x, placeY + 1, s.z);
+      continue;
+    }
+    s.mesh.position.y = s.y + 0.5;
+  }
+}
+
+// ============================================================
 //  Ломать / ставить
 // ============================================================
 function finishBreak(t) {
@@ -1217,6 +1483,7 @@ function finishBreak(t) {
   rebuildAround(t.x, t.z);
   playSound('break', t.block);
   WaterSim.touchAround(t.x, t.y, t.z); // вода может затечь в дыру
+  checkSandAround(t.x, t.y, t.z);      // песок сверху может обвалиться
 }
 
 function placeBlock() {
@@ -1240,6 +1507,7 @@ function placeBlock() {
   rebuildAround(nx, nz);
   playSound('place', slot.id);
   WaterSim.touchAround(nx, ny, nz); // вытеснение/перетекание воды
+  if (isFalling(slot.id)) checkSand(nx, ny, nz); // поставленный песок может упасть
 }
 
 function intersectsPlayer(bx, by, bz) {
@@ -1527,7 +1795,7 @@ function spawnPlayer() {
   const h = terrainHeight(8, 8);
   PLAYER.pos.set(8.5, Math.max(h, SEA_LEVEL) + 2, 8.5);
 }
-spawnPlayer();
+// spawnPlayer вызывается из WorldManager после выбора/создания мира
 
 // ============================================================
 //  HUD
@@ -1562,6 +1830,7 @@ function updateHUD() {
   const targetName = t ? (BLOCK_NAMES[t.block] || '—') : '—';
   hudEl.innerHTML =
     `MiniCraft<br>` +
+    `Мир: ${WorldManager.current || '—'} · Сид: ${WORLD_SEED}<br>` +
     `XYZ: ${PLAYER.pos.x.toFixed(1)}, ${PLAYER.pos.y.toFixed(1)}, ${PLAYER.pos.z.toFixed(1)}<br>` +
     `Чанков: ${loadedMeshes.size} · FPS: ${fps}<br>` +
     `${PLAYER.inWater ? '🌊 В воде' : (PLAYER.crouching ? 'Присел' : 'Выживание')}<br>` +
@@ -1577,6 +1846,9 @@ function loop(now) {
   last = now;
   if (dt > 0.1) dt = 0.1; // ограничить спайки
 
+  // пока мир не выбран — ничего не симулируем и не рисуем
+  if (!gameStarted) { requestAnimationFrame(loop); return; }
+
   if (overlay.classList.contains('hidden') && !invOpen) {
     updatePlayer(dt);
     updateOxygen(dt);
@@ -1587,6 +1859,7 @@ function loop(now) {
   }
 
   WaterSim.update(dt);
+  updateFallingSand(dt);
   updateChunks();
 
   // камера
@@ -1630,7 +1903,104 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
-// Начинаем с пустыми руками — всё добываем сами (как в выживании)
+// ============================================================
+//  UI менеджера миров
+// ============================================================
+const worldListEl = document.getElementById('worldList');
+
+function timeAgo(ts) {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return 'только что';
+  const m = Math.floor(s / 60); if (m < 60) return m + ' мин назад';
+  const h = Math.floor(m / 60); if (h < 24) return h + ' ч назад';
+  const d = Math.floor(h / 24); return d + ' дн назад';
+}
+
+function renderWorldList() {
+  const worlds = WorldManager.list().sort((a, b) => b.updated - a.updated);
+  worldListEl.innerHTML = '';
+  if (worlds.length === 0) {
+    const e = document.createElement('div');
+    e.className = 'wm-empty';
+    e.textContent = 'Пока нет сохранённых миров — создайте новый выше.';
+    worldListEl.appendChild(e);
+    return;
+  }
+  for (const w of worlds) {
+    const item = document.createElement('div');
+    item.className = 'wm-item';
+
+    const info = document.createElement('div');
+    info.className = 'wm-info';
+    const nm = document.createElement('div');
+    nm.className = 'wm-name';
+    nm.textContent = w.name;
+    const meta = document.createElement('div');
+    meta.className = 'wm-meta';
+    meta.textContent = 'Сид: ' + w.seed + ' · ' + timeAgo(w.updated);
+    info.appendChild(nm); info.appendChild(meta);
+
+    const loadBtn = document.createElement('button');
+    loadBtn.className = 'wm-load';
+    loadBtn.textContent = 'Играть';
+    loadBtn.addEventListener('click', () => WorldManager.load(w.name));
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'wm-del';
+    delBtn.textContent = '✕';
+    delBtn.title = 'Удалить мир';
+    delBtn.addEventListener('click', () => {
+      if (confirm('Удалить мир «' + w.name + '»? Это необратимо.')) WorldManager.delete(w.name);
+    });
+
+    item.appendChild(info); item.appendChild(loadBtn); item.appendChild(delBtn);
+    worldListEl.appendChild(item);
+  }
+}
+
+document.getElementById('createWorldBtn').addEventListener('click', () => {
+  const name = document.getElementById('newWorldName').value;
+  const seed = document.getElementById('newWorldSeed').value;
+  WorldManager.create(name, seed);
+});
+
+// открыть меню (пауза + менеджер миров)
+function openMenu() {
+  if (!gameStarted) return;
+  WorldManager.save();
+  document.exitPointerLock();
+  if (invOpen) toggleInventory();
+  overlay.classList.remove('hidden');
+  renderWorldList();
+}
+
+document.getElementById('menuBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  openMenu();
+});
+
+// тост «Сохранено»
+const saveToastEl = document.getElementById('saveToast');
+let saveToastTimer = null;
+function showSaveToast() {
+  saveToastEl.style.display = 'block';
+  clearTimeout(saveToastTimer);
+  saveToastTimer = setTimeout(() => { saveToastEl.style.display = 'none'; }, 1200);
+}
+
+// клавиши: O — сохранить, Esc — меню (когда не открыт инвентарь)
+document.addEventListener('keydown', (e) => {
+  if (!gameStarted) return;
+  if (e.code === 'KeyO') {
+    if (WorldManager.save()) showSaveToast();
+  }
+  if (e.code === 'Escape') {
+    if (invOpen) toggleInventory();   // открыт инвентарь -> закрыть его
+    else openMenu();                  // иначе -> меню/пауза
+  }
+});
+
 renderHotbar();
+renderWorldList();
 
 requestAnimationFrame(loop);

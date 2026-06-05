@@ -90,16 +90,48 @@
     display: flex; align-items: center; justify-content: center; color: #fff; text-align: center;
   }
   #overlay.hidden { display: none; }
-  #overlay .box { background: rgba(20,20,20,0.85); padding: 30px 40px; border: 2px solid #555; border-radius: 8px; max-width: 460px; }
-  #overlay h1 { font-size: 34px; margin-bottom: 10px; letter-spacing: 2px; }
-  #overlay p { font-size: 13px; line-height: 1.7; margin: 4px 0; color:#ddd; }
+  #overlay .box { background: rgba(20,20,20,0.9); padding: 24px 30px; border: 2px solid #555; border-radius: 8px; width: 440px; max-height: 92vh; overflow-y: auto; }
+  #overlay h1 { font-size: 30px; margin-bottom: 6px; letter-spacing: 2px; }
+  #overlay p { font-size: 12px; line-height: 1.6; margin: 3px 0; color:#ddd; }
   #overlay button {
-    margin-top: 18px; padding: 12px 28px; font-size: 16px; font-family: monospace;
+    margin-top: 10px; padding: 10px 22px; font-size: 14px; font-family: monospace;
     background: #5a9e3a; color:#fff; border: 2px solid #3d6e27; border-radius: 4px; cursor: pointer;
   }
   #overlay button:hover { background: #6bb544; }
-  .keys { display:inline-block; text-align:left; margin-top:8px; }
+  .keys { display:inline-block; text-align:left; margin-top:12px; }
   kbd { background:#333; border:1px solid #666; border-radius:3px; padding:1px 6px; margin:0 2px; font-size:12px; }
+
+  /* Менеджер миров */
+  .wm-section { margin-top: 16px; text-align: left; border-top: 1px solid #444; padding-top: 12px; }
+  .wm-section h3 { font-size: 14px; color: #9fd; margin-bottom: 8px; }
+  .wm-input {
+    display: block; width: 100%; margin-bottom: 8px; padding: 9px 10px;
+    font-family: monospace; font-size: 13px; background: #2a2a2a; color: #fff;
+    border: 1px solid #555; border-radius: 4px; box-sizing: border-box;
+  }
+  .wm-input::placeholder { color: #888; }
+  .wm-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
+  .wm-empty { color: #888; font-size: 12px; padding: 6px; }
+  .wm-item {
+    display: flex; align-items: center; gap: 8px; background: #2c2c2c;
+    border: 1px solid #444; border-radius: 4px; padding: 8px 10px;
+  }
+  .wm-item .wm-info { flex: 1; min-width: 0; }
+  .wm-item .wm-name { font-size: 13px; color: #fff; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wm-item .wm-meta { font-size: 10px; color: #9a9a9a; }
+  .wm-item button { margin: 0; padding: 6px 10px; font-size: 12px; }
+  .wm-load { background: #4a7fc0 !important; border-color: #2f5a90 !important; }
+  .wm-load:hover { background: #5b93d6 !important; }
+  .wm-del { background: #a04040 !important; border-color: #6e2727 !important; }
+  .wm-del:hover { background: #c05050 !important; }
+
+  /* Кнопка меню в игре */
+  #menuBtn {
+    position: fixed; right: 10px; top: 10px; z-index: 12; padding: 6px 12px; display: none;
+    font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.45);
+    color: #fff; border: 1px solid #666; border-radius: 4px; cursor: pointer;
+  }
+  #menuBtn:hover { background: rgba(0,0,0,0.7); }
 </style>
 </head>
 <body>
@@ -109,6 +141,8 @@
 <div id="oxygen"></div>
 
 <div id="hud"></div>
+<button id="menuBtn">Меню (Esc)</button>
+<div id="saveToast" style="position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:14;background:rgba(0,0,0,0.7);color:#9fd;padding:6px 14px;border-radius:4px;font-family:monospace;font-size:13px;display:none;">Сохранено ✓</div>
 
 <div id="hotbar"></div>
 
@@ -121,14 +155,25 @@
   <div class="box">
     <h1>MiniCraft</h1>
     <p>Бесконечный мир в духе старого Minecraft</p>
-    <div class="keys">
-      <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> — движение</p>
-      <p><kbd>Space</kbd> — прыжок / всплыть · <kbd>Shift</kbd> — присесть / нырять</p>
-      <p><kbd>ЛКМ</kbd> (удерживать) — ломать · <kbd>ПКМ</kbd> — ставить</p>
-      <p><kbd>E</kbd> — инвентарь · <kbd>1-5</kbd> / колесо — выбор слота</p>
-      <p><kbd>Ctrl</kbd> — бег</p>
+
+    <div class="wm-section">
+      <h3>Создать мир</h3>
+      <input id="newWorldName" class="wm-input" type="text" placeholder="Название мира" maxlength="24">
+      <input id="newWorldSeed" class="wm-input" type="text" placeholder="Сид (число/текст, можно пусто)" maxlength="32">
+      <button id="createWorldBtn">Создать и играть</button>
     </div>
-    <button id="startBtn">Играть</button>
+
+    <div class="wm-section">
+      <h3>Мои миры</h3>
+      <div id="worldList" class="wm-list"></div>
+    </div>
+
+    <div class="keys">
+      <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> — движение · <kbd>Ctrl</kbd> — бег</p>
+      <p><kbd>Space</kbd> — прыжок/всплыть · <kbd>Shift</kbd> — присесть/нырять</p>
+      <p><kbd>ЛКМ</kbd> (удерж.) — ломать · <kbd>ПКМ</kbd> — ставить</p>
+      <p><kbd>E</kbd> — инвентарь · <kbd>1-5</kbd>/колесо — слот · <kbd>O</kbd> — сохранить</p>
+    </div>
   </div>
 </div>
 
