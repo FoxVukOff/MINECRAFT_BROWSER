@@ -46,6 +46,19 @@ const ITEM = {
   IRON_PICKAXE:   111, // железная кирка (ещё эффективнее)
   COPPER_INGOT:   112, // медный слиток (переплавка медной руды)
   COPPER_PICKAXE: 113, // медная кирка (золотая середина: каменная < медная < железная)
+  // Топоры (быстрее по дереву)
+  WOODEN_AXE:     120,
+  STONE_AXE:      121,
+  COPPER_AXE:     122,
+  IRON_AXE:       123,
+  // Лопаты (быстрее по земле/песку)
+  WOODEN_SHOVEL:  130,
+  STONE_SHOVEL:   131,
+  COPPER_SHOVEL:  132,
+  IRON_SHOVEL:    133,
+  // Курятина
+  CHICKEN_RAW:    140,
+  CHICKEN_COOKED: 141,
 };
 
 const BLOCK_NAMES = {
@@ -83,6 +96,16 @@ const BLOCK_NAMES = {
   [ITEM.BEEF_COOKED]: 'Жареная говядина',
   [ITEM.COAL]:     'Уголь',
   [ITEM.CHARCOAL]: 'Древесный уголь',
+  [ITEM.WOODEN_AXE]: 'Деревянный топор',
+  [ITEM.STONE_AXE]:  'Каменный топор',
+  [ITEM.COPPER_AXE]: 'Медный топор',
+  [ITEM.IRON_AXE]:   'Железный топор',
+  [ITEM.WOODEN_SHOVEL]: 'Деревянная лопата',
+  [ITEM.STONE_SHOVEL]:  'Каменная лопата',
+  [ITEM.COPPER_SHOVEL]: 'Медная лопата',
+  [ITEM.IRON_SHOVEL]:   'Железная лопата',
+  [ITEM.CHICKEN_RAW]:    'Сырая курятина',
+  [ITEM.CHICKEN_COOKED]: 'Жареная курятина',
 };
 
 // Еда: сколько голода восстанавливает
@@ -91,6 +114,8 @@ const FOOD = {
   [ITEM.PORK_COOKED]: 6,
   [ITEM.BEEF_RAW]:    2,
   [ITEM.BEEF_COOKED]: 6,
+  [ITEM.CHICKEN_RAW]:    1,
+  [ITEM.CHICKEN_COOKED]: 4,
 };
 function isFood(id) { return FOOD[id] !== undefined; }
 
@@ -135,6 +160,30 @@ function pickaxeTier(id) {
   if (id === ITEM.WOODEN_PICKAXE) return 1;
   return 0;
 }
+
+// --- Топоры (ускоряют дерево/доски) ---
+function isAxe(id) { return id === ITEM.WOODEN_AXE || id === ITEM.STONE_AXE || id === ITEM.COPPER_AXE || id === ITEM.IRON_AXE; }
+function axeTier(id) {
+  if (id === ITEM.IRON_AXE) return 4;
+  if (id === ITEM.COPPER_AXE) return 3;
+  if (id === ITEM.STONE_AXE) return 2;
+  if (id === ITEM.WOODEN_AXE) return 1;
+  return 0;
+}
+// --- Лопаты (ускоряют землю/песок/траву) ---
+function isShovel(id) { return id === ITEM.WOODEN_SHOVEL || id === ITEM.STONE_SHOVEL || id === ITEM.COPPER_SHOVEL || id === ITEM.IRON_SHOVEL; }
+function shovelTier(id) {
+  if (id === ITEM.IRON_SHOVEL) return 4;
+  if (id === ITEM.COPPER_SHOVEL) return 3;
+  if (id === ITEM.STONE_SHOVEL) return 2;
+  if (id === ITEM.WOODEN_SHOVEL) return 1;
+  return 0;
+}
+// Любой инструмент
+function isTool(id) { return isPickaxe(id) || isAxe(id) || isShovel(id); }
+// Блоки, по которым эффективен топор / лопата
+function axeBlock(b) { return b === BLOCK.WOOD || b === BLOCK.PLANKS || b === BLOCK.CRAFTING_TABLE || b === BLOCK.CHEST || b === BLOCK.DOOR_BOTTOM || b === BLOCK.DOOR_TOP; }
+function shovelBlock(b) { return b === BLOCK.DIRT || b === BLOCK.GRASS || b === BLOCK.SAND; }
 
 // Блоки, для добычи которых нужна кирка (иначе ломается, но ничего не выпадает)
 function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE; }
@@ -672,6 +721,7 @@ const World = {
   doorState: new Map(),       // "x,y,z"(низ двери) -> {open}
   furnaces: new Map(),        // "x,y,z" -> {input,fuel,output, burn, cookTime}
   chests: new Map(),          // "x,y,z" -> массив из 27 слотов
+  doubleChests: new Map(),    // "x,y,z" -> "x,y,z" партнёра (двойной сундук)
   facing: new Map(),          // "x,y,z" -> ориентация блока (см. ORIENT)
 
   key(cx, cz) { return cx + ',' + cz; },
@@ -840,6 +890,45 @@ function isDoorOpen(x, y, z) {
   const by = (b === BLOCK.DOOR_TOP) ? y - 1 : y;
   const st = World.doorState.get(World.ekey(x, by, z));
   return !!(st && st.open);
+}
+
+// Тонкая AABB двери в локальных координатах [0..1] -> {x1,x2,z1,z2}.
+// «front» — куда смотрит лицевая сторона; закрытая дверь — тонкая панель у стороны back,
+// открытая — повёрнута на 90° (петля в углу). thickness ~0.19.
+function doorAABB(x, y, z) {
+  const b = World.getBlock(x, y, z);
+  const TH = 0.19;
+  const open = isDoorOpen(x, y, z);
+  const front = World.facing.get(World.ekey(x, y, z));
+  // нормализуем: ось закрытой панели определяется front (вдоль стены)
+  // closed: панель вдоль оси, перпендикулярной front; open: вдоль самого front
+  // front: FACE_PZ(+Z) FACE_NZ(-Z) FACE_PX(+X) FACE_NX(-X)
+  let frontAxis; // 'z' или 'x' — ось front
+  let frontSide; // +1 или -1
+  if (front === FACE_PX) { frontAxis='x'; frontSide=1; }
+  else if (front === FACE_NX) { frontAxis='x'; frontSide=-1; }
+  else if (front === FACE_PZ) { frontAxis='z'; frontSide=1; }
+  else { frontAxis='z'; frontSide=-1; } // FACE_NZ или undefined -> -Z по умолчанию
+
+  // Закрытая дверь: тонкая панель прижата к стороне, противоположной front (к стене сзади).
+  // Открытая дверь: панель повёрнута на 90° и прижата к боковой стороне.
+  if (!open) {
+    if (frontAxis === 'z') {
+      // панель в плоскости XY, по толщине вдоль Z у дальнего края (back = -front)
+      const z = (frontSide > 0) ? {z1:0, z2:TH} : {z1:1-TH, z2:1};
+      return { x1:0, x2:1, z1:z.z1, z2:z.z2 };
+    } else {
+      const xr = (frontSide > 0) ? {x1:0, x2:TH} : {x1:1-TH, x2:1};
+      return { x1:xr.x1, x2:xr.x2, z1:0, z2:1 };
+    }
+  } else {
+    // открыта: повёрнута на 90° -> панель вдоль другой оси, прижата к стороне +
+    if (frontAxis === 'z') {
+      return { x1:0, x2:TH, z1:0, z2:1 };
+    } else {
+      return { x1:0, x2:1, z1:0, z2:TH };
+    }
+  }
 }
 
 // ============================================================
@@ -1152,18 +1241,14 @@ function buildChunkMesh(c) {
         if (b === BLOCK.AIR) continue;
         const wx = x0 + lx, wz = z0 + lz;
 
-        // ---- Дверь: тонкая панель (закрыта вдоль -Z, открыта вдоль -X) ----
+        // ---- Дверь: тонкая панель с учётом ориентации/открытости ----
         if (isDoor(b)) {
-          const open = isDoorOpen(wx, y, wz);
           const mat = MATERIALS[b][0];
           const mi = getMatIndex(mat);
           let buf = byMat.get(mi);
           if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], water:false }; byMat.set(mi, buf); }
-          const TH = 0.18; // толщина
-          // bbox панели в локальных координатах
-          let x1,x2,z1,z2;
-          if (!open) { x1=0; x2=1; z1=0; z2=TH; }      // вдоль стены -Z
-          else       { x1=0; x2=TH; z1=0; z2=1; }      // повёрнута вдоль -X
+          const ab = doorAABB(wx, y, wz);
+          const x1=ab.x1, x2=ab.x2, z1=ab.z1, z2=ab.z2;
           const addQuad = (p, nrm) => {
             const base = buf.positions.length/3;
             for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); }
@@ -1409,6 +1494,7 @@ const WorldManager = {
     World.doorState.clear();
     World.furnaces.clear();
     World.chests.clear();
+    World.doubleChests.clear();
     World.facing.clear();
     openFurnacePos = null;
     openChestPos = null;
@@ -1476,6 +1562,7 @@ const WorldManager = {
         k, items: arr.map(s => s ? { id: s.id, count: s.count } : null),
       })),
       facing: Array.from(World.facing.entries()).map(([k, v]) => k + ':' + v),
+      doubleChests: Array.from(World.doubleChests.entries()).map(([k, v]) => k + '>' + v),
       discovered: Array.from(discovered),
     };
     try {
@@ -1522,6 +1609,11 @@ const WorldManager = {
       const items = ch.items || [];
       for (let i = 0; i < CHEST_SIZE; i++) arr[i] = items[i] ? { id: items[i].id, count: items[i].count } : null;
       World.chests.set(ch.k, arr);
+    }
+    // двойные сундуки
+    for (const s of (data.doubleChests || [])) {
+      const i = s.indexOf('>');
+      if (i > 0) World.doubleChests.set(s.slice(0, i), s.slice(i + 1));
     }
     // ориентации блоков
     for (const s of (data.facing || [])) {
@@ -1781,13 +1873,16 @@ function updateMining(dt) {
 
   let time = BREAK_TIME[mining.block] || 1;
   const held = activeItem();
-  const tier = held ? pickaxeTier(held.id) : 0;
+  const heldId = held ? held.id : 0;
+  // множитель скорости в зависимости от уровня инструмента
+  const speedMul = (tier) => tier >= 4 ? 0.13 : tier === 3 ? 0.17 : tier === 2 ? 0.22 : tier === 1 ? 0.35 : 1;
   if (needsPickaxe(mining.block)) {
-    if (tier >= 4) time *= 0.13;      // железная кирка — самая эффективная
-    else if (tier === 3) time *= 0.17; // медная кирка — золотая середина
-    else if (tier === 2) time *= 0.22; // каменная кирка
-    else if (tier === 1) time *= 0.35; // деревянная кирка
-    else time *= 2.2;                 // без кирки — медленно
+    const tier = pickaxeTier(heldId);
+    time *= tier > 0 ? speedMul(tier) : 2.2; // без кирки — медленно
+  } else if (axeBlock(mining.block) && isAxe(heldId)) {
+    time *= speedMul(axeTier(heldId));
+  } else if (shovelBlock(mining.block) && isShovel(heldId)) {
+    time *= speedMul(shovelTier(heldId));
   }
   mining.progress += dt / time;
 
@@ -1902,18 +1997,41 @@ function iconCanvas(id, size) {
     ctx.beginPath(); ctx.moveTo(size*0.7, size*0.2); ctx.lineTo(size*0.3, size*0.8); ctx.stroke();
     return c;
   }
+  // цвет головки инструмента по материалу
+  const toolHeadColor = (idd) => {
+    if (idd === ITEM.STONE_PICKAXE || idd === ITEM.STONE_AXE || idd === ITEM.STONE_SHOVEL) return '#8a8a8a';
+    if (idd === ITEM.COPPER_PICKAXE || idd === ITEM.COPPER_AXE || idd === ITEM.COPPER_SHOVEL) return '#d07a40';
+    if (idd === ITEM.IRON_PICKAXE || idd === ITEM.IRON_AXE || idd === ITEM.IRON_SHOVEL) return '#e2e2e8';
+    return '#b98e4d'; // деревянный
+  };
   if (id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.IRON_PICKAXE || id === ITEM.COPPER_PICKAXE) {
     // ручка
     ctx.strokeStyle = '#7a5326'; ctx.lineWidth = Math.max(2, size/8);
     ctx.beginPath(); ctx.moveTo(size*0.62, size*0.28); ctx.lineTo(size*0.34, size*0.82); ctx.stroke();
-    // головка: дерево / камень / медь / железо
-    let head = '#b98e4d';
-    if (id === ITEM.STONE_PICKAXE) head = '#8a8a8a';
-    else if (id === ITEM.COPPER_PICKAXE) head = '#d07a40';
-    else if (id === ITEM.IRON_PICKAXE) head = '#e2e2e8';
-    ctx.strokeStyle = head;
+    ctx.strokeStyle = toolHeadColor(id);
     ctx.lineWidth = Math.max(3, size/6);
     ctx.beginPath(); ctx.moveTo(size*0.3, size*0.32); ctx.quadraticCurveTo(size*0.62, size*0.18, size*0.82, size*0.34); ctx.stroke();
+    return c;
+  }
+  // топор: ручка + клиновидное лезвие сбоку
+  if (id === ITEM.WOODEN_AXE || id === ITEM.STONE_AXE || id === ITEM.COPPER_AXE || id === ITEM.IRON_AXE) {
+    const u = size/16;
+    ctx.strokeStyle = '#7a5326'; ctx.lineWidth = Math.max(2, size/8);
+    ctx.beginPath(); ctx.moveTo(size*0.6, size*0.28); ctx.lineTo(size*0.36, size*0.82); ctx.stroke();
+    ctx.fillStyle = toolHeadColor(id);
+    // лезвие топора (треугольный блок у верхушки слева)
+    ctx.beginPath();
+    ctx.moveTo(5*u,3*u); ctx.lineTo(11*u,3*u); ctx.lineTo(11*u,7*u); ctx.lineTo(5*u,9*u); ctx.closePath(); ctx.fill();
+    return c;
+  }
+  // лопата: ручка + прямоугольный ковш снизу
+  if (id === ITEM.WOODEN_SHOVEL || id === ITEM.STONE_SHOVEL || id === ITEM.COPPER_SHOVEL || id === ITEM.IRON_SHOVEL) {
+    const u = size/16;
+    ctx.strokeStyle = '#7a5326'; ctx.lineWidth = Math.max(2, size/8);
+    ctx.beginPath(); ctx.moveTo(size*0.62, size*0.22); ctx.lineTo(size*0.42, size*0.66); ctx.stroke();
+    ctx.fillStyle = toolHeadColor(id);
+    // ковш
+    ctx.fillRect(4*u,9*u,5*u,5*u);
     return c;
   }
   // слитки: железный (серебристый) и медный (оранжевый)
@@ -1969,6 +2087,23 @@ function iconCanvas(id, size) {
     ctx.fillStyle = '#efe6cf';
     ctx.fillRect(11*u,3*u,3*u,2*u); ctx.fillRect(12*u,4*u,3*u,2*u);
     ctx.fillStyle = '#cfc4a6'; ctx.fillRect(13*u,3*u,1*u,1*u);
+    return c;
+  }
+  // курятина — ножка/окорочок с косточкой
+  if (id === ITEM.CHICKEN_RAW || id === ITEM.CHICKEN_COOKED) {
+    const cooked = (id === ITEM.CHICKEN_COOKED);
+    const u = size/16;
+    const meat = cooked ? '#b9763a' : '#f0d2b0';
+    const edge = cooked ? '#7a4a22' : '#caa884';
+    ctx.fillStyle = meat;
+    ctx.fillRect(5*u,3*u,6*u,7*u);          // округлая мякоть
+    ctx.fillRect(4*u,4*u,8*u,5*u);
+    ctx.fillStyle = edge;
+    ctx.fillRect(4*u,8*u,8*u,1*u); ctx.fillRect(11*u,4*u,1*u,5*u);
+    // косточка снизу
+    ctx.fillStyle = '#efe6cf';
+    ctx.fillRect(7*u,9*u,2*u,4*u); ctx.fillRect(6*u,12*u,4*u,2*u);
+    ctx.fillStyle = '#cfc4a6'; ctx.fillRect(6*u,13*u,1*u,1*u); ctx.fillRect(9*u,13*u,1*u,1*u);
     return c;
   }
 
@@ -2095,6 +2230,18 @@ const RECIPES = [
     cells: [I,I,I,
             O,S,O,
             O,S,O], result: { id: ITEM.IRON_PICKAXE, count: 1 } },
+
+  // ---- Топоры (2 материала углом + 2 палки) ----
+  { shaped: true, w: 2, h: 3, need3x3: true, cells: [P,P, P,S, O,S], result: { id: ITEM.WOODEN_AXE, count: 1 } },
+  { shaped: true, w: 2, h: 3, need3x3: true, cells: [C,C, C,S, O,S], result: { id: ITEM.STONE_AXE, count: 1 } },
+  { shaped: true, w: 2, h: 3, need3x3: true, cells: [U,U, U,S, O,S], result: { id: ITEM.COPPER_AXE, count: 1 } },
+  { shaped: true, w: 2, h: 3, need3x3: true, cells: [I,I, I,S, O,S], result: { id: ITEM.IRON_AXE, count: 1 } },
+
+  // ---- Лопаты (1 материал + 2 палки в столбик) ----
+  { shaped: true, w: 1, h: 3, need3x3: true, cells: [P, S, S], result: { id: ITEM.WOODEN_SHOVEL, count: 1 } },
+  { shaped: true, w: 1, h: 3, need3x3: true, cells: [C, S, S], result: { id: ITEM.STONE_SHOVEL, count: 1 } },
+  { shaped: true, w: 1, h: 3, need3x3: true, cells: [U, S, S], result: { id: ITEM.COPPER_SHOVEL, count: 1 } },
+  { shaped: true, w: 1, h: 3, need3x3: true, cells: [I, S, S], result: { id: ITEM.IRON_SHOVEL, count: 1 } },
   // дверь: 2 в ширину, 3 в высоту из досок (6 досок) -> предмет двери.
   // (полный столбец 2x3, чтобы не путать с верстаком 2x2)
   { shaped: true, w: 2, h: 3, need3x3: true,
@@ -2474,14 +2621,15 @@ function renderInventory() {
   }
 
   if (craftMode === 'chest') {
-    // --- Сундук: 27 слотов (3x9) ---
-    const chest = getChest(openChestPos.x, openChestPos.y, openChestPos.z);
+    // --- Сундук: 27 слотов (одиночный) или 54 (двойной) ---
+    const chest = chestView(openChestPos.x, openChestPos.y, openChestPos.z);
+    const count = chestSlotCount(openChestPos.x, openChestPos.y, openChestPos.z);
     const cz = document.createElement('div');
     cz.className = 'inv-storage';
-    for (let i = 0; i < CHEST_SIZE; i++) cz.appendChild(makeSlotEl(chest, i, 34));
+    for (let i = 0; i < count; i++) cz.appendChild(makeSlotEl(chest, i, 34));
     invGrid.appendChild(cz);
     const lbl = document.createElement('div'); lbl.className = 'inv-label';
-    lbl.textContent = 'Сундук';
+    lbl.textContent = count > CHEST_SIZE ? 'Большой сундук' : 'Сундук';
     invGrid.appendChild(lbl);
   } else if (craftMode === 'furnace') {
     // --- Интерфейс печи ---
@@ -2716,7 +2864,76 @@ function playSound(kind, block) {
     noiseBurst(0.06, 800, 0.25, 'lowpass');
     setTimeout(() => noiseBurst(0.06, 700, 0.22, 'lowpass'), 130);
     setTimeout(() => noiseBurst(0.05, 900, 0.2, 'lowpass'), 260);
+  } else if (kind === 'cluck') {
+    chickenCluck(false);
+  } else if (kind === 'cluck_hurt') {
+    chickenCluck(true);
+  } else if (kind === 'hurt') {
+    playerHurt();
+  } else if (kind === 'burp') {
+    playerBurp();
   }
+}
+
+// клохтание курицы — пара коротких высоких чирков
+function chickenCluck(hurt) {
+  if (!AudioEngine.ctx) return;
+  const ctx = AudioEngine.ctx;
+  const chirp = (t0, f) => {
+    const osc = ctx.createOscillator(); osc.type = 'square';
+    osc.frequency.setValueAtTime(f, t0);
+    osc.frequency.linearRampToValueAtTime(f * 1.4, t0 + 0.05);
+    osc.frequency.linearRampToValueAtTime(f * 0.9, t0 + 0.1);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(hurt ? 0.32 : 0.2, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.1);
+    const filt = ctx.createBiquadFilter(); filt.type = 'bandpass'; filt.frequency.value = 2200; filt.Q.value = 3;
+    osc.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
+    osc.start(t0); osc.stop(t0 + 0.12);
+  };
+  const now = ctx.currentTime;
+  chirp(now, hurt ? 1100 : 900);
+  chirp(now + 0.12, hurt ? 1300 : 1000);
+  if (!hurt) chirp(now + 0.26, 850);
+}
+
+// звук урона игрока — глухой удар «ой»
+function playerHurt() {
+  if (!AudioEngine.ctx) return;
+  const ctx = AudioEngine.ctx;
+  const t0 = ctx.currentTime;
+  const osc = ctx.createOscillator(); osc.type = 'triangle';
+  osc.frequency.setValueAtTime(330, t0);
+  osc.frequency.exponentialRampToValueAtTime(140, t0 + 0.18);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.4, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+  osc.connect(g); g.connect(AudioEngine.sfxGain);
+  osc.start(t0); osc.stop(t0 + 0.24);
+  // короткий шумовой «удар»
+  noiseBurst(0.08, 500, 0.25, 'lowpass');
+}
+
+// отрыжка после еды
+function playerBurp() {
+  if (!AudioEngine.ctx) return;
+  const ctx = AudioEngine.ctx;
+  const t0 = ctx.currentTime;
+  const osc = ctx.createOscillator(); osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(140, t0);
+  osc.frequency.linearRampToValueAtTime(70, t0 + 0.28);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.35, t0 + 0.04);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.3);
+  const filt = ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 500;
+  // лёгкое «бульканье» через периодическую модуляцию частоты
+  const lfo = ctx.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 18;
+  const lfoGain = ctx.createGain(); lfoGain.gain.value = 25;
+  lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
+  osc.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
+  osc.start(t0); osc.stop(t0 + 0.32); lfo.start(t0); lfo.stop(t0 + 0.32);
 }
 
 // процедурное хрюканье
@@ -3110,6 +3327,14 @@ function buildMobMaterials() {
     ctx.fillStyle = '#7a5050'; ctx.fillRect(4,7,3,3); ctx.fillRect(9,7,3,3);
   }));
   MOB_MAT.horn = texToMaterial(makeTex(ctx => noiseFill(ctx, 0xe8e2cf, 6)));
+  // --- Курица ---
+  MOB_MAT.chicken_body = texToMaterial(makeTex(ctx => {
+    noiseFill(ctx, 0xf2f2f2, 6);             // белые перья
+    ctx.fillStyle = '#dcdcdc';
+    for (let i=0;i<5;i++) ctx.fillRect((Math.random()*14)|0,(Math.random()*14)|0,2,1);
+  }));
+  MOB_MAT.chicken_beak = texToMaterial(makeTex(ctx => noiseFill(ctx, 0xe8a83a, 4))); // оранжевый клюв/лапы
+  MOB_MAT.chicken_comb = texToMaterial(makeTex(ctx => noiseFill(ctx, 0xc83a2a, 4))); // красный гребень
 }
 
 const EYE_MAT = () => new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
@@ -3159,6 +3384,30 @@ const MOB_TYPES = {
     },
     width: 1.0, height: 1.2, hp: 10,
   },
+  chicken: {
+    spawnOn: BLOCK.GRASS, drop: ITEM.CHICKEN_RAW, dropCount: () => 1 + (Math.random()*2|0),
+    idleSound: 'cluck', hurtSound: 'cluck_hurt',
+    build() {
+      const g = new THREE.Group();
+      const box = (w,h,d,mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat||MOB_MAT.chicken_body); if (SHADOWS_ON) m.castShadow=true; return m; };
+      const body = box(0.42, 0.4, 0.5); body.position.set(0, 0.45, 0); g.add(body);
+      const head = new THREE.Group();
+      head.add(box(0.3, 0.3, 0.3));
+      // гребень
+      const comb = box(0.1, 0.12, 0.18, MOB_MAT.chicken_comb); comb.position.set(0, 0.2, 0); head.add(comb);
+      // клюв
+      const beak = box(0.12, 0.1, 0.14, MOB_MAT.chicken_beak); beak.position.set(0, -0.02, 0.2); head.add(beak);
+      const eL = new THREE.Mesh(new THREE.BoxGeometry(0.06,0.06,0.02), EYE_MAT()); eL.position.set(-0.1,0.04,0.14); head.add(eL);
+      const eR = eL.clone(); eR.position.x = 0.1; head.add(eR);
+      head.position.set(0, 0.72, 0.2); g.add(head); g.userData.head = head;
+      // крылья (для лёгкой анимации можно как ноги)
+      const legs = []; const lp = [[-0.12,0.05],[0.12,0.05]];
+      for (const [lx,lz] of lp) { const leg = box(0.1,0.28,0.1, MOB_MAT.chicken_beak); leg.geometry.translate(0,-0.14,0); leg.position.set(lx,0.3,lz); g.add(leg); legs.push(leg); }
+      g.userData.legs = legs;
+      return g;
+    },
+    width: 0.5, height: 0.7, hp: 4,
+  },
 };
 
 function spawnMob(type, x, y, z) {
@@ -3182,7 +3431,8 @@ function trySpawnMobs(dt) {
   if (mobSpawnTimer > 0) return;
   mobSpawnTimer = 6 + Math.random()*6;
   if (mobs.length >= MAX_MOBS) return;
-  const type = Math.random() < 0.5 ? 'pig' : 'cow';
+  const r = Math.random();
+  const type = r < 0.4 ? 'pig' : (r < 0.75 ? 'chicken' : 'cow');
   for (let tries = 0; tries < 8; tries++) {
     const ang = Math.random()*Math.PI*2;
     const dist = 12 + Math.random()*12;
@@ -3399,16 +3649,22 @@ function finishBreak(t) {
     }
   }
 
-  // Сундук: выбросить всё содержимое и удалить хранилище
+  // Сундук: выбросить содержимое только этой половины и разорвать связь двойного
   if (broken === BLOCK.CHEST) {
     const ck = World.ekey(t.x, t.y, t.z);
+    // если открыт интерфейс этого (или партнёрского) сундука — закрыть
+    if (openChestPos && invOpen) {
+      const ok = World.ekey(openChestPos.x, openChestPos.y, openChestPos.z);
+      const part = World.doubleChests.get(ck);
+      if (ok === ck || ok === part) toggleInventory();
+    }
+    // разорвать связь двойного сундука
+    const partner = World.doubleChests.get(ck);
+    if (partner) { World.doubleChests.delete(ck); World.doubleChests.delete(partner); }
     const arr = World.chests.get(ck);
     if (arr) {
       for (const it of arr) if (it) for (let n = 0; n < it.count; n++) spawnDrop(it.id, t.x + 0.5, t.y + 0.7, t.z + 0.5);
       World.chests.delete(ck);
-    }
-    if (openChestPos && ck === World.ekey(openChestPos.x, openChestPos.y, openChestPos.z) && invOpen) {
-      toggleInventory();
     }
   }
 
@@ -3504,9 +3760,19 @@ function placeBlock() {
     if (canFallInto(World.getBlock(nx, ny - 1, nz))) return;
     slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
     refreshUI();
-    // направление по взгляду игрока (для рендера достаточно открытия/закрытия)
+    // ориентация двери по взгляду: «перед» смотрит на игрока (как у мебели)
+    const lookD = new THREE.Vector3(
+      -Math.sin(PLAYER.yaw) * Math.cos(PLAYER.pitch),
+      Math.sin(PLAYER.pitch),
+      -Math.cos(PLAYER.yaw) * Math.cos(PLAYER.pitch)
+    );
+    let dfront;
+    if (Math.abs(lookD.x) >= Math.abs(lookD.z)) dfront = lookD.x > 0 ? FACE_NX : FACE_PX;
+    else dfront = lookD.z > 0 ? FACE_NZ : FACE_PZ;
     World.setBlock(nx, ny, nz, BLOCK.DOOR_BOTTOM);
     World.setBlock(nx, ny + 1, nz, BLOCK.DOOR_TOP);
+    World.facing.set(World.ekey(nx, ny, nz), dfront);
+    World.facing.set(World.ekey(nx, ny + 1, nz), dfront);
     World.doorState.set(World.ekey(nx, ny, nz), { open: false });
     rebuildAround(nx, nz);
     playSound('place', BLOCK.PLANKS);
@@ -3535,6 +3801,16 @@ function placeBlock() {
   if (front !== defaultFront) World.facing.set(World.ekey(nx, ny, nz), front);
   else World.facing.delete(World.ekey(nx, ny, nz));
 
+  // ---- Двойной сундук: при установке рядом с одиночным объединяем (если не зажат Shift) ----
+  if (placeId === BLOCK.CHEST && !PLAYER.crouching) {
+    const merge = findChestToMerge(nx, ny, nz, World.facing.get(World.ekey(nx, ny, nz)));
+    if (merge) {
+      const k1 = World.ekey(nx, ny, nz), k2 = World.ekey(merge.x, merge.y, merge.z);
+      World.doubleChests.set(k1, k2);
+      World.doubleChests.set(k2, k1);
+    }
+  }
+
   rebuildAround(nx, nz);
   playSound('place', placeId);
   WaterSim.touchAround(nx, ny, nz); // вытеснение/перетекание воды
@@ -3549,6 +3825,7 @@ const SMELT = {
   [BLOCK.SAND]: { id: BLOCK.GLASS, count: 1 },
   [ITEM.PORK_RAW]: { id: ITEM.PORK_COOKED, count: 1 },
   [ITEM.BEEF_RAW]: { id: ITEM.BEEF_COOKED, count: 1 },
+  [ITEM.CHICKEN_RAW]: { id: ITEM.CHICKEN_COOKED, count: 1 },
   [BLOCK.WOOD]: { id: ITEM.CHARCOAL, count: 1 }, // дерево -> древесный уголь
   [BLOCK.IRON_ORE]: { id: ITEM.IRON_INGOT, count: 1 }, // железная руда -> слиток
   [BLOCK.COPPER_ORE]: { id: ITEM.COPPER_INGOT, count: 1 }, // медная руда -> медный слиток
@@ -3579,6 +3856,60 @@ function getChest(x, y, z) {
   if (!arr) { arr = new Array(CHEST_SIZE).fill(null); World.chests.set(k, arr); }
   return arr;
 }
+
+// партнёр двойного сундука: возвращает {x,y,z} или null
+function chestPartner(x, y, z) {
+  const k = World.ekey(x, y, z);
+  const pk = World.doubleChests.get(k);
+  if (!pk) return null;
+  // проверяем, что партнёр всё ещё сундук
+  const [px, py, pz] = pk.split(',').map(Number);
+  if (World.getBlock(px, py, pz) !== BLOCK.CHEST) { World.doubleChests.delete(k); World.doubleChests.delete(pk); return null; }
+  return { x: px, y: py, z: pz };
+}
+
+// найти соседний одиночный сундук той же ориентации для объединения в двойной
+function findChestToMerge(x, y, z, front) {
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+  for (const [dx, dz] of dirs) {
+    const nx = x+dx, nz = z+dz, k = World.ekey(nx, y, nz);
+    if (World.getBlock(nx, y, nz) !== BLOCK.CHEST) continue;
+    if (World.doubleChests.has(k)) continue;           // уже двойной
+    // объединяем только сундуки с одинаковой ориентацией
+    const nf = World.facing.get(k);
+    if (nf !== front) continue;
+    // двойной должен расширяться перпендикулярно «переду» (как в майне), но упростим: любой сосед
+    return { x: nx, y, z: nz };
+  }
+  return null;
+}
+
+// Объединённый «вид» слотов сундука: 27 (одиночный) или 54 (двойной).
+// Возвращает Proxy-массив, чтение/запись которого идёт в реальные хранилища.
+function chestView(x, y, z) {
+  const a = getChest(x, y, z);
+  const partner = chestPartner(x, y, z);
+  if (!partner) return a;
+  // упорядочим: «первичная» половина — с меньшим ключом, чтобы порядок был стабилен
+  const b = getChest(partner.x, partner.y, partner.z);
+  const k1 = World.ekey(x,y,z), k2 = World.ekey(partner.x,partner.y,partner.z);
+  const first = (k1 <= k2) ? a : b, second = (k1 <= k2) ? b : a;
+  return new Proxy({}, {
+    get(_, prop) {
+      if (prop === 'length') return CHEST_SIZE * 2;
+      const i = +prop;
+      if (Number.isInteger(i)) return i < CHEST_SIZE ? first[i] : second[i - CHEST_SIZE];
+      return undefined;
+    },
+    set(_, prop, val) {
+      const i = +prop;
+      if (Number.isInteger(i)) { if (i < CHEST_SIZE) first[i] = val; else second[i - CHEST_SIZE] = val; }
+      return true;
+    }
+  });
+}
+
+function chestSlotCount(x, y, z) { return chestPartner(x, y, z) ? CHEST_SIZE * 2 : CHEST_SIZE; }
 
 function openChest(x, y, z) {
   openChestPos = { x, y, z };
@@ -3735,15 +4066,32 @@ function disposeGroup(group) {
 function isSolidForPlayer(x, y, z) {
   const bb = World.getBlock(x, y, z);
   if (bb === BLOCK.AIR || isLiquid(bb)) return false;
-  if (isDoor(bb) && isDoorOpen(x, y, z)) return false;
+  if (isDoor(bb)) return false; // двери обрабатываются отдельно (тонкая AABB)
   return true;
+}
+
+// мировая AABB двери (тонкая панель). Возвращает {x1,x2,z1,z2} в мировых координатах.
+function doorWorldBox(x, y, z) {
+  const ab = doorAABB(x, y, z);
+  return { x1: x + ab.x1, x2: x + ab.x2, z1: z + ab.z1, z2: z + ab.z2 };
+}
+
+// пересекает ли текущий AABB игрока тонкую панель двери в ячейке (x,y,z)
+function playerHitsDoor(x, y, z) {
+  const hw = PLAYER.width / 2;
+  const pminX = PLAYER.pos.x - hw, pmaxX = PLAYER.pos.x + hw;
+  const pminY = PLAYER.pos.y, pmaxY = PLAYER.pos.y + PLAYER.height;
+  const pminZ = PLAYER.pos.z - hw, pmaxZ = PLAYER.pos.z + hw;
+  if (pmaxY <= y || pminY >= y + 1) return null; // по высоте не пересекается
+  const bx = doorWorldBox(x, y, z);
+  if (pmaxX <= bx.x1 || pminX >= bx.x2) return null;
+  if (pmaxZ <= bx.z1 || pminZ >= bx.z2) return null;
+  return bx;
 }
 
 function collide(axis, amount) {
   const hw = PLAYER.width / 2;
   const h = PLAYER.height;
-  // запоминаем позицию ДО смещения, чтобы корректно откатывать только это смещение
-  const before = PLAYER.pos[axis];
   PLAYER.pos[axis] += amount;
 
   const minX = Math.floor(PLAYER.pos.x - hw);
@@ -3756,10 +4104,28 @@ function collide(axis, amount) {
   for (let x = minX; x <= maxX; x++) {
     for (let y = minY; y <= maxY; y++) {
       for (let z = minZ; z <= maxZ; z++) {
+        const bb = World.getBlock(x, y, z);
+        // ---- Двери: тонкая коллизия (закрытая блокирует только свою панель) ----
+        if (isDoor(bb)) {
+          if (isDoorOpen(x, y, z)) continue; // открытая дверь сквозная (через свою панель)
+          const bx = playerHitsDoor(x, y, z);
+          if (!bx) continue;
+          if (amount === 0) return true;
+          if (axis === 'x') {
+            if (amount > 0) PLAYER.pos.x = bx.x1 - hw - 1e-3;
+            else PLAYER.pos.x = bx.x2 + hw + 1e-3;
+            PLAYER.vel.x = 0;
+          } else if (axis === 'z') {
+            if (amount > 0) PLAYER.pos.z = bx.z1 - hw - 1e-3;
+            else PLAYER.pos.z = bx.z2 + hw + 1e-3;
+            PLAYER.vel.z = 0;
+          } else { // y — дверь полная по высоте, ведём себя как обычно
+            if (amount > 0) { PLAYER.pos.y = y - h - 1e-3; PLAYER.vel.y = 0; }
+            else { PLAYER.pos.y = y + 1 + 1e-3; PLAYER.vel.y = 0; PLAYER.onGround = true; }
+          }
+          return true;
+        }
         if (!isSolidForPlayer(x, y, z)) continue;
-        // пересечение есть -> откатываем именно по направлению движения (по знаку amount).
-        // Если amount == 0 (движения нет), это «застревание»: НЕ трогаем позицию здесь,
-        // выталкивание сделает antiSuffocate().
         if (amount === 0) return true;
         if (axis === 'x') {
           if (amount > 0) PLAYER.pos.x = x - hw - 1e-3;
@@ -3961,6 +4327,7 @@ function addExhaustion(v) { PLAYER.exhaustion += v; }
 function damagePlayer(amount) {
   PLAYER.hp = Math.max(0, PLAYER.hp - amount);
   PLAYER.damageFlash = 1;
+  playSound('hurt');
   if (PLAYER.hp <= 0) respawnPlayer();
 }
 
@@ -3983,6 +4350,8 @@ function tryEat() {
   slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
   refreshUI();
   playSound('eat');
+  // отрыжка после поедания (как в майнкрафте — звук насыщения)
+  setTimeout(() => playSound('burp'), 520);
   return true;
 }
 

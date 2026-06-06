@@ -124,14 +124,14 @@
   /* Полосы статуса (HP, голод, кислород) — пиксель-арт */
   #statusBars {
     position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%);
-    z-index: 12; display: none; flex-direction: column; align-items: center; gap: 2px;
-    pointer-events: none; width: 372px;
+    z-index: 12; display: none; flex-direction: column; align-items: center; gap: 4px;
+    pointer-events: none; width: 560px;
   }
   #statusBars.on { display: flex; }
   /* верхняя строка — кислород (по центру) */
   #oxygenRow { display: flex; gap: 1px; justify-content: center; height: 11px; }
   #oxygenRow.hidden { visibility: hidden; }
-  /* нижняя строка — слева сердца, справа голод */
+  /* нижняя строка — слева сердца, справа голод (раздвинуты по краям) */
   #vitalRow { display: flex; justify-content: space-between; width: 100%; }
   #heartsBar, #hungerBar { display: flex; gap: 1px; }
   #statusBars canvas { image-rendering: pixelated; }
