@@ -894,39 +894,54 @@ function isDoorOpen(x, y, z) {
 
 // Тонкая AABB двери в локальных координатах [0..1] -> {x1,x2,z1,z2}.
 // «front» — куда смотрит лицевая сторона; закрытая дверь — тонкая панель у стороны back,
-// открытая — повёрнута на 90° (петля в углу). thickness ~0.19.
-function doorAABB(x, y, z) {
+// открытая — повёрнута на 90° вокруг петли (hinge). thickness ~0.19.
+// hinge: 'left'|'right' — с какой стороны (если смотреть со стороны front) находится петля.
+function doorHinge(x, y, z) {
   const b = World.getBlock(x, y, z);
+  if (!isDoor(b)) return 'left';
+  const by = (b === BLOCK.DOOR_TOP) ? y - 1 : y;
+  const st = World.doorState.get(World.ekey(x, by, z));
+  return (st && st.hinge) ? st.hinge : 'left';
+}
+function doorAABB(x, y, z) {
   const TH = 0.19;
   const open = isDoorOpen(x, y, z);
   const front = World.facing.get(World.ekey(x, y, z));
-  // нормализуем: ось закрытой панели определяется front (вдоль стены)
-  // closed: панель вдоль оси, перпендикулярной front; open: вдоль самого front
-  // front: FACE_PZ(+Z) FACE_NZ(-Z) FACE_PX(+X) FACE_NX(-X)
-  let frontAxis; // 'z' или 'x' — ось front
-  let frontSide; // +1 или -1
+  const hinge = doorHinge(x, y, z);
+  // ось front и его знак
+  let frontAxis, frontSide;
   if (front === FACE_PX) { frontAxis='x'; frontSide=1; }
   else if (front === FACE_NX) { frontAxis='x'; frontSide=-1; }
   else if (front === FACE_PZ) { frontAxis='z'; frontSide=1; }
-  else { frontAxis='z'; frontSide=-1; } // FACE_NZ или undefined -> -Z по умолчанию
+  else { frontAxis='z'; frontSide=-1; } // FACE_NZ или undefined -> -Z
 
-  // Закрытая дверь: тонкая панель прижата к стороне, противоположной front (к стене сзади).
-  // Открытая дверь: панель повёрнута на 90° и прижата к боковой стороне.
   if (!open) {
+    // Закрытая: тонкая панель в плоскости стены (перпендикулярно проходу),
+    // прижата к лицевой стороне front. Полностью перекрывает проём по другой оси.
     if (frontAxis === 'z') {
-      // панель в плоскости XY, по толщине вдоль Z у дальнего края (back = -front)
-      const z = (frontSide > 0) ? {z1:0, z2:TH} : {z1:1-TH, z2:1};
-      return { x1:0, x2:1, z1:z.z1, z2:z.z2 };
+      const z = (frontSide > 0) ? { z1: 1 - TH, z2: 1 } : { z1: 0, z2: TH };
+      return { x1: 0, x2: 1, z1: z.z1, z2: z.z2 };
     } else {
-      const xr = (frontSide > 0) ? {x1:0, x2:TH} : {x1:1-TH, x2:1};
-      return { x1:xr.x1, x2:xr.x2, z1:0, z2:1 };
+      const x1 = (frontSide > 0) ? 1 - TH : 0;
+      const x2 = (frontSide > 0) ? 1 : TH;
+      return { x1, x2, z1: 0, z2: 1 };
     }
   } else {
-    // открыта: повёрнута на 90° -> панель вдоль другой оси, прижата к стороне +
+    // Открытая: поворот на 90° вокруг петли. Панель уходит вдоль оси front,
+    // прижата к стороне петли (боковой край ячейки) -> проём свободен.
     if (frontAxis === 'z') {
-      return { x1:0, x2:TH, z1:0, z2:1 };
+      // ось прохода — Z; петля на X-краю. left/right относительно взгляда вдоль front.
+      // при front=+Z (смотрим в +Z): right=+X, left=-X (право от наблюдателя)
+      const onPlusX = (frontSide > 0) ? (hinge === 'right') : (hinge === 'left');
+      const x1 = onPlusX ? 1 - TH : 0;
+      const x2 = onPlusX ? 1 : TH;
+      return { x1, x2, z1: 0, z2: 1 };
     } else {
-      return { x1:0, x2:1, z1:0, z2:TH };
+      // ось прохода — X; петля на Z-краю.
+      const onPlusZ = (frontSide > 0) ? (hinge === 'left') : (hinge === 'right');
+      const z1 = onPlusZ ? 1 - TH : 0;
+      const z2 = onPlusZ ? 1 : TH;
+      return { x1: 0, x2: 1, z1, z2 };
     }
   }
 }
@@ -1554,7 +1569,7 @@ const WorldManager = {
       activeSlot,
       // правки блоков: "x,y,z:id"  (только постоянные изменения игрока)
       edits: Array.from(World.edits.entries()).map(([k, v]) => k + ':' + v),
-      doors: Array.from(World.doorState.entries()).map(([k, v]) => k + ':' + (v.open ? 1 : 0)),
+      doors: Array.from(World.doorState.entries()).map(([k, v]) => k + ':' + (v.open ? 1 : 0) + ':' + (v.hinge || 'right')),
       furnaces: Array.from(World.furnaces.entries()).map(([k, f]) => ({
         k, input: f.input, fuel: f.fuel, output: f.output,
       })),
@@ -1594,10 +1609,16 @@ const WorldManager = {
       const k = s.slice(0, i), v = parseInt(s.slice(i + 1), 10);
       World.edits.set(k, v);
     }
-    // двери
+    // двери  (формат: "x,y,z:open[:hinge]")
     for (const s of (data.doors || [])) {
-      const i = s.lastIndexOf(':');
-      World.doorState.set(s.slice(0, i), { open: s.slice(i + 1) === '1' });
+      // ключ — это "x,y,z" (две запятые); состояние после последних двоеточий
+      const parts = s.split(':');
+      // первые 3 части (через запятую внутри) — нет; ключ содержит запятые, не двоеточия
+      // поэтому ключ = всё до первого ':'? нет — ключ "x,y,z" без двоеточий, значит split(':') корректен
+      const key = parts[0];
+      const open = parts[1] === '1';
+      const hinge = parts[2] === 'left' ? 'left' : 'right';
+      World.doorState.set(key, { open, hinge });
     }
     // печи
     for (const f of (data.furnaces || [])) {
@@ -3545,7 +3566,12 @@ function updateMobs(dt) {
     if (moving) {
       p.walkPhase += dt * (p.flee>0?14:8);
       const sw = Math.sin(p.walkPhase) * 0.6;
-      if (legs) { legs[0].rotation.x = sw; legs[1].rotation.x = -sw; legs[2].rotation.x = -sw; legs[3].rotation.x = sw; }
+      // шагаем безопасно для любого числа ног (4 у свиньи/коровы, 2 у курицы)
+      if (legs) for (let li = 0; li < legs.length; li++) {
+        // передние/задние в противофазе, диагонали синхронны
+        const dir = (li % 2 === 0) ? 1 : -1;
+        legs[li].rotation.x = sw * dir;
+      }
     } else if (legs) {
       for (const l of legs) l.rotation.x *= (1 - Math.min(1, dt*8));
     }
@@ -3760,20 +3786,46 @@ function placeBlock() {
     if (canFallInto(World.getBlock(nx, ny - 1, nz))) return;
     slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
     refreshUI();
-    // ориентация двери по взгляду: «перед» смотрит на игрока (как у мебели)
+    // ориентация двери по взгляду: «перед» (лицо) смотрит на игрока
     const lookD = new THREE.Vector3(
       -Math.sin(PLAYER.yaw) * Math.cos(PLAYER.pitch),
       Math.sin(PLAYER.pitch),
       -Math.cos(PLAYER.yaw) * Math.cos(PLAYER.pitch)
     );
-    let dfront;
-    if (Math.abs(lookD.x) >= Math.abs(lookD.z)) dfront = lookD.x > 0 ? FACE_NX : FACE_PX;
-    else dfront = lookD.z > 0 ? FACE_NZ : FACE_PZ;
+    let dfront, frontAxis, frontSide;
+    if (Math.abs(lookD.x) >= Math.abs(lookD.z)) {
+      dfront = lookD.x > 0 ? FACE_NX : FACE_PX; frontAxis = 'x'; frontSide = (dfront === FACE_PX) ? 1 : -1;
+    } else {
+      dfront = lookD.z > 0 ? FACE_NZ : FACE_PZ; frontAxis = 'z'; frontSide = (dfront === FACE_PZ) ? 1 : -1;
+    }
+    // выбор стороны петли: по умолчанию справа (если смотреть со стороны лица).
+    // если у «правого» косяка нет опоры, а у «левого» есть дверь/блок — петля слева.
+    // право/лево наблюдателя, стоящего перед дверью лицом к ней:
+    let rightCell, leftCell; // соседние ячейки [dx,dz]
+    if (frontAxis === 'z') {
+      // лицо вдоль Z. при front=+Z право = -X, при front=-Z право = +X
+      const rx = (frontSide > 0) ? -1 : 1;
+      rightCell = [rx, 0]; leftCell = [-rx, 0];
+    } else {
+      // лицо вдоль X. при front=+X право = +Z, при front=-X право = -Z
+      const rz = (frontSide > 0) ? 1 : -1;
+      rightCell = [0, rz]; leftCell = [0, -rz];
+    }
+    const isWallOrDoor = (cx, cz) => {
+      const bb = World.getBlock(cx, ny, cz);
+      const bt = World.getBlock(cx, ny + 1, cz);
+      return (bb !== BLOCK.AIR && !isLiquid(bb)) || (bt !== BLOCK.AIR && !isLiquid(bt));
+    };
+    let hinge = 'right';
+    const rightHasNeighbor = isWallOrDoor(nx + rightCell[0], nz + rightCell[1]);
+    const leftHasNeighbor  = isWallOrDoor(nx + leftCell[0],  nz + leftCell[1]);
+    // петля прислоняется к соседней стене: если стена справа — петля справа; если только слева — слева
+    if (!rightHasNeighbor && leftHasNeighbor) hinge = 'left';
     World.setBlock(nx, ny, nz, BLOCK.DOOR_BOTTOM);
     World.setBlock(nx, ny + 1, nz, BLOCK.DOOR_TOP);
     World.facing.set(World.ekey(nx, ny, nz), dfront);
     World.facing.set(World.ekey(nx, ny + 1, nz), dfront);
-    World.doorState.set(World.ekey(nx, ny, nz), { open: false });
+    World.doorState.set(World.ekey(nx, ny, nz), { open: false, hinge });
     rebuildAround(nx, nz);
     playSound('place', BLOCK.PLANKS);
     return;
@@ -3977,8 +4029,9 @@ function toggleDoor(x, y, z) {
   let by = y;
   if (World.getBlock(x, y, z) === BLOCK.DOOR_TOP) by = y - 1;
   const key = World.ekey(x, by, z);
-  const st = World.doorState.get(key) || { open: false };
+  const st = World.doorState.get(key) || { open: false, hinge: 'right' };
   st.open = !st.open;
+  if (!st.hinge) st.hinge = 'right';
   World.doorState.set(key, st);
   rebuildAround(x, z);
   playSound('place', BLOCK.PLANKS);
