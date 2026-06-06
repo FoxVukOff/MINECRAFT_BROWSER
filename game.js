@@ -27,6 +27,7 @@ const BLOCK = {
   CHEST:      17, // сундук (хранилище)
   COAL_ORE:   18, // угольная руда (в камне под землёй)
   IRON_ORE:   19, // железная руда (глубоко под землёй)
+  COPPER_ORE: 20, // медная руда (чуть реже угля)
 };
 
 // Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
@@ -43,6 +44,8 @@ const ITEM = {
   CHARCOAL:       109, // древесный уголь (переплавка дерева, среднее топливо)
   IRON_INGOT:     110, // железный слиток (переплавка железной руды)
   IRON_PICKAXE:   111, // железная кирка (ещё эффективнее)
+  COPPER_INGOT:   112, // медный слиток (переплавка медной руды)
+  COPPER_PICKAXE: 113, // медная кирка (золотая середина: каменная < медная < железная)
 };
 
 const BLOCK_NAMES = {
@@ -65,11 +68,14 @@ const BLOCK_NAMES = {
   [BLOCK.CHEST]:   'Сундук',
   [BLOCK.COAL_ORE]: 'Угольная руда',
   [BLOCK.IRON_ORE]: 'Железная руда',
+  [BLOCK.COPPER_ORE]: 'Медная руда',
   [ITEM.STICK]:    'Палки',
   [ITEM.WOODEN_PICKAXE]: 'Деревянная кирка',
   [ITEM.STONE_PICKAXE]: 'Каменная кирка',
   [ITEM.IRON_INGOT]: 'Железный слиток',
   [ITEM.IRON_PICKAXE]: 'Железная кирка',
+  [ITEM.COPPER_INGOT]: 'Медный слиток',
+  [ITEM.COPPER_PICKAXE]: 'Медная кирка',
   [ITEM.DOOR]:     'Дверь',
   [ITEM.PORK_RAW]: 'Сырая свинина',
   [ITEM.PORK_COOKED]: 'Жареная свинина',
@@ -117,22 +123,23 @@ const SEA_LEVEL = 22;
 const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND,
                    BLOCK.WOOD, BLOCK.LEAVES, BLOCK.PLANKS, BLOCK.CRAFTING_TABLE,
                    BLOCK.COBBLESTONE, BLOCK.GLASS, BLOCK.FURNACE, BLOCK.CHEST, ITEM.DOOR,
-                   BLOCK.IRON_ORE];
+                   BLOCK.IRON_ORE, BLOCK.COPPER_ORE];
 
 // Инструменты-кирки (ускоряют добычу камня и позволяют получить булыжник)
-function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.IRON_PICKAXE; }
-// Уровень кирки: 1 — деревянная, 2 — каменная, 3 — железная (быстрее)
+function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.COPPER_PICKAXE || id === ITEM.IRON_PICKAXE; }
+// Уровень кирки: 1 — деревянная, 2 — каменная, 3 — медная, 4 — железная (быстрее)
 function pickaxeTier(id) {
-  if (id === ITEM.IRON_PICKAXE) return 3;
+  if (id === ITEM.IRON_PICKAXE) return 4;
+  if (id === ITEM.COPPER_PICKAXE) return 3;
   if (id === ITEM.STONE_PICKAXE) return 2;
   if (id === ITEM.WOODEN_PICKAXE) return 1;
   return 0;
 }
 
 // Блоки, для добычи которых нужна кирка (иначе ломается, но ничего не выпадает)
-function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE; }
-// Железную руду можно добыть только каменной киркой и выше (tier >= 2)
-function minePickTier(b) { return b === BLOCK.IRON_ORE ? 2 : 1; }
+function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE; }
+// Минимальный уровень кирки для добычи руды (железо — каменная+, медь — каменная+)
+function minePickTier(b) { return (b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE) ? 2 : 1; }
 
 // Время ломания (в секундах, без инструментов) — как в современном майне
 const BREAK_TIME = {
@@ -151,6 +158,7 @@ const BREAK_TIME = {
   [BLOCK.DOOR_TOP]: 0.8,
   [BLOCK.CHEST]:   1.4,
   [BLOCK.COAL_ORE]: 3.0, // руда крепкая
+  [BLOCK.COPPER_ORE]: 3.5, // медная руда
   [BLOCK.IRON_ORE]: 4.0, // железная руда ещё крепче
   [BLOCK.BEDROCK]: Infinity, // неразрушим
   [BLOCK.WATER]:   Infinity, // воду нельзя сломать
@@ -315,15 +323,26 @@ function buildTextures() {
     ctx.fillStyle = '#3a3a3a';
     for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
   });
-  // железная руда — камень со светло-рыжими вкраплениями
+  // железная руда — камень со светло-бежевыми/розоватыми вкраплениями (НЕ медь!)
   TEX.iron_ore = makeTex(ctx => {
     pixelFill(ctx, ['#909090','#828282','#9a9a9a','#777777'], [5,4,3,2], 404);
     const blobs = [[3,4,3,2],[9,3,3,3],[6,9,4,3],[11,10,2,2],[2,11,2,2]];
-    ctx.fillStyle = '#c98a5a';                 // охристый металл
+    ctx.fillStyle = '#d8c4b0';                 // светлый бежево-серый металл (как в майне)
     for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx,by,bw,bh);
-    ctx.fillStyle = '#e6b487';                 // блик
+    ctx.fillStyle = '#efe2d4';                 // светлый блик
     for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
-    ctx.fillStyle = '#8a5a36';                 // тень
+    ctx.fillStyle = '#b09c86';                 // тень
+    for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx+bw-1,by+bh-1,1,1);
+  });
+  // медная руда — камень с оранжево-рыжими вкраплениями
+  TEX.copper_ore = makeTex(ctx => {
+    pixelFill(ctx, ['#909090','#828282','#9a9a9a','#777777'], [5,4,3,2], 404);
+    const blobs = [[4,3,3,2],[9,4,3,3],[3,9,3,3],[10,10,3,2],[6,12,2,2]];
+    ctx.fillStyle = '#c87038';                 // насыщенная медь
+    for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx,by,bw,bh);
+    ctx.fillStyle = '#e89a5a';                 // блик
+    for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
+    ctx.fillStyle = '#9c4f22';                 // тень
     for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx+bw-1,by+bh-1,1,1);
   });
   // стекло — почти прозрачное с рамкой/бликом
@@ -504,6 +523,7 @@ function buildMaterials() {
   const mCobble    = texToMaterial(TEX.cobble);
   const mCoalOre   = texToMaterial(TEX.coal_ore);
   const mIronOre   = texToMaterial(TEX.iron_ore);
+  const mCopperOre = texToMaterial(TEX.copper_ore);
   const mFurSide   = texToMaterial(TEX.furnace_side);
   const mFurTop    = texToMaterial(TEX.furnace_top);
   const mFurFront  = texToMaterial(TEX.furnace_front);
@@ -545,6 +565,7 @@ function buildMaterials() {
   MATERIALS[BLOCK.COBBLESTONE] = [mCobble, mCobble, mCobble, mCobble, mCobble, mCobble];
   MATERIALS[BLOCK.COAL_ORE] = [mCoalOre, mCoalOre, mCoalOre, mCoalOre, mCoalOre, mCoalOre];
   MATERIALS[BLOCK.IRON_ORE] = [mIronOre, mIronOre, mIronOre, mIronOre, mIronOre, mIronOre];
+  MATERIALS[BLOCK.COPPER_ORE] = [mCopperOre, mCopperOre, mCopperOre, mCopperOre, mCopperOre, mCopperOre];
   MATERIALS[BLOCK.GLASS]   = [mGlass, mGlass, mGlass, mGlass, mGlass, mGlass];
   // печь: перед — топка (+Z), остальное булыжник
   MATERIALS[BLOCK.FURNACE] = [mFurSide, mFurSide, mFurTop, mFurTop, mFurFront, mFurSide];
@@ -685,12 +706,14 @@ const World = {
           if (y === 0) b = BLOCK.BEDROCK;
           else if (y < h - 4) {
             b = BLOCK.STONE;
-            // угольная руда — залежи в камне ближе к поверхности (детерминированно)
+            // Руды по частоте: уголь > медь > железо.
+            // Уголь — самый частый: жилы ближе к поверхности + крупные глубокие залежи.
             if (y < h - 6 && oreHash(wx, y, wz) < 0.035) b = BLOCK.COAL_ORE;
-            // глубокие крупные залежи угля (на глубине y < 16) — побольше и чаще
-            if (y < 16 && oreHash(wx + 5000, y, wz + 5000) < 0.06) b = BLOCK.COAL_ORE;
-            // железная руда — только глубоко (y < 14), реже угля, отдельный хеш
-            if (y > 1 && y < 14 && oreHash(wx + 1000, y, wz + 1000) < 0.028) b = BLOCK.IRON_ORE;
+            if (y < 18 && oreHash(wx + 5000, y, wz + 5000) < 0.060) b = BLOCK.COAL_ORE;
+            // Медь — чуть реже угля, встречается на средней и большой глубине.
+            if (y < 20 && oreHash(wx + 7000, y, wz + 7000) < 0.045) b = BLOCK.COPPER_ORE;
+            // Железо — реже их обоих, только глубоко (y < 14).
+            if (y > 1 && y < 14 && oreHash(wx + 1000, y, wz + 1000) < 0.024) b = BLOCK.IRON_ORE;
           }
           else if (y < h - 1) b = beach ? BLOCK.SAND : BLOCK.DIRT; // под верхним слоем тоже песок на пляже
           else if (y < h) {
@@ -1760,7 +1783,8 @@ function updateMining(dt) {
   const held = activeItem();
   const tier = held ? pickaxeTier(held.id) : 0;
   if (needsPickaxe(mining.block)) {
-    if (tier >= 3) time *= 0.13;      // железная кирка — ещё эффективнее
+    if (tier >= 4) time *= 0.13;      // железная кирка — самая эффективная
+    else if (tier === 3) time *= 0.17; // медная кирка — золотая середина
     else if (tier === 2) time *= 0.22; // каменная кирка
     else if (tier === 1) time *= 0.35; // деревянная кирка
     else time *= 2.2;                 // без кирки — медленно
@@ -1878,26 +1902,30 @@ function iconCanvas(id, size) {
     ctx.beginPath(); ctx.moveTo(size*0.7, size*0.2); ctx.lineTo(size*0.3, size*0.8); ctx.stroke();
     return c;
   }
-  if (id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.IRON_PICKAXE) {
+  if (id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.IRON_PICKAXE || id === ITEM.COPPER_PICKAXE) {
     // ручка
     ctx.strokeStyle = '#7a5326'; ctx.lineWidth = Math.max(2, size/8);
     ctx.beginPath(); ctx.moveTo(size*0.62, size*0.28); ctx.lineTo(size*0.34, size*0.82); ctx.stroke();
-    // головка: дерево / камень / железо
+    // головка: дерево / камень / медь / железо
     let head = '#b98e4d';
     if (id === ITEM.STONE_PICKAXE) head = '#8a8a8a';
-    else if (id === ITEM.IRON_PICKAXE) head = '#d8d8de';
+    else if (id === ITEM.COPPER_PICKAXE) head = '#d07a40';
+    else if (id === ITEM.IRON_PICKAXE) head = '#e2e2e8';
     ctx.strokeStyle = head;
     ctx.lineWidth = Math.max(3, size/6);
     ctx.beginPath(); ctx.moveTo(size*0.3, size*0.32); ctx.quadraticCurveTo(size*0.62, size*0.18, size*0.82, size*0.34); ctx.stroke();
     return c;
   }
-  // железный слиток — серебристый брусок
-  if (id === ITEM.IRON_INGOT) {
+  // слитки: железный (серебристый) и медный (оранжевый)
+  if (id === ITEM.IRON_INGOT || id === ITEM.COPPER_INGOT) {
     const u = size/16;
-    ctx.fillStyle = '#c8c8d0'; ctx.fillRect(3*u,6*u,10*u,5*u);
-    ctx.fillStyle = '#e6e6ee'; ctx.fillRect(4*u,6*u,8*u,1*u); // блик сверху
-    ctx.fillStyle = '#9a9aa6'; ctx.fillRect(3*u,10*u,10*u,1*u); // тень снизу
-    ctx.fillStyle = '#b0b0bc'; ctx.fillRect(4*u,7*u,8*u,3*u);
+    const copper = (id === ITEM.COPPER_INGOT);
+    const mid  = copper ? '#cf7e44' : '#d2d2da';
+    const top  = copper ? '#ec9a5e' : '#eeeef4';
+    const bot  = copper ? '#a0552a' : '#9a9aa6';
+    ctx.fillStyle = mid; ctx.fillRect(3*u,6*u,10*u,5*u);
+    ctx.fillStyle = top; ctx.fillRect(4*u,6*u,8*u,1*u);   // блик сверху
+    ctx.fillStyle = bot; ctx.fillRect(3*u,10*u,10*u,1*u); // тень снизу
     return c;
   }
   // уголь / древесный уголь — кусочек угля
@@ -1959,6 +1987,7 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.COBBLESTONE) tex = TEX.cobble;
   else if (id === BLOCK.COAL_ORE) tex = TEX.coal_ore;
   else if (id === BLOCK.IRON_ORE) tex = TEX.iron_ore;
+  else if (id === BLOCK.COPPER_ORE) tex = TEX.copper_ore;
   else if (id === BLOCK.GLASS) tex = TEX.glass;
   else if (id === BLOCK.FURNACE) tex = TEX.furnace_front;
   else if (id === BLOCK.CHEST) tex = TEX.chest_front;
@@ -2038,7 +2067,7 @@ function renderHotbar() {
 // Каждый рецепт: { shapeless?, pattern (для формовых), result:{id,count} }
 // Для простоты: формовые задаются как массив строк с символами,
 // бесформенные — как набор {id:count}.
-const P = BLOCK.PLANKS, S = ITEM.STICK, C = BLOCK.COBBLESTONE, O = 0, I = ITEM.IRON_INGOT;
+const P = BLOCK.PLANKS, S = ITEM.STICK, C = BLOCK.COBBLESTONE, O = 0, I = ITEM.IRON_INGOT, U = ITEM.COPPER_INGOT;
 const RECIPES = [
   // 1 дерево -> 4 доски (бесформенно)
   { shapeless: true, ingredients: { [BLOCK.WOOD]: 1 }, result: { id: BLOCK.PLANKS, count: 4 } },
@@ -2056,6 +2085,11 @@ const RECIPES = [
     cells: [C,C,C,
             O,S,O,
             O,S,O], result: { id: ITEM.STONE_PICKAXE, count: 1 } },
+  // медная кирка: ряд медных слитков + 2 палки (3x3) — золотая середина
+  { shaped: true, w: 3, h: 3, need3x3: true,
+    cells: [U,U,U,
+            O,S,O,
+            O,S,O], result: { id: ITEM.COPPER_PICKAXE, count: 1 } },
   // железная кирка: ряд слитков + 2 палки (3x3)
   { shaped: true, w: 3, h: 3, need3x3: true,
     cells: [I,I,I,
@@ -3394,6 +3428,7 @@ function finishBreak(t) {
   else if (broken === BLOCK.FURNACE) dropId = havePick ? BLOCK.FURNACE : null;
   else if (broken === BLOCK.COAL_ORE) dropId = havePick ? ITEM.COAL : null; // уголь только киркой
   else if (broken === BLOCK.IRON_ORE) dropId = (tier >= 2) ? BLOCK.IRON_ORE : null; // железную руду — каменной киркой+, плавить в печи
+  else if (broken === BLOCK.COPPER_ORE) dropId = (tier >= 2) ? BLOCK.COPPER_ORE : null; // медную руду — каменной киркой+, плавить в печи
 
   if (dropId !== null) {
     spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
@@ -3516,6 +3551,7 @@ const SMELT = {
   [ITEM.BEEF_RAW]: { id: ITEM.BEEF_COOKED, count: 1 },
   [BLOCK.WOOD]: { id: ITEM.CHARCOAL, count: 1 }, // дерево -> древесный уголь
   [BLOCK.IRON_ORE]: { id: ITEM.IRON_INGOT, count: 1 }, // железная руда -> слиток
+  [BLOCK.COPPER_ORE]: { id: ITEM.COPPER_INGOT, count: 1 }, // медная руда -> медный слиток
 };
 function isSmeltable(id) { return SMELT[id] !== undefined; }
 // Топливо: сколько предметов сжигает 1 единица (больше = горит дольше)
