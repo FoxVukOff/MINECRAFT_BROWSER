@@ -121,6 +121,17 @@
   }
   #waterOverlay.on { display: block; }
 
+  /* Оранжевый оверлей огня + языки пламени снизу при горении */
+  #fireOverlay {
+    position: fixed; inset: 0; z-index: 8; pointer-events: none; display: none;
+    background:
+      radial-gradient(120% 70% at 50% 120%, rgba(255,120,20,0.55), rgba(255,60,0,0.15) 45%, rgba(0,0,0,0) 70%),
+      linear-gradient(to top, rgba(255,90,0,0.35), rgba(255,90,0,0) 35%);
+    animation: fireFlicker 0.18s steps(2) infinite;
+  }
+  #fireOverlay.on { display: block; }
+  @keyframes fireFlicker { 0% { opacity: 0.85; } 100% { opacity: 1; } }
+
   /* Полосы статуса (HP, голод, кислород) — пиксель-арт */
   #statusBars {
     position: fixed; left: 50%; bottom: 70px; transform: translateX(-50%);
@@ -227,6 +238,7 @@
 <canvas id="game"></canvas>
 <div id="crosshair"></div>
 <div id="waterOverlay"></div>
+<div id="fireOverlay"></div>
 <div id="damageFlash"></div>
 <div id="statusBars">
   <div id="oxygenRow"></div>
