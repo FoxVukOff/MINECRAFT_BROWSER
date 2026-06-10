@@ -31,6 +31,9 @@ const BLOCK = {
   LAVA:       21, // лава-источник
   LAVA_FLOW:  22, // течение лавы (уровень 1..3)
   FIRE:       23, // огонь (горит на горючих блоках, гаснет)
+  GRAVEL:     24, // гравий (падает как песок)
+  OBSIDIAN:   25, // обсидиан (лава-источник + вода), нужна алмазная кирка
+  DIAMOND_ORE:26, // алмазная руда (очень редкая, глубоко)
 };
 
 // Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
@@ -67,6 +70,16 @@ const ITEM = {
   STONE_SWORD:    151,
   COPPER_SWORD:   152,
   IRON_SWORD:     153,
+  // Алмазы (лучший материал)
+  DIAMOND:        160, // алмаз (из алмазной руды)
+  DIAMOND_PICKAXE:161,
+  DIAMOND_AXE:    162,
+  DIAMOND_SHOVEL: 163,
+  DIAMOND_SWORD:  164,
+  // Вёдра
+  BUCKET:         170, // пустое ведро
+  WATER_BUCKET:   171, // ведро с водой
+  LAVA_BUCKET:    172, // ведро с лавой
 };
 
 const BLOCK_NAMES = {
@@ -93,6 +106,9 @@ const BLOCK_NAMES = {
   [BLOCK.LAVA]: 'Лава',
   [BLOCK.LAVA_FLOW]: 'Лава',
   [BLOCK.FIRE]: 'Огонь',
+  [BLOCK.GRAVEL]: 'Гравий',
+  [BLOCK.OBSIDIAN]: 'Обсидиан',
+  [BLOCK.DIAMOND_ORE]: 'Алмазная руда',
   [ITEM.STICK]:    'Палки',
   [ITEM.WOODEN_PICKAXE]: 'Деревянная кирка',
   [ITEM.STONE_PICKAXE]: 'Каменная кирка',
@@ -121,6 +137,14 @@ const BLOCK_NAMES = {
   [ITEM.STONE_SWORD]:  'Каменный меч',
   [ITEM.COPPER_SWORD]: 'Медный меч',
   [ITEM.IRON_SWORD]:   'Железный меч',
+  [ITEM.DIAMOND]:        'Алмаз',
+  [ITEM.DIAMOND_PICKAXE]:'Алмазная кирка',
+  [ITEM.DIAMOND_AXE]:    'Алмазный топор',
+  [ITEM.DIAMOND_SHOVEL]: 'Алмазная лопата',
+  [ITEM.DIAMOND_SWORD]:  'Алмазный меч',
+  [ITEM.BUCKET]:        'Ведро',
+  [ITEM.WATER_BUCKET]:  'Ведро воды',
+  [ITEM.LAVA_BUCKET]:   'Ведро лавы',
 };
 
 // Еда: сколько голода восстанавливает
@@ -139,8 +163,8 @@ const MAX_STACK = 64; // максимум в стопке
 // Является ли id блоком (а не предметом)
 function isBlock(id) { return id < 100; }
 
-// Гравитационные блоки (падают, если под ними нет опоры)
-function isFalling(b) { return b === BLOCK.SAND; }
+// Гравитационные блоки (падают, если под ними нет опоры) — песок и гравий
+function isFalling(b) { return b === BLOCK.SAND || b === BLOCK.GRAVEL; }
 
 // Двери (две половинки)
 function isDoor(b) { return b === BLOCK.DOOR_BOTTOM || b === BLOCK.DOOR_TOP; }
@@ -164,15 +188,16 @@ const LAVA_MAX = 4; // лава течёт недалеко (как в Minecraft
 const SEA_LEVEL = 22;
 
 // Какие блоки/предметы игрок может держать/ставить
-const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND,
+const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND, BLOCK.GRAVEL,
                    BLOCK.WOOD, BLOCK.LEAVES, BLOCK.PLANKS, BLOCK.CRAFTING_TABLE,
                    BLOCK.COBBLESTONE, BLOCK.GLASS, BLOCK.FURNACE, BLOCK.CHEST, ITEM.DOOR,
-                   BLOCK.IRON_ORE, BLOCK.COPPER_ORE];
+                   BLOCK.IRON_ORE, BLOCK.COPPER_ORE, BLOCK.DIAMOND_ORE, BLOCK.OBSIDIAN];
 
 // Инструменты-кирки (ускоряют добычу камня и позволяют получить булыжник)
-function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.COPPER_PICKAXE || id === ITEM.IRON_PICKAXE; }
-// Уровень кирки: 1 — деревянная, 2 — каменная, 3 — медная, 4 — железная (быстрее)
+function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.COPPER_PICKAXE || id === ITEM.IRON_PICKAXE || id === ITEM.DIAMOND_PICKAXE; }
+// Уровень кирки: 1 — дерево, 2 — камень, 3 — медь, 4 — железо, 5 — алмаз (лучшая)
 function pickaxeTier(id) {
+  if (id === ITEM.DIAMOND_PICKAXE) return 5;
   if (id === ITEM.IRON_PICKAXE) return 4;
   if (id === ITEM.COPPER_PICKAXE) return 3;
   if (id === ITEM.STONE_PICKAXE) return 2;
@@ -181,8 +206,9 @@ function pickaxeTier(id) {
 }
 
 // --- Топоры (ускоряют дерево/доски) ---
-function isAxe(id) { return id === ITEM.WOODEN_AXE || id === ITEM.STONE_AXE || id === ITEM.COPPER_AXE || id === ITEM.IRON_AXE; }
+function isAxe(id) { return id === ITEM.WOODEN_AXE || id === ITEM.STONE_AXE || id === ITEM.COPPER_AXE || id === ITEM.IRON_AXE || id === ITEM.DIAMOND_AXE; }
 function axeTier(id) {
+  if (id === ITEM.DIAMOND_AXE) return 5;
   if (id === ITEM.IRON_AXE) return 4;
   if (id === ITEM.COPPER_AXE) return 3;
   if (id === ITEM.STONE_AXE) return 2;
@@ -190,8 +216,9 @@ function axeTier(id) {
   return 0;
 }
 // --- Лопаты (ускоряют землю/песок/траву) ---
-function isShovel(id) { return id === ITEM.WOODEN_SHOVEL || id === ITEM.STONE_SHOVEL || id === ITEM.COPPER_SHOVEL || id === ITEM.IRON_SHOVEL; }
+function isShovel(id) { return id === ITEM.WOODEN_SHOVEL || id === ITEM.STONE_SHOVEL || id === ITEM.COPPER_SHOVEL || id === ITEM.IRON_SHOVEL || id === ITEM.DIAMOND_SHOVEL; }
 function shovelTier(id) {
+  if (id === ITEM.DIAMOND_SHOVEL) return 5;
   if (id === ITEM.IRON_SHOVEL) return 4;
   if (id === ITEM.COPPER_SHOVEL) return 3;
   if (id === ITEM.STONE_SHOVEL) return 2;
@@ -199,8 +226,9 @@ function shovelTier(id) {
   return 0;
 }
 // --- Мечи (оружие: больше урона) ---
-function isSword(id) { return id === ITEM.WOODEN_SWORD || id === ITEM.STONE_SWORD || id === ITEM.COPPER_SWORD || id === ITEM.IRON_SWORD; }
+function isSword(id) { return id === ITEM.WOODEN_SWORD || id === ITEM.STONE_SWORD || id === ITEM.COPPER_SWORD || id === ITEM.IRON_SWORD || id === ITEM.DIAMOND_SWORD; }
 function swordDamage(id) {
+  if (id === ITEM.DIAMOND_SWORD) return 8;
   if (id === ITEM.IRON_SWORD) return 7;
   if (id === ITEM.COPPER_SWORD) return 6;
   if (id === ITEM.STONE_SWORD) return 5;
@@ -211,12 +239,18 @@ function swordDamage(id) {
 function isTool(id) { return isPickaxe(id) || isAxe(id) || isShovel(id) || isSword(id); }
 // Блоки, по которым эффективен топор / лопата
 function axeBlock(b) { return b === BLOCK.WOOD || b === BLOCK.PLANKS || b === BLOCK.CRAFTING_TABLE || b === BLOCK.CHEST || b === BLOCK.DOOR_BOTTOM || b === BLOCK.DOOR_TOP; }
-function shovelBlock(b) { return b === BLOCK.DIRT || b === BLOCK.GRASS || b === BLOCK.SAND; }
+function shovelBlock(b) { return b === BLOCK.DIRT || b === BLOCK.GRASS || b === BLOCK.SAND || b === BLOCK.GRAVEL; }
 
 // Блоки, для добычи которых нужна кирка (иначе ломается, но ничего не выпадает)
-function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE; }
-// Минимальный уровень кирки для добычи руды (железо — каменная+, медь — каменная+)
-function minePickTier(b) { return (b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE) ? 2 : 1; }
+function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE || b === BLOCK.DIAMOND_ORE || b === BLOCK.OBSIDIAN; }
+// Минимальный уровень кирки для добычи блока:
+//  руды железа/меди — каменная(2)+; алмаз — железная(4)+; обсидиан — алмазная(5).
+function minePickTier(b) {
+  if (b === BLOCK.OBSIDIAN) return 5;
+  if (b === BLOCK.DIAMOND_ORE) return 4;
+  if (b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE) return 2;
+  return 1;
+}
 
 // Время ломания (в секундах, без инструментов) — как в современном майне
 const BREAK_TIME = {
@@ -237,9 +271,14 @@ const BREAK_TIME = {
   [BLOCK.COAL_ORE]: 3.0, // руда крепкая
   [BLOCK.COPPER_ORE]: 3.5, // медная руда
   [BLOCK.IRON_ORE]: 4.0, // железная руда ещё крепче
+  [BLOCK.DIAMOND_ORE]: 5.0, // алмазная руда очень крепкая
+  [BLOCK.GRAVEL]:  0.6, // гравий копается быстро (лопатой)
+  [BLOCK.OBSIDIAN]: 12.0, // обсидиан добывается долго даже алмазной киркой
   [BLOCK.BEDROCK]: Infinity, // неразрушим
   [BLOCK.WATER]:   Infinity, // воду нельзя сломать
   [BLOCK.WATER_FLOW]: Infinity,
+  [BLOCK.LAVA]:    Infinity,
+  [BLOCK.LAVA_FLOW]: Infinity,
 };
 
 // Размеры чанка
@@ -444,6 +483,34 @@ function buildTextures() {
     ctx.fillStyle = '#9c4f22';                 // тень
     for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx+bw-1,by+bh-1,1,1);
   });
+  // алмазная руда — камень с голубыми кристаллами
+  TEX.diamond_ore = makeTex(ctx => {
+    pixelFill(ctx, ['#909090','#828282','#9a9a9a','#777777'], [5,4,3,2], 404);
+    const blobs = [[3,4,3,2],[10,3,2,3],[5,10,3,2],[11,11,2,2],[2,11,2,2]];
+    ctx.fillStyle = '#3fd6e0';                 // яркая бирюза алмаза
+    for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx,by,bw,bh);
+    ctx.fillStyle = '#bff7ff';                 // блик-грань
+    for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
+    ctx.fillStyle = '#1f9fb0';                 // тень
+    for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx+bw-1,by+bh-1,1,1);
+  });
+  // гравий — серо-коричневая каменная крошка
+  TEX.gravel = makeTex(ctx => {
+    pixelFill(ctx, ['#8a8480','#9a938c','#76706a','#a39c94','#6a625c'], [5,4,4,2,2], 2424);
+    // тёмные камешки
+    ctx.fillStyle = '#55504a';
+    for (const [gx,gy] of [[2,3],[7,2],[12,5],[4,9],[10,11],[6,13]]) ctx.fillRect(gx,gy,2,2);
+    ctx.fillStyle = '#b8b0a6';
+    for (const [gx,gy] of [[3,4],[8,3],[5,10]]) ctx.fillRect(gx,gy,1,1);
+  });
+  // обсидиан — почти чёрный с фиолетовыми бликами
+  TEX.obsidian = makeTex(ctx => {
+    pixelFill(ctx, ['#140d22','#0e0a1a','#1c1430','#0a0814'], [5,4,3,3], 2525);
+    ctx.fillStyle = '#3a2a5c';                 // фиолетовые блики
+    for (const [gx,gy] of [[3,3],[10,5],[6,9],[12,11],[2,12]]) ctx.fillRect(gx,gy,1,1);
+    ctx.fillStyle = '#5a3f8a';
+    ctx.fillRect(4,6,1,1); ctx.fillRect(9,10,1,1);
+  });
   // стекло — почти прозрачное с рамкой/бликом
   TEX.glass = makeTex(ctx => {
     ctx.clearRect(0,0,16,16);
@@ -623,6 +690,9 @@ function buildMaterials() {
   const mCoalOre   = texToMaterial(TEX.coal_ore);
   const mIronOre   = texToMaterial(TEX.iron_ore);
   const mCopperOre = texToMaterial(TEX.copper_ore);
+  const mDiamondOre= texToMaterial(TEX.diamond_ore);
+  const mGravel    = texToMaterial(TEX.gravel);
+  const mObsidian  = texToMaterial(TEX.obsidian);
   const mFurSide   = texToMaterial(TEX.furnace_side);
   const mFurTop    = texToMaterial(TEX.furnace_top);
   const mFurFront  = texToMaterial(TEX.furnace_front);
@@ -680,6 +750,9 @@ function buildMaterials() {
   MATERIALS[BLOCK.COAL_ORE] = [mCoalOre, mCoalOre, mCoalOre, mCoalOre, mCoalOre, mCoalOre];
   MATERIALS[BLOCK.IRON_ORE] = [mIronOre, mIronOre, mIronOre, mIronOre, mIronOre, mIronOre];
   MATERIALS[BLOCK.COPPER_ORE] = [mCopperOre, mCopperOre, mCopperOre, mCopperOre, mCopperOre, mCopperOre];
+  MATERIALS[BLOCK.DIAMOND_ORE] = [mDiamondOre, mDiamondOre, mDiamondOre, mDiamondOre, mDiamondOre, mDiamondOre];
+  MATERIALS[BLOCK.GRAVEL] = [mGravel, mGravel, mGravel, mGravel, mGravel, mGravel];
+  MATERIALS[BLOCK.OBSIDIAN] = [mObsidian, mObsidian, mObsidian, mObsidian, mObsidian, mObsidian];
   MATERIALS[BLOCK.GLASS]   = [mGlass, mGlass, mGlass, mGlass, mGlass, mGlass];
   // печь: перед — топка (+Z), остальное булыжник
   MATERIALS[BLOCK.FURNACE] = [mFurSide, mFurSide, mFurTop, mFurTop, mFurFront, mFurSide];
@@ -867,7 +940,7 @@ const World = {
   key(cx, cz) { return cx + ',' + cz; },
   ekey(x, y, z) { return x + ',' + y + ',' + z; },
 
-  // Уровень воды в ячейке: источник=8, течение=1..7, нет воды=0
+  // Уровень жидкости в ячейке: вода — источник=8/течение=1..7; лава — источник=4/течение=1..3; нет=0
   getLevel(x, y, z) {
     const b = this.getBlock(x, y, z);
     if (b === BLOCK.LAVA) return LAVA_MAX;
@@ -906,6 +979,10 @@ const World = {
             if (y < 20 && oreHash(wx + 7000, y, wz + 7000) < 0.045) b = BLOCK.COPPER_ORE;
             // Железо — реже их обоих, только глубоко (y < 14).
             if (y > 1 && y < 14 && oreHash(wx + 1000, y, wz + 1000) < 0.024) b = BLOCK.IRON_ORE;
+            // Гравий — карманы под землёй (как в Minecraft), небольшими залежами
+            if (oreHash(wx + 8000, y, wz + 8000) < 0.028) b = BLOCK.GRAVEL;
+            // Алмазы — ОЧЕНЬ редкие, только в самом низу (y 1..10)
+            if (y > 1 && y < 10 && oreHash(wx + 9000, y, wz + 9000) < 0.0016) b = BLOCK.DIAMOND_ORE;
             // Лавовые карманы — очень глубоко (y 2..7), редкими «озёрами»
             if (y >= 2 && y <= 6 && oreHash(wx + 3000, y, wz + 3000) < 0.020) b = BLOCK.LAVA;
           }
@@ -1016,8 +1093,8 @@ const World = {
     c.blocks[idx(lx, wy, lz)] = id;
     c.dirty = true;
     if (!transient) this.edits.set(this.ekey(wx, wy, wz), id);
-    // уровень храним только для течения; иначе чистим
-    if (id !== BLOCK.WATER_FLOW) this.clearLevel(wx, wy, wz);
+    // уровень храним только для течения (вода/лава); иначе чистим
+    if (id !== BLOCK.WATER_FLOW && id !== BLOCK.LAVA_FLOW) this.clearLevel(wx, wy, wz);
     // воздух — сбросить ориентацию
     if (id === BLOCK.AIR) this.facing.delete(this.ekey(wx, wy, wz));
 
@@ -1102,17 +1179,27 @@ function doorAABB(x, y, z) {
 }
 
 // ============================================================
-//  Симуляция воды — модель современного Minecraft (уровни + течение)
-//  Источник WATER = уровень 8 (бесконечный).
-//  Течение WATER_FLOW = уровень 7..1, убывает на 1 за блок, до 7 блоков.
-//  Вода, потерявшая питание, постепенно исчезает.
+//  Единая симуляция жидкостей (вода и лава) — модель Minecraft.
+//  Вода: источник=8, течение 7..1 (до 7 клеток), бесконечный источник
+//        (если у течения ≥2 соседа-источника воды — становится источником).
+//  Лава: источник=4, течение 3..1 (короткая дальность), течёт медленнее.
+//  Контакты вода+лава: лава-источник→ОБСИДИАН, лава-течение→БУЛЫЖНИК,
+//        вода, льющаяся НА лаву сверху → КАМЕНЬ.
 // ============================================================
-const WaterSim = {
-  queue: [],            // FIFO список ключей "x,y,z"
-  inQueue: new Set(),   // защита от дублей
+function liquidKind(b) {
+  if (b === BLOCK.WATER || b === BLOCK.WATER_FLOW) return 'water';
+  if (b === BLOCK.LAVA || b === BLOCK.LAVA_FLOW) return 'lava';
+  return null;
+}
+
+const LiquidSim = {
+  queue: [],
+  inQueue: new Set(),
   tickAcc: 0,
-  tickRate: 0.14,       // сек между тиками
-  MAX_PER_TICK: 220,    // лимит ячеек за тик — гарантия от лагов
+  waterAcc: 0, lavaAcc: 0,
+  waterRate: 0.14,   // вода течёт быстро
+  lavaRate: 0.55,    // лава течёт заметно медленнее
+  MAX_PER_TICK: 240,
   changedChunks: new Set(),
 
   enqueue(x, y, z) {
@@ -1128,11 +1215,9 @@ const WaterSim = {
     this.enqueue(x, y, z + 1); this.enqueue(x, y, z - 1);
     this.enqueue(x, y + 1, z); this.enqueue(x, y - 1, z);
   },
-
   markChunk(x, z) {
     const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
     this.changedChunks.add(cx + ',' + cz);
-    // приграничные чанки
     const lx = x - cx * CHUNK_SIZE, lz = z - cz * CHUNK_SIZE;
     if (lx === 0) this.changedChunks.add((cx - 1) + ',' + cz);
     if (lx === CHUNK_SIZE - 1) this.changedChunks.add((cx + 1) + ',' + cz);
@@ -1140,101 +1225,94 @@ const WaterSim = {
     if (lz === CHUNK_SIZE - 1) this.changedChunks.add(cx + ',' + (cz + 1));
   },
 
-  // поставить течение нужного уровня (или удалить воду)
-  setFlow(x, y, z, lvl) {
+  // максимальный уровень / блоки по типу жидкости
+  maxLevel(kind) { return kind === 'water' ? WATER_MAX : LAVA_MAX; },
+  srcBlock(kind) { return kind === 'water' ? BLOCK.WATER : BLOCK.LAVA; },
+  flowBlock(kind) { return kind === 'water' ? BLOCK.WATER_FLOW : BLOCK.LAVA_FLOW; },
+
+  setFlow(kind, x, y, z, lvl) {
     if (lvl <= 0) {
       World.clearLevel(x, y, z);
-      World.setBlock(x, y, z, BLOCK.AIR, true); // transient — не сохраняем
+      World.setBlock(x, y, z, BLOCK.AIR, true);
     } else {
       World.setLevel(x, y, z, lvl);
-      World.setBlock(x, y, z, BLOCK.WATER_FLOW, true);
+      World.setBlock(x, y, z, this.flowBlock(kind), true);
     }
     this.markChunk(x, z);
     this.touchAround(x, y, z);
   },
 
-  solidBelow(x, y, z) {
-    const b = World.getBlock(x, y - 1, z);
-    return b !== BLOCK.AIR && !isWaterLiquid(b);
+  // Контакт лавы с водой -> затвердевание (как в Minecraft).
+  // Возвращает true, если ячейка превратилась в камень/обсидиан/булыжник.
+  contactSolidify(x, y, z) {
+    const here = World.getBlock(x, y, z);
+    if (!isLavaLiquid(here)) return false;
+    const dirs = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]];
+    let waterNear = false;
+    for (const [dx,dy,dz] of dirs) if (isWaterLiquid(World.getBlock(x+dx,y+dy,z+dz))) { waterNear = true; break; }
+    if (!waterNear) return false;
+    World.clearLevel(x, y, z);
+    // лава-источник + вода -> ОБСИДИАН; лава-течение + вода -> БУЛЫЖНИК
+    World.setBlock(x, y, z, (here === BLOCK.LAVA) ? BLOCK.OBSIDIAN : BLOCK.COBBLESTONE);
+    this.markChunk(x, z);
+    this.touchAround(x, y, z);
+    playSound('splash');
+    return true;
   },
 
-  // Желаемый уровень ячейки исходя из питания.
-  // Возвращает {level, falling}. falling=true означает «падающая» вода (сверху жидкость):
-  //   она всегда полная (7) и НЕ растекается вбок — только вниз.
-  desiredLevel(x, y, z) {
-    // питание сверху -> падающая вода
-    if (isWaterLiquid(World.getBlock(x, y + 1, z))) return { level: 7, falling: true };
-    // иначе — максимум из горизонтальных соседей минус 1.
-    // ВАЖНО: сосед, под которым воздух (он «падает»), не питает по горизонтали —
-    // иначе вода растекается над пропастью вместо того, чтобы литься вниз.
+  // желаемый уровень течения исходя из питания соседями (kind-специфично)
+  desiredLevel(kind, x, y, z) {
+    const src = this.srcBlock(kind), flow = this.flowBlock(kind);
+    const maxL = this.maxLevel(kind);
+    // питание сверху -> «падающее» течение (полный «почти-источник», вбок не растекается)
+    const above = World.getBlock(x, y + 1, z);
+    if (above === src || above === flow) return { level: maxL - 1, falling: true };
     let best = 0;
     const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
     for (const [dx, dz] of dirs) {
       const nx = x + dx, nz = z + dz;
       const nb = World.getBlock(nx, y, nz);
-      if (nb === BLOCK.WATER) {
-        best = Math.max(best, 7); // источник питает на 7
-      } else if (nb === BLOCK.WATER_FLOW) {
-        // сосед, который сам падает (под ним воздух), вбок не питает
-        if (World.getBlock(nx, y - 1, nz) === BLOCK.AIR) continue;
+      if (nb === src) {
+        best = Math.max(best, maxL - 1);
+      } else if (nb === flow) {
+        if (World.getBlock(nx, y - 1, nz) === BLOCK.AIR) continue; // падающий сосед вбок не питает
         best = Math.max(best, World.getLevel(nx, y, nz) - 1);
       }
     }
     return { level: best, falling: false };
   },
 
-  step(x, y, z) {
-    const here = World.getBlock(x, y, z);
-
-    // 1) пустая ячейка — может ли заполниться?
-    if (here === BLOCK.AIR) {
-      const d = this.desiredLevel(x, y, z);
-      if (d.level > 0) this.setFlow(x, y, z, d.level);
-      return;
+  // Бесконечный источник воды: течение, у которого ≥2 соседа-источника воды,
+  // само становится источником (классика Minecraft).
+  tryFormInfiniteSource(x, y, z) {
+    if (World.getBlock(x, y, z) !== BLOCK.WATER_FLOW) return false;
+    let srcN = 0;
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    for (const [dx, dz] of dirs) if (World.getBlock(x+dx, y, z+dz) === BLOCK.WATER) srcN++;
+    if (srcN >= 2) {
+      World.clearLevel(x, y, z);
+      World.setBlock(x, y, z, BLOCK.WATER, true);
+      this.markChunk(x, z);
+      this.touchAround(x, y, z);
+      return true;
     }
-
-    // источник: не меняется, льёт вниз и растекается вбок (на 7)
-    if (here === BLOCK.WATER) {
-      if (World.getBlock(x, y - 1, z) === BLOCK.AIR) this.setFlow(x, y - 1, z, 7);
-      else this.spreadSides(x, y, z, 7);
-      return;
-    }
-
-    // 2) течение — пересчитать уровень от питания
-    if (here === BLOCK.WATER_FLOW) {
-      const d = this.desiredLevel(x, y, z);
-      if (d.level <= 0) { this.setFlow(x, y, z, 0); return; } // нет питания -> исчезает
-
-      const cur = World.getLevel(x, y, z);
-      if (d.level !== cur) {
-        World.setLevel(x, y, z, d.level);
-        this.markChunk(x, z);
-        this.touchAround(x, y, z);
-      }
-
-      // под ячейкой воздух -> вода падает вниз (приоритет, без бокового растекания)
-      if (World.getBlock(x, y - 1, z) === BLOCK.AIR) {
-        this.setFlow(x, y - 1, z, 7);
-        return;
-      }
-      // падающая вода вбок не растекается
-      if (d.falling) return;
-      // лежит на опоре (твёрдое или вода снизу) -> растекается вбок
-      this.spreadSides(x, y, z, d.level);
-      return;
-    }
+    return false;
   },
 
-  spreadSides(x, y, z, lvl) {
+  spreadSides(kind, x, y, z, lvl) {
     const next = lvl - 1;
     if (next <= 0) return;
+    const flow = this.flowBlock(kind);
     const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
     for (const [dx, dz] of dirs) {
       const nx = x + dx, nz = z + dz;
       const nb = World.getBlock(nx, y, nz);
       if (nb === BLOCK.AIR) {
-        this.setFlow(nx, y, nz, next);
-      } else if (nb === BLOCK.WATER_FLOW && World.getLevel(nx, y, nz) < next) {
+        this.setFlow(kind, nx, y, nz, next);
+      } else if (isLiquid(nb) && liquidKind(nb) !== kind) {
+        // встретили другую жидкость — пометить для затвердевания
+        this.touchAround(nx, y, nz);
+      } else if (nb === flow && World.getLevel(nx, y, nz) < next) {
         World.setLevel(nx, y, nz, next);
         this.markChunk(nx, nz);
         this.touchAround(nx, y, nz);
@@ -1242,149 +1320,98 @@ const WaterSim = {
     }
   },
 
+  step(kind, x, y, z) {
+    const src = this.srcBlock(kind), flow = this.flowBlock(kind), maxL = this.maxLevel(kind);
+    const here = World.getBlock(x, y, z);
+
+    // пустая ячейка — может заполниться от питания
+    if (here === BLOCK.AIR) {
+      const d = this.desiredLevel(kind, x, y, z);
+      if (d.level > 0) this.setFlow(kind, x, y, z, d.level);
+      return;
+    }
+
+    // лава, соприкоснувшаяся с водой — затвердевает
+    if (kind === 'lava' && this.contactSolidify(x, y, z)) return;
+
+    // вода, льющаяся НА лаву сверху, превращает лаву под собой в камень
+    if (kind === 'water' && (here === src || here === flow)) {
+      const below = World.getBlock(x, y - 1, z);
+      if (below === BLOCK.LAVA) { World.clearLevel(x, y-1, z); World.setBlock(x, y-1, z, BLOCK.OBSIDIAN); this.markChunk(x,z); this.touchAround(x,y-1,z); playSound('splash'); }
+      else if (below === BLOCK.LAVA_FLOW) { World.clearLevel(x, y-1, z); World.setBlock(x, y-1, z, BLOCK.STONE); this.markChunk(x,z); this.touchAround(x,y-1,z); playSound('splash'); }
+    }
+
+    // источник: льёт вниз и растекается вбок
+    if (here === src) {
+      if (World.getBlock(x, y - 1, z) === BLOCK.AIR) this.setFlow(kind, x, y - 1, z, maxL - 1);
+      else this.spreadSides(kind, x, y, z, maxL);
+      return;
+    }
+
+    // течение
+    if (here === flow) {
+      // попытка стать бесконечным источником (только вода)
+      if (kind === 'water' && this.tryFormInfiniteSource(x, y, z)) return;
+      const d = this.desiredLevel(kind, x, y, z);
+      if (d.level <= 0) { this.setFlow(kind, x, y, z, 0); return; } // нет питания -> исчезает
+      const cur = World.getLevel(x, y, z);
+      if (d.level !== cur) {
+        World.setLevel(x, y, z, d.level);
+        this.markChunk(x, z);
+        this.touchAround(x, y, z);
+      }
+      // под ячейкой воздух -> падать вниз (приоритет)
+      if (World.getBlock(x, y - 1, z) === BLOCK.AIR) { this.setFlow(kind, x, y - 1, z, maxL - 1); return; }
+      if (d.falling) return; // падающее течение вбок не растекается
+      this.spreadSides(kind, x, y, z, d.level);
+    }
+  },
+
   update(dt) {
-    this.tickAcc += dt;
-    if (this.tickAcc < this.tickRate) return;
-    this.tickAcc = 0;
+    // вода и лава тикают с разной частотой; собираем «созревшие» ячейки
+    this.waterAcc += dt; this.lavaAcc += dt;
+    const doWater = this.waterAcc >= this.waterRate;
+    const doLava = this.lavaAcc >= this.lavaRate;
+    if (!doWater && !doLava) return;
+    if (doWater) this.waterAcc = 0;
+    if (doLava) this.lavaAcc = 0;
     if (this.queue.length === 0) return;
 
+    // переносим текущую очередь, обрабатываем подходящие по типу/частоте
+    const pending = this.queue;
+    this.queue = [];
+    const deferred = [];
     let processed = 0;
-    while (this.queue.length > 0 && processed < this.MAX_PER_TICK) {
-      const k = this.queue.shift();
+    for (const k of pending) {
       this.inQueue.delete(k);
+      if (processed >= this.MAX_PER_TICK) { deferred.push(k); continue; }
       const [x, y, z] = k.split(',').map(Number);
-      this.step(x, y, z);
+      const b = World.getBlock(x, y, z);
+      let kind = liquidKind(b);
+      if (kind === null) {
+        // воздух у границы жидкости — определим тип по соседям
+        const nbs = [World.getBlock(x+1,y,z),World.getBlock(x-1,y,z),World.getBlock(x,y,z+1),World.getBlock(x,y,z-1),World.getBlock(x,y+1,z)];
+        for (const nb of nbs) { const kk = liquidKind(nb); if (kk) { kind = kk; break; } }
+      }
+      if (kind === null) continue;
+      const ready = kind === 'water' ? doWater : doLava;
+      if (!ready) { deferred.push(k); this.inQueue.add(k); continue; }
+      this.step(kind, x, y, z);
       processed++;
     }
+    // вернуть необработанные обратно в очередь
+    for (const k of deferred) { if (!this.inQueue.has(k)) { this.inQueue.add(k); } this.queue.push(k); }
 
-    // перестроить только реально изменившиеся чанки
     if (this.changedChunks.size > 0) {
-      for (const ck of this.changedChunks) {
-        const [cx, cz] = ck.split(',').map(Number);
-        World.markDirty(cx, cz);
-      }
+      for (const ck of this.changedChunks) { const [cx, cz] = ck.split(',').map(Number); World.markDirty(cx, cz); }
       this.changedChunks.clear();
     }
   },
 };
 
-// ============================================================
-//  Симуляция лавы — медленнее воды, дальность LAVA_MAX(=4)
-// ============================================================
-const LavaSim = {
-  queue: [], inQueue: new Set(), tickAcc: 0,
-  tickRate: 0.5,            // лава течёт заметно медленнее воды
-  MAX_PER_TICK: 80,
-  changedChunks: new Set(),
-
-  enqueue(x, y, z) {
-    if (y < 0 || y >= WORLD_HEIGHT) return;
-    const k = x + ',' + y + ',' + z;
-    if (this.inQueue.has(k)) return;
-    this.inQueue.add(k); this.queue.push(k);
-  },
-  touchAround(x, y, z) {
-    this.enqueue(x, y, z);
-    this.enqueue(x+1,y,z); this.enqueue(x-1,y,z);
-    this.enqueue(x,y,z+1); this.enqueue(x,y,z-1);
-    this.enqueue(x,y+1,z); this.enqueue(x,y-1,z);
-  },
-  markChunk(x, z) {
-    const cx = Math.floor(x/CHUNK_SIZE), cz = Math.floor(z/CHUNK_SIZE);
-    this.changedChunks.add(cx+','+cz);
-    const lx = x-cx*CHUNK_SIZE, lz = z-cz*CHUNK_SIZE;
-    if (lx===0) this.changedChunks.add((cx-1)+','+cz);
-    if (lx===CHUNK_SIZE-1) this.changedChunks.add((cx+1)+','+cz);
-    if (lz===0) this.changedChunks.add(cx+','+(cz-1));
-    if (lz===CHUNK_SIZE-1) this.changedChunks.add(cx+','+(cz+1));
-  },
-  setFlow(x, y, z, lvl) {
-    if (lvl <= 0) { World.clearLevel(x,y,z); World.setBlock(x,y,z,BLOCK.AIR,true); }
-    else { World.setLevel(x,y,z,lvl); World.setBlock(x,y,z,BLOCK.LAVA_FLOW,true); }
-    this.markChunk(x,z); this.touchAround(x,y,z);
-  },
-  // контакт лавы и воды -> камень/булыжник (как в Minecraft)
-  contactSolidify(x, y, z) {
-    const here = World.getBlock(x, y, z);
-    const dirs = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
-    let waterNear = false;
-    for (const [dx,dy,dz] of dirs) if (isWaterLiquid(World.getBlock(x+dx,y+dy,z+dz))) waterNear = true;
-    if (!waterNear) return false;
-    // источник лавы + вода рядом -> обсидиан-аналог (у нас — камень); течение -> булыжник
-    World.clearLevel(x,y,z);
-    World.setBlock(x, y, z, (here === BLOCK.LAVA) ? BLOCK.STONE : BLOCK.COBBLESTONE);
-    this.markChunk(x,z);
-    playSound('splash');
-    return true;
-  },
-  desiredLevel(x, y, z) {
-    if (isLavaLiquid(World.getBlock(x, y+1, z))) return { level: LAVA_MAX-1, falling: true };
-    let best = 0;
-    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-    for (const [dx,dz] of dirs) {
-      const nx=x+dx, nz=z+dz, nb = World.getBlock(nx, y, nz);
-      if (nb === BLOCK.LAVA) best = Math.max(best, LAVA_MAX-1);
-      else if (nb === BLOCK.LAVA_FLOW) {
-        if (World.getBlock(nx, y-1, nz) === BLOCK.AIR) continue;
-        best = Math.max(best, World.getLevel(nx, y, nz) - 1);
-      }
-    }
-    return { level: best, falling: false };
-  },
-  spreadSides(x, y, z, lvl) {
-    const next = lvl - 1;
-    if (next <= 0) return;
-    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-    for (const [dx,dz] of dirs) {
-      const nx=x+dx, nz=z+dz, nb = World.getBlock(nx, y, nz);
-      if (nb === BLOCK.AIR) this.setFlow(nx, y, nz, next);
-      else if (nb === BLOCK.WATER_FLOW || nb === BLOCK.WATER) { /* вода рядом — обработается contactSolidify */ this.touchAround(nx,y,nz); }
-      else if (nb === BLOCK.LAVA_FLOW && World.getLevel(nx,y,nz) < next) {
-        World.setLevel(nx,y,nz,next); this.markChunk(nx,nz); this.touchAround(nx,y,nz);
-      }
-    }
-  },
-  step(x, y, z) {
-    const here = World.getBlock(x, y, z);
-    if (here === BLOCK.AIR) {
-      const d = this.desiredLevel(x, y, z);
-      if (d.level > 0) this.setFlow(x, y, z, d.level);
-      return;
-    }
-    if (here === BLOCK.LAVA) {
-      if (this.contactSolidify(x,y,z)) return;
-      if (World.getBlock(x, y-1, z) === BLOCK.AIR) this.setFlow(x, y-1, z, LAVA_MAX-1);
-      else this.spreadSides(x, y, z, LAVA_MAX);
-      return;
-    }
-    if (here === BLOCK.LAVA_FLOW) {
-      if (this.contactSolidify(x,y,z)) return;
-      const d = this.desiredLevel(x, y, z);
-      if (d.level <= 0) { this.setFlow(x, y, z, 0); return; }
-      const cur = World.getLevel(x, y, z);
-      if (d.level !== cur) { World.setLevel(x,y,z,d.level); this.markChunk(x,z); this.touchAround(x,y,z); }
-      if (World.getBlock(x, y-1, z) === BLOCK.AIR) { this.setFlow(x, y-1, z, LAVA_MAX-1); return; }
-      if (d.falling) return;
-      this.spreadSides(x, y, z, d.level);
-    }
-  },
-  update(dt) {
-    this.tickAcc += dt;
-    if (this.tickAcc < this.tickRate) return;
-    this.tickAcc = 0;
-    if (this.queue.length === 0) return;
-    let processed = 0;
-    while (this.queue.length > 0 && processed < this.MAX_PER_TICK) {
-      const k = this.queue.shift(); this.inQueue.delete(k);
-      const [x,y,z] = k.split(',').map(Number);
-      this.step(x,y,z); processed++;
-    }
-    if (this.changedChunks.size > 0) {
-      for (const ck of this.changedChunks) { const [cx,cz]=ck.split(',').map(Number); World.markDirty(cx,cz); }
-      this.changedChunks.clear();
-    }
-  },
-};
+// Обратная совместимость со старыми вызовами WaterSim/LavaSim.touchAround(...)
+const WaterSim = { touchAround: (x,y,z)=>LiquidSim.touchAround(x,y,z), get queue(){return LiquidSim.queue;}, get inQueue(){return LiquidSim.inQueue;}, update:()=>{} };
+const LavaSim  = { touchAround: (x,y,z)=>LiquidSim.touchAround(x,y,z), get queue(){return LiquidSim.queue;}, get inQueue(){return LiquidSim.inQueue;}, get changedChunks(){return LiquidSim.changedChunks;}, update:()=>{} };
 
 // ============================================================
 //  Огонь — горит на горючих блоках, распространяется, гаснет
@@ -2015,8 +2042,7 @@ const WorldManager = {
     for (const s of fallingSand) { scene.remove(s.mesh); }
     fallingSand.length = 0;
     sandCheckQueue.length = 0; sandInQueue.clear();
-    WaterSim.queue.length = 0; WaterSim.inQueue.clear();
-    LavaSim.queue.length = 0; LavaSim.inQueue.clear(); LavaSim.changedChunks.clear();
+    LiquidSim.queue.length = 0; LiquidSim.inQueue.clear(); LiquidSim.changedChunks.clear();
     FireSim.clear();
     leafDecay.length = 0; leafDecaySet.clear();
     // свиньи
@@ -2521,10 +2547,42 @@ function iconCanvas(id, size) {
     if (idd === ITEM.STONE_PICKAXE || idd === ITEM.STONE_AXE || idd === ITEM.STONE_SHOVEL || idd === ITEM.STONE_SWORD) return '#8a8a8a';
     if (idd === ITEM.COPPER_PICKAXE || idd === ITEM.COPPER_AXE || idd === ITEM.COPPER_SHOVEL || idd === ITEM.COPPER_SWORD) return '#d07a40';
     if (idd === ITEM.IRON_PICKAXE || idd === ITEM.IRON_AXE || idd === ITEM.IRON_SHOVEL || idd === ITEM.IRON_SWORD) return '#e2e2e8';
+    if (idd === ITEM.DIAMOND_PICKAXE || idd === ITEM.DIAMOND_AXE || idd === ITEM.DIAMOND_SHOVEL || idd === ITEM.DIAMOND_SWORD) return '#3fd6e0';
     return '#b98e4d'; // деревянный
   };
+  // алмаз — гранёный голубой кристалл
+  if (id === ITEM.DIAMOND) {
+    const u = size/16;
+    ctx.fillStyle = '#3fd6e0';
+    ctx.beginPath();
+    ctx.moveTo(8*u,2*u); ctx.lineTo(13*u,7*u); ctx.lineTo(8*u,14*u); ctx.lineTo(3*u,7*u); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#bff7ff'; // верхняя грань (блик)
+    ctx.beginPath(); ctx.moveTo(8*u,2*u); ctx.lineTo(13*u,7*u); ctx.lineTo(8*u,7*u); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#1f9fb0'; // нижняя тень
+    ctx.beginPath(); ctx.moveTo(3*u,7*u); ctx.lineTo(8*u,14*u); ctx.lineTo(8*u,7*u); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#0d6f80'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(8*u,2*u); ctx.lineTo(13*u,7*u); ctx.lineTo(8*u,14*u); ctx.lineTo(3*u,7*u); ctx.closePath(); ctx.stroke();
+    return c;
+  }
+  // ведро (пустое/вода/лава)
+  if (id === ITEM.BUCKET || id === ITEM.WATER_BUCKET || id === ITEM.LAVA_BUCKET) {
+    const u = size/16;
+    // содержимое внутри ведра
+    if (id === ITEM.WATER_BUCKET) { ctx.fillStyle = '#3a86d8'; ctx.fillRect(4*u,5*u,8*u,3*u); }
+    if (id === ITEM.LAVA_BUCKET) { ctx.fillStyle = '#e85a18'; ctx.fillRect(4*u,5*u,8*u,3*u); ctx.fillStyle='#ffd24a'; ctx.fillRect(6*u,5*u,2*u,1*u); }
+    // корпус ведра (трапеция) — железо
+    ctx.fillStyle = '#c4c8cf';
+    ctx.beginPath();
+    ctx.moveTo(3*u,7*u); ctx.lineTo(13*u,7*u); ctx.lineTo(11*u,14*u); ctx.lineTo(5*u,14*u); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#9aa0a8'; ctx.fillRect(3*u,7*u,10*u,1*u); // ободок
+    ctx.fillStyle = '#e6e9ee'; ctx.fillRect(5*u,8*u,1*u,5*u);  // блик
+    // ручка-дужка
+    ctx.strokeStyle = '#8a9098'; ctx.lineWidth = Math.max(1,u);
+    ctx.beginPath(); ctx.moveTo(4*u,7*u); ctx.quadraticCurveTo(8*u,2*u,12*u,7*u); ctx.stroke();
+    return c;
+  }
   // меч: ручка-крестовина + клинок
-  if (id === ITEM.WOODEN_SWORD || id === ITEM.STONE_SWORD || id === ITEM.COPPER_SWORD || id === ITEM.IRON_SWORD) {
+  if (isSword(id)) {
     const u = size/16;
     // рукоять (по диагонали снизу-справа)
     ctx.strokeStyle = '#7a5326'; ctx.lineWidth = Math.max(2, size/9);
@@ -2542,7 +2600,7 @@ function iconCanvas(id, size) {
     ctx.beginPath(); ctx.moveTo(4*u,11*u); ctx.lineTo(10*u,5*u); ctx.stroke();
     return c;
   }
-  if (id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.IRON_PICKAXE || id === ITEM.COPPER_PICKAXE) {
+  if (isPickaxe(id)) {
     // ручка
     ctx.strokeStyle = '#7a5326'; ctx.lineWidth = Math.max(2, size/8);
     ctx.beginPath(); ctx.moveTo(size*0.62, size*0.28); ctx.lineTo(size*0.34, size*0.82); ctx.stroke();
@@ -2552,7 +2610,7 @@ function iconCanvas(id, size) {
     return c;
   }
   // топор: ручка + клиновидное лезвие сбоку
-  if (id === ITEM.WOODEN_AXE || id === ITEM.STONE_AXE || id === ITEM.COPPER_AXE || id === ITEM.IRON_AXE) {
+  if (isAxe(id)) {
     const u = size/16;
     ctx.strokeStyle = '#7a5326'; ctx.lineWidth = Math.max(2, size/8);
     ctx.beginPath(); ctx.moveTo(size*0.6, size*0.28); ctx.lineTo(size*0.36, size*0.82); ctx.stroke();
@@ -2563,7 +2621,7 @@ function iconCanvas(id, size) {
     return c;
   }
   // лопата: ручка + прямоугольный ковш снизу
-  if (id === ITEM.WOODEN_SHOVEL || id === ITEM.STONE_SHOVEL || id === ITEM.COPPER_SHOVEL || id === ITEM.IRON_SHOVEL) {
+  if (isShovel(id)) {
     const u = size/16;
     ctx.strokeStyle = '#7a5326'; ctx.lineWidth = Math.max(2, size/8);
     ctx.beginPath(); ctx.moveTo(size*0.62, size*0.22); ctx.lineTo(size*0.42, size*0.66); ctx.stroke();
@@ -2663,6 +2721,9 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.COAL_ORE) tex = TEX.coal_ore;
   else if (id === BLOCK.IRON_ORE) tex = TEX.iron_ore;
   else if (id === BLOCK.COPPER_ORE) tex = TEX.copper_ore;
+  else if (id === BLOCK.DIAMOND_ORE) tex = TEX.diamond_ore;
+  else if (id === BLOCK.GRAVEL) tex = TEX.gravel;
+  else if (id === BLOCK.OBSIDIAN) tex = TEX.obsidian;
   else if (id === BLOCK.GLASS) tex = TEX.glass;
   else if (id === BLOCK.FURNACE) tex = TEX.furnace_front;
   else if (id === BLOCK.CHEST) tex = TEX.chest_front;
@@ -2742,7 +2803,7 @@ function renderHotbar() {
 // Каждый рецепт: { shapeless?, pattern (для формовых), result:{id,count} }
 // Для простоты: формовые задаются как массив строк с символами,
 // бесформенные — как набор {id:count}.
-const P = BLOCK.PLANKS, S = ITEM.STICK, C = BLOCK.COBBLESTONE, O = 0, I = ITEM.IRON_INGOT, U = ITEM.COPPER_INGOT;
+const P = BLOCK.PLANKS, S = ITEM.STICK, C = BLOCK.COBBLESTONE, O = 0, I = ITEM.IRON_INGOT, U = ITEM.COPPER_INGOT, D = ITEM.DIAMOND;
 const RECIPES = [
   // 1 дерево -> 4 доски (бесформенно)
   { shapeless: true, ingredients: { [BLOCK.WOOD]: 1 }, result: { id: BLOCK.PLANKS, count: 4 } },
@@ -2788,6 +2849,15 @@ const RECIPES = [
   { shaped: true, w: 1, h: 3, need3x3: true, cells: [C, C, S], result: { id: ITEM.STONE_SWORD, count: 1 } },
   { shaped: true, w: 1, h: 3, need3x3: true, cells: [U, U, S], result: { id: ITEM.COPPER_SWORD, count: 1 } },
   { shaped: true, w: 1, h: 3, need3x3: true, cells: [I, I, S], result: { id: ITEM.IRON_SWORD, count: 1 } },
+  { shaped: true, w: 1, h: 3, need3x3: true, cells: [D, D, S], result: { id: ITEM.DIAMOND_SWORD, count: 1 } },
+
+  // ---- Алмазные инструменты ----
+  { shaped: true, w: 3, h: 3, need3x3: true, cells: [D,D,D, O,S,O, O,S,O], result: { id: ITEM.DIAMOND_PICKAXE, count: 1 } },
+  { shaped: true, w: 2, h: 3, need3x3: true, cells: [D,D, D,S, O,S], result: { id: ITEM.DIAMOND_AXE, count: 1 } },
+  { shaped: true, w: 1, h: 3, need3x3: true, cells: [D, S, S], result: { id: ITEM.DIAMOND_SHOVEL, count: 1 } },
+
+  // ---- Ведро (3 железных слитка V-образно) ----
+  { shaped: true, w: 3, h: 2, need3x3: true, cells: [I,O,I, O,I,O], result: { id: ITEM.BUCKET, count: 1 } },
   // дверь: 2 в ширину, 3 в высоту из досок (6 досок) -> предмет двери.
   // (полный столбец 2x3, чтобы не путать с верстаком 2x2)
   { shaped: true, w: 2, h: 3, need3x3: true,
@@ -3563,7 +3633,7 @@ function startMusic() {
 // ============================================================
 //  Raycast по вокселям (DDA)
 // ============================================================
-function getTargetBlock(maxDist = 6) {
+function getTargetBlock(maxDist = 6, includeLiquid = false) {
   const dir = new THREE.Vector3(
     -Math.sin(PLAYER.yaw) * Math.cos(PLAYER.pitch),
     Math.sin(PLAYER.pitch),
@@ -3592,7 +3662,7 @@ function getTargetBlock(maxDist = 6) {
   let dist = 0;
   while (dist <= maxDist) {
     const b = World.getBlock(x, y, z);
-    if (b !== BLOCK.AIR && !isLiquid(b)) { // воду нельзя выделить/сломать — луч проходит сквозь
+    if (b !== BLOCK.AIR && (includeLiquid || !isLiquid(b))) { // обычно луч проходит сквозь жидкости
       return { x, y, z, block: b, face };
     }
     if (tMaxX < tMaxY && tMaxX < tMaxZ) {
@@ -3733,9 +3803,10 @@ function processSandQueue() {
     sandInQueue.delete(k);
     processed++;
     const [x, y, z] = k.split(',').map(Number);
-    if (World.getBlock(x, y, z) !== BLOCK.SAND) continue;
+    const b = World.getBlock(x, y, z);
+    if (!isFalling(b)) continue;           // песок или гравий
     if (canFallInto(World.getBlock(x, y - 1, z))) {
-      startFallingSand(BLOCK.SAND, x, y, z);
+      startFallingSand(b, x, y, z);
     }
   }
 }
@@ -3756,8 +3827,8 @@ function updateFallingSand(dt) {
     if (!canFallInto(restBlock)) {
       // приземлился: ставим песок на belowY+1
       let placeY = belowY + 1;
-      // если место занято (вода) — всё равно ставим песок, вытесняя воду
-      World.setBlock(s.x, placeY, s.z, BLOCK.SAND);
+      // если место занято (вода) — всё равно ставим блок, вытесняя воду
+      World.setBlock(s.x, placeY, s.z, s.id);
       rebuildAround(s.x, s.z);
       WaterSim.touchAround(s.x, placeY, s.z);
       playSound('sandfall', BLOCK.SAND);
@@ -4263,6 +4334,9 @@ function finishBreak(t) {
   else if (broken === BLOCK.COAL_ORE) dropId = havePick ? ITEM.COAL : null; // уголь только киркой
   else if (broken === BLOCK.IRON_ORE) dropId = (tier >= 2) ? BLOCK.IRON_ORE : null; // железную руду — каменной киркой+, плавить в печи
   else if (broken === BLOCK.COPPER_ORE) dropId = (tier >= 2) ? BLOCK.COPPER_ORE : null; // медную руду — каменной киркой+, плавить в печи
+  else if (broken === BLOCK.DIAMOND_ORE) dropId = (tier >= 4) ? ITEM.DIAMOND : null; // алмаз — только железной киркой+
+  else if (broken === BLOCK.OBSIDIAN) dropId = (tier >= 5) ? BLOCK.OBSIDIAN : null; // обсидиан — только алмазной киркой
+  else if (broken === BLOCK.GRAVEL) dropId = BLOCK.GRAVEL; // гравий всегда выпадает гравием
 
   if (dropId !== null) {
     spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
@@ -4288,6 +4362,56 @@ function finishBreak(t) {
     spawnDrop(ITEM.DOOR, t.x + 0.5, t.y + 1.5, t.z + 0.5);
     rebuildAround(t.x, t.z);
   }
+}
+
+// заменить ОДНУ единицу из активного слота на другой предмет (для вёдер)
+function swapActiveOneTo(newId) {
+  const slot = activeItem();
+  if (!slot) return;
+  if (slot.count <= 1) {
+    slots[activeSlot] = { id: newId, count: 1 };
+  } else {
+    slot.count--;
+    // положить новый предмет в инвентарь
+    addToInventory(newId, 1);
+  }
+  onObtain(newId);
+  refreshUI();
+}
+
+// Ведро: пустое — набрать ИСТОЧНИК воды/лавы; полное — вылить источник.
+function useBucket(slot) {
+  if (slot.id === ITEM.BUCKET) {
+    // целимся в жидкость (луч останавливается на жидкости)
+    const t = getTargetBlock(6, true);
+    if (!t) return;
+    if (t.block === BLOCK.WATER) {
+      World.clearLevel(t.x, t.y, t.z); World.setBlock(t.x, t.y, t.z, BLOCK.AIR);
+      LiquidSim.touchAround(t.x, t.y, t.z); rebuildAround(t.x, t.z);
+      swapActiveOneTo(ITEM.WATER_BUCKET); playSound('splash');
+    } else if (t.block === BLOCK.LAVA) {
+      World.clearLevel(t.x, t.y, t.z); World.setBlock(t.x, t.y, t.z, BLOCK.AIR);
+      LiquidSim.touchAround(t.x, t.y, t.z); rebuildAround(t.x, t.z);
+      swapActiveOneTo(ITEM.LAVA_BUCKET); playSound('splash');
+    }
+    // течение (flow) нельзя набрать — только источник (как просил пользователь)
+    return;
+  }
+  // полное ведро — вылить источник в воздух/на грань блока
+  const t = getTargetBlock(6, false);
+  if (!t) return;
+  let nx = t.x + t.face[0], ny = t.y + t.face[1], nz = t.z + t.face[2];
+  // если целимся в жидкость — заменить её саму
+  const tgt = World.getBlock(nx, ny, nz);
+  if (tgt !== BLOCK.AIR && !isLiquid(tgt)) return; // только в воздух/жидкость
+  if (ny < 0 || ny >= WORLD_HEIGHT) return;
+  const liquid = slot.id === ITEM.WATER_BUCKET ? BLOCK.WATER : BLOCK.LAVA;
+  World.clearLevel(nx, ny, nz);
+  World.setBlock(nx, ny, nz, liquid);
+  LiquidSim.touchAround(nx, ny, nz);
+  rebuildAround(nx, nz);
+  swapActiveOneTo(ITEM.BUCKET); // ведро пустеет
+  playSound('splash');
 }
 
 function placeBlock() {
@@ -4317,6 +4441,8 @@ function placeBlock() {
 
   const slot = activeItem();
   if (!slot || slot.count <= 0) return;
+  // вёдра — особая обработка (набрать/вылить жидкость)
+  if (slot.id === ITEM.BUCKET || slot.id === ITEM.WATER_BUCKET || slot.id === ITEM.LAVA_BUCKET) { useBucket(slot); return; }
   // еда — съедаем по ПКМ
   if (isFood(slot.id)) { tryEat(); return; }
   // палка/кирка не ставятся
@@ -4808,24 +4934,25 @@ function updatePlayer(dt) {
   );
   const feetInWater = isWaterLiquid(feetBlock);
   const headInWater = isWaterLiquid(headBlock);
+  // в ЛАВЕ ли игрок (ноги/тело/голова) — лава тоже среда для плавания, но вязкая
+  const feetInLava = isLavaLiquid(feetBlock);
+  const headInLava = isLavaLiquid(headBlock);
+  const inLava = feetInLava || headInLava || isLavaLiquid(blockAtPlayer(0.9));
   const wasInWater = PLAYER.inWater;
-  PLAYER.inWater = feetInWater || headInWater;
-  PLAYER.submerged = headInWater;
+  PLAYER.inWater = feetInWater || headInWater;        // именно вода (для дыхания/мокроты)
+  PLAYER.inLiquid = PLAYER.inWater || inLava;          // любая жидкость — для физики плавания
+  PLAYER.submerged = headInWater;                      // голова под водой (кислород/туман)
+  PLAYER.submergedLava = headInLava;                   // голова в лаве (красный экран)
   if (PLAYER.inWater !== wasInWater) playSound('splash'); // всплеск при входе/выходе
 
-  // ---- Урон от лавы и огня ----
-  const feetBlk = blockAtPlayer(0.1);
-  const bodyBlk = blockAtPlayer(0.9);
-  const inLava = isLavaLiquid(feetBlk) || isLavaLiquid(bodyBlk) || isLavaLiquid(headBlock);
-  const inFire = feetBlk === BLOCK.FIRE || bodyBlk === BLOCK.FIRE;
+  // ---- Урон/поджог от лавы и огня ----
+  const fBlk = blockAtPlayer(0.1);
+  const bBlk = blockAtPlayer(0.9);
+  const inFire = fBlk === BLOCK.FIRE || bBlk === BLOCK.FIRE;
   if (inLava) {
     PLAYER.burnTimer = Math.max(PLAYER.burnTimer || 0, 1.2); // лава поджигает надолго
     PLAYER.lavaTick = (PLAYER.lavaTick || 0) + dt;
     if (PLAYER.lavaTick >= 0.5) { PLAYER.lavaTick = 0; damagePlayer(4); } // лава жжёт сильно
-    // лава вязкая: тормозит и тянет вниз
-    PLAYER.vel.y -= GRAVITY * 0.4 * dt;
-    PLAYER.vel.y *= 0.78;
-    if (PLAYER.vel.y < -3) PLAYER.vel.y = -3;
   } else if (inFire) {
     PLAYER.burnTimer = Math.max(PLAYER.burnTimer || 0, 0.8);
   }
@@ -4842,19 +4969,25 @@ function updatePlayer(dt) {
   if (keys['ControlLeft']) speed *= PLAYER.sprintMul; // спринт
   if (PLAYER.crouching) speed *= 0.45;
 
-  if (PLAYER.inWater) {
-    // ---- плавание ----
-    const swimSpeed = PLAYER.speed * 0.55;
+  if (PLAYER.inLiquid) {
+    // ---- плавание (вода или лава) ----
+    // ЛАВА вязче воды: медленнее плывём, медленнее гребём вверх, сильнее тонем.
+    const swimMul   = inLava ? 0.30 : 0.55;  // горизонтальная скорость
+    const drag      = inLava ? 0.62 : 0.86;  // сопротивление (меньше = вязче)
+    const gravMul   = inLava ? 0.45 : 0.28;  // погружающая сила
+    const paddleUp  = inLava ? 1.6  : 3.2;   // скорость гребка вверх
+    const buoyancy  = inLava ? 0.5  : 1.2;   // пассивное всплытие
+    const swimSpeed = PLAYER.speed * swimMul;
     PLAYER.vel.x = move.x * swimSpeed;
     PLAYER.vel.z = move.z * swimSpeed;
-    // плавучесть + вязкость
-    PLAYER.vel.y -= GRAVITY * 0.28 * dt;   // ослабленная гравитация
-    PLAYER.vel.y *= 0.86;                    // сопротивление воды
-    if (keys['Space']) PLAYER.vel.y = 3.2;   // грести вверх / всплывать
-    else if (keys['ShiftLeft']) PLAYER.vel.y -= 3.0 * dt; // нырять
-    if (PLAYER.vel.y < -6) PLAYER.vel.y = -6;
+    PLAYER.vel.y -= GRAVITY * gravMul * dt;   // ослабленная гравитация
+    PLAYER.vel.y *= drag;                       // сопротивление среды
+    if (keys['Space']) PLAYER.vel.y = paddleUp; // грести вверх / всплывать
+    else if (keys['ShiftLeft']) PLAYER.vel.y -= (inLava ? 1.6 : 3.0) * dt; // нырять
+    const maxDown = inLava ? -3 : -6;
+    if (PLAYER.vel.y < maxDown) PLAYER.vel.y = maxDown;
     // лёгкое всплытие, если игрок не нажимает вниз
-    if (!keys['ShiftLeft'] && !keys['Space']) PLAYER.vel.y += 1.2 * dt;
+    if (!keys['ShiftLeft'] && !keys['Space']) PLAYER.vel.y += buoyancy * dt;
   } else {
     // ---- обычная физика ----
     PLAYER.vel.x = move.x * speed;
@@ -4870,7 +5003,7 @@ function updatePlayer(dt) {
 
   // отслеживание высоты падения для урона
   const wasOnGround = PLAYER.onGround;
-  if (!PLAYER.onGround && PLAYER.vel.y < 0 && !PLAYER.inWater) {
+  if (!PLAYER.onGround && PLAYER.vel.y < 0 && !PLAYER.inLiquid) {
     PLAYER.fallStart = (PLAYER.fallStart === undefined) ? PLAYER.pos.y : Math.max(PLAYER.fallStart, PLAYER.pos.y);
   }
 
@@ -4898,7 +5031,7 @@ function updatePlayer(dt) {
   // урон от падения при приземлении
   if (!wasOnGround && PLAYER.onGround && PLAYER.fallStart !== undefined) {
     const fall = PLAYER.fallStart - PLAYER.pos.y;
-    if (fall > 3 && !PLAYER.inWater) {
+    if (fall > 3 && !PLAYER.inLiquid) {
       damagePlayer(Math.floor(fall - 3));
     }
     PLAYER.fallStart = undefined;
@@ -5187,7 +5320,7 @@ function updateWaterUI() {
   // синий оверлей когда голова под водой
   waterOverlayEl.classList.toggle('on', !!PLAYER.submerged);
   // оранжевый оверлей огня при горении
-  fireOverlayEl.classList.toggle('on', (PLAYER.burnTimer || 0) > 0);
+  fireOverlayEl.classList.toggle('on', (PLAYER.burnTimer || 0) > 0 || !!PLAYER.submergedLava);
   // красная вспышка урона
   damageFlashEl.style.background = 'rgba(180,20,20,' + (PLAYER.damageFlash * 0.35).toFixed(3) + ')';
 
@@ -5269,8 +5402,7 @@ function loop(now) {
     resetMining();
   }
 
-  WaterSim.update(dt);
-  LavaSim.update(dt);
+  LiquidSim.update(dt);
   FireSim.update(dt);
   updateFallingSand(dt);
   updateLeafDecay(dt);
