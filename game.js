@@ -80,6 +80,11 @@ const ITEM = {
   BUCKET:         170, // пустое ведро
   WATER_BUCKET:   171, // ведро с водой
   LAVA_BUCKET:    172, // ведро с лавой
+  // Кремень и зажигалка
+  FLINT:          180, // кремень (редко из гравия)
+  FLINT_AND_STEEL:181, // зажигалка (поджигает; имеет прочность)
+  // Лодка
+  BOAT:           190, // лодка (плавает по воде)
 };
 
 const BLOCK_NAMES = {
@@ -145,6 +150,9 @@ const BLOCK_NAMES = {
   [ITEM.BUCKET]:        'Ведро',
   [ITEM.WATER_BUCKET]:  'Ведро воды',
   [ITEM.LAVA_BUCKET]:   'Ведро лавы',
+  [ITEM.FLINT]:         'Кремень',
+  [ITEM.FLINT_AND_STEEL]: 'Зажигалка',
+  [ITEM.BOAT]:          'Лодка',
 };
 
 // Еда: сколько голода восстанавливает
@@ -237,6 +245,26 @@ function swordDamage(id) {
 }
 // Любой инструмент
 function isTool(id) { return isPickaxe(id) || isAxe(id) || isShovel(id) || isSword(id); }
+
+// --- Прочность предметов (пока только у зажигалки) ---
+// MC: 65 использований; делаем чуть быстрее — 50.
+const MAX_DURABILITY = {
+  [ITEM.FLINT_AND_STEEL]: 50,
+};
+function hasDurability(id) { return MAX_DURABILITY[id] !== undefined; }
+// израсходовать 1 заряд прочности у предмета в слоте; вернуть true если предмет сломался
+function useDurability(slot) {
+  if (!slot || !hasDurability(slot.id)) return false;
+  if (slot.dur === undefined) slot.dur = MAX_DURABILITY[slot.id];
+  slot.dur--;
+  if (slot.dur <= 0) {
+    // сломалось — убрать одну единицу
+    slot.count--;
+    if (slot.count <= 0) { return true; } // слот опустеет (вызывающий очистит)
+    slot.dur = MAX_DURABILITY[slot.id]; // следующая в стопке (хотя обычно стопка=1)
+  }
+  return false;
+}
 // Блоки, по которым эффективен топор / лопата
 function axeBlock(b) { return b === BLOCK.WOOD || b === BLOCK.PLANKS || b === BLOCK.CRAFTING_TABLE || b === BLOCK.CHEST || b === BLOCK.DOOR_BOTTOM || b === BLOCK.DOOR_TOP; }
 function shovelBlock(b) { return b === BLOCK.DIRT || b === BLOCK.GRASS || b === BLOCK.SAND || b === BLOCK.GRAVEL; }
@@ -1275,7 +1303,9 @@ const LiquidSim = {
       if (nb === src) {
         best = Math.max(best, maxL - 1);
       } else if (nb === flow) {
-        if (World.getBlock(nx, y - 1, nz) === BLOCK.AIR) continue; // падающий сосед вбок не питает
+        // падающий сосед (под ним есть куда стекать вниз) вбок НЕ питает —
+        // иначе вода переливается через ямку вместо того, чтобы уходить в неё.
+        if (this._canDrainDown(kind, nx, y, nz)) continue;
         best = Math.max(best, World.getLevel(nx, y, nz) - 1);
       }
     }
@@ -1299,12 +1329,63 @@ const LiquidSim = {
     return false;
   },
 
+  // Может ли жидкость данного вида занять ячейку (воздух или своё течение меньшего уровня)
+  _canFlowInto(kind, x, y, z) {
+    const b = World.getBlock(x, y, z);
+    if (b === BLOCK.AIR) return true;
+    if (b === this.flowBlock(kind)) return true;
+    // другая жидкость — пройти можно (для поиска дыры), но не своя-источник/твёрдое
+    return false;
+  },
+  // может ли жидкость в (x,y,z) стекать ВНИЗ (под ней пустота или своё течение)?
+  // Такая клетка — «падающая» (сток): уходит вниз и НЕ питает горизонтальных соседей,
+  // поэтому вода в ямку утекает, а не переливается дальше по каналу.
+  _canDrainDown(kind, x, y, z) {
+    const below = World.getBlock(x, y - 1, z);
+    if (below === BLOCK.AIR) return true;
+    if (below === this.flowBlock(kind)) return true; // столб ещё течёт вниз
+    return false;
+  },
+  // Глубина поиска «дыры» (как в Minecraft — до 5 клеток по горизонтали)
+  // Поиск кратчайшего расстояния до дыры (ячейки, где есть провал вниз) в направлении (dx,dz).
+  // Возвращает расстояние 1..MAX или Infinity, если дыры нет.
+  _distanceToHole(kind, x, y, z, dx, dz) {
+    const MAX = 5;
+    for (let d = 1; d <= MAX; d++) {
+      const cx = x + dx * d, cz = z + dz * d;
+      // путь должен оставаться проходимым по горизонтали
+      if (!this._canFlowInto(kind, cx, y, cz)) return Infinity;
+      // под этой ячейкой провал? тогда это «дыра»
+      const below = World.getBlock(cx, y - 1, cz);
+      if (below === BLOCK.AIR || this._canFlowInto(kind, cx, y - 1, cz) && below !== this.srcBlock(kind)) {
+        if (below === BLOCK.AIR) return d;
+      }
+    }
+    return Infinity;
+  },
   spreadSides(kind, x, y, z, lvl) {
     const next = lvl - 1;
     if (next <= 0) return;
     const flow = this.flowBlock(kind);
     const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-    for (const [dx, dz] of dirs) {
+
+    // --- Поиск кратчайшего пути к «дыре» (модель воды Minecraft) ---
+    // Если хотя бы в одном направлении вода может стечь в провал — она течёт
+    // ТОЛЬКО в направление(я) с минимальным расстоянием до дыры (не разливается во все стороны).
+    let minDist = Infinity;
+    const dist = dirs.map(([dx, dz]) => {
+      const nx = x + dx, nz = z + dz;
+      // направление доступно только если соседняя ячейка свободна для затекания
+      if (!this._canFlowInto(kind, nx, y, nz) && !(isLiquid(World.getBlock(nx,y,nz)) && liquidKind(World.getBlock(nx,y,nz)) !== kind)) return Infinity;
+      const dd = this._distanceToHole(kind, x, y, z, dx, dz);
+      if (dd < minDist) minDist = dd;
+      return dd;
+    });
+
+    for (let i = 0; i < dirs.length; i++) {
+      const [dx, dz] = dirs[i];
+      // если есть достижимая дыра — растекаемся только в кратчайшие направления
+      if (minDist !== Infinity && dist[i] !== minDist) continue;
       const nx = x + dx, nz = z + dz;
       const nb = World.getBlock(nx, y, nz);
       if (nb === BLOCK.AIR) {
@@ -1331,10 +1412,23 @@ const LiquidSim = {
       return;
     }
 
-    // лава, соприкоснувшаяся с водой — затвердевает
+    // лава, соприкоснувшаяся с водой сбоку/сверху — затвердевает
     if (kind === 'lava' && this.contactSolidify(x, y, z)) return;
 
-    // вода, льющаяся НА лаву сверху, превращает лаву под собой в камень
+    // лава над водой: если ПОД лавой вода — лава затвердевает
+    // (источник -> обсидиан, течение -> булыжник; вода под ней превращается в камень)
+    if (kind === 'lava' && (here === src || here === flow)) {
+      const below = World.getBlock(x, y - 1, z);
+      if (isWaterLiquid(below)) {
+        World.clearLevel(x, y, z);
+        World.setBlock(x, y, z, (here === BLOCK.LAVA) ? BLOCK.OBSIDIAN : BLOCK.COBBLESTONE);
+        this.markChunk(x, z); this.touchAround(x, y, z);
+        playSound('splash');
+        return;
+      }
+    }
+
+    // вода, льющаяся НА лаву сверху, превращает лаву под собой в камень/обсидиан
     if (kind === 'water' && (here === src || here === flow)) {
       const below = World.getBlock(x, y - 1, z);
       if (below === BLOCK.LAVA) { World.clearLevel(x, y-1, z); World.setBlock(x, y-1, z, BLOCK.OBSIDIAN); this.markChunk(x,z); this.touchAround(x,y-1,z); playSound('splash'); }
@@ -1363,6 +1457,9 @@ const LiquidSim = {
       // под ячейкой воздух -> падать вниз (приоритет)
       if (World.getBlock(x, y - 1, z) === BLOCK.AIR) { this.setFlow(kind, x, y - 1, z, maxL - 1); return; }
       if (d.falling) return; // падающее течение вбок не растекается
+      // если эта клетка — сток в ямку (под ней столб ещё течёт вниз), она уходит вниз
+      // и НЕ разливается по сторонам -> вода не переливается за ямку
+      if (this._canDrainDown(kind, x, y, z)) return;
       this.spreadSides(kind, x, y, z, d.level);
     }
   },
@@ -1729,8 +1826,10 @@ function buildChunkMesh(c) {
             if (f.dir[1] === 1) {
               if (sameLiquid) continue;
             } else if (f.dir[1] === -1) {
-              // нижняя грань: только если снизу воздух
-              if (nb !== BLOCK.AIR) continue;
+              // нижняя грань: рисуем, если снизу НЕ та же жидкость и сосед прозрачный
+              // (воздух, стекло, листва, другая жидкость) — иначе лаву/воду не видно снизу
+              if (sameLiquid) continue;
+              if (!isTransparent(nb)) continue;
             } else {
               // боковая грань: рисуем против воздуха или против той же жидкости с более низкой поверхностью
               if (sameLiquid) {
@@ -1995,6 +2094,9 @@ const PLAYER = {
   burnTimer: 0,      // таймер горения (лава/огонь)
   lavaTick: 0,
   fireTick: 0,
+  dead: false,       // мёртв (показан экран смерти)
+  inLiquid: false,
+  riding: null,      // лодка, в которой плывём
 };
 
 const GRAVITY = 26;
@@ -2048,6 +2150,11 @@ const WorldManager = {
     // свиньи
     for (const p of mobs) scene.remove(p.mesh);
     mobs.length = 0;
+    for (const b of boats) scene.remove(b.mesh);
+    boats.length = 0;
+    PLAYER.riding = null;
+    PLAYER.dead = false;
+    document.getElementById('deathScreen').classList.remove('on');
     mobSpawnTimer = 4;
     // инвентарь / крафт
     for (let i = 0; i < TOTAL_SLOTS; i++) slots[i] = null;
@@ -2564,6 +2671,47 @@ function iconCanvas(id, size) {
     ctx.beginPath(); ctx.moveTo(8*u,2*u); ctx.lineTo(13*u,7*u); ctx.lineTo(8*u,14*u); ctx.lineTo(3*u,7*u); ctx.closePath(); ctx.stroke();
     return c;
   }
+  // кремень — тёмно-серый осколок
+  if (id === ITEM.FLINT) {
+    const u = size/16;
+    ctx.fillStyle = '#3a3a3e';
+    ctx.beginPath();
+    ctx.moveTo(4*u,11*u); ctx.lineTo(6*u,5*u); ctx.lineTo(11*u,4*u); ctx.lineTo(13*u,9*u); ctx.lineTo(9*u,13*u); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#56565c'; // грань-блик
+    ctx.beginPath(); ctx.moveTo(6*u,5*u); ctx.lineTo(11*u,4*u); ctx.lineTo(9*u,8*u); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#1f1f22';
+    ctx.fillRect(9*u,10*u,2*u,2*u);
+    return c;
+  }
+  // зажигалка — кремень + стальное огниво
+  if (id === ITEM.FLINT_AND_STEEL) {
+    const u = size/16;
+    // стальная скоба
+    ctx.strokeStyle = '#c4c8cf'; ctx.lineWidth = Math.max(2,u*1.4);
+    ctx.beginPath(); ctx.moveTo(4*u,5*u); ctx.quadraticCurveTo(3*u,11*u,9*u,12*u); ctx.stroke();
+    ctx.strokeStyle = '#8a9098'; ctx.lineWidth = Math.max(1,u);
+    ctx.beginPath(); ctx.moveTo(5*u,6*u); ctx.lineTo(4*u,9*u); ctx.stroke();
+    // кремень
+    ctx.fillStyle = '#3a3a3e';
+    ctx.beginPath(); ctx.moveTo(9*u,3*u); ctx.lineTo(13*u,4*u); ctx.lineTo(12*u,8*u); ctx.lineTo(9*u,7*u); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#56565c'; ctx.fillRect(10*u,4*u,1*u,1*u);
+    // искра
+    ctx.fillStyle = '#ffd24a'; ctx.fillRect(11*u,9*u,1*u,1*u); ctx.fillRect(12*u,10*u,1*u,1*u);
+    return c;
+  }
+  // лодка — деревянная иконка
+  if (id === ITEM.BOAT) {
+    const u = size/16;
+    ctx.fillStyle = '#9c6b35';
+    ctx.beginPath();
+    ctx.moveTo(2*u,7*u); ctx.lineTo(14*u,7*u); ctx.lineTo(12*u,12*u); ctx.lineTo(4*u,12*u); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#7a5326'; ctx.fillRect(3*u,8*u,10*u,1*u); // борт-тень
+    ctx.fillStyle = '#b98e4d'; ctx.fillRect(2*u,7*u,12*u,1*u); // верхний борт
+    // весло
+    ctx.strokeStyle = '#6e4a22'; ctx.lineWidth = Math.max(1,u);
+    ctx.beginPath(); ctx.moveTo(11*u,5*u); ctx.lineTo(14*u,9*u); ctx.stroke();
+    return c;
+  }
   // ведро (пустое/вода/лава)
   if (id === ITEM.BUCKET || id === ITEM.WATER_BUCKET || id === ITEM.LAVA_BUCKET) {
     const u = size/16;
@@ -2778,6 +2926,23 @@ function makeArrowIcon() {
 
 // ---- Хотбар (нижняя панель) ----
 const hotbarEl = document.getElementById('hotbar');
+// полоска прочности под иконкой (для предметов с прочностью, напр. зажигалка)
+function addDurabilityBar(el, item) {
+  if (!item || !hasDurability(item.id) || item.dur === undefined) return;
+  const max = MAX_DURABILITY[item.id];
+  if (item.dur >= max) return; // полная — не показываем
+  const frac = Math.max(0, item.dur / max);
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:absolute;left:3px;right:3px;bottom:3px;height:3px;background:#000;border-radius:1px;';
+  const fill = document.createElement('div');
+  // цвет от зелёного к красному
+  const hue = Math.round(frac * 120);
+  fill.style.cssText = `height:100%;width:${(frac*100).toFixed(0)}%;background:hsl(${hue},85%,45%);border-radius:1px;`;
+  bar.appendChild(fill);
+  el.style.position = 'relative';
+  el.appendChild(bar);
+}
+
 function renderHotbar() {
   hotbarEl.innerHTML = '';
   for (let i = 0; i < HOTBAR_SIZE; i++) {
@@ -2791,6 +2956,7 @@ function renderHotbar() {
         cnt.className = 'count'; cnt.textContent = item.count;
         slot.appendChild(cnt);
       }
+      addDurabilityBar(slot, item);
     }
     slot.addEventListener('click', () => { if (!invOpen) selectSlot(i); });
     hotbarEl.appendChild(slot);
@@ -2858,6 +3024,10 @@ const RECIPES = [
 
   // ---- Ведро (3 железных слитка V-образно) ----
   { shaped: true, w: 3, h: 2, need3x3: true, cells: [I,O,I, O,I,O], result: { id: ITEM.BUCKET, count: 1 } },
+  // Зажигалка: железо + кремень (по диагонали)
+  { shaped: true, w: 2, h: 2, need3x3: true, cells: [I,O, O,ITEM.FLINT], result: { id: ITEM.FLINT_AND_STEEL, count: 1 } },
+  // Лодка: 5 досок «U» (2x3 без центра верха)
+  { shaped: true, w: 3, h: 2, need3x3: true, cells: [P,O,P, P,P,P], result: { id: ITEM.BOAT, count: 1 } },
   // дверь: 2 в ширину, 3 в высоту из досок (6 досок) -> предмет двери.
   // (полный столбец 2x3, чтобы не путать с верстаком 2x2)
   { shaped: true, w: 2, h: 3, need3x3: true,
@@ -3071,6 +3241,7 @@ function makeSlotEl(arr, index, size) {
       cnt.className = 'count'; cnt.textContent = item.count;
       el.appendChild(cnt);
     }
+    addDurabilityBar(el, item);
     el.title = BLOCK_NAMES[item.id] || '';
   }
   el.addEventListener('mousedown', (e) => {
@@ -3914,6 +4085,136 @@ function updateLeafDecay(dt) {
 const mobs = [];
 const MAX_MOBS = 10;
 
+// ============================================================
+//  Лодки (прототип): плавают по воде, тонут если залить сверху, горят на лаве
+// ============================================================
+const boats = [];
+let _boatMat = null;
+function boatMaterial() {
+  if (_boatMat) return _boatMat;
+  _boatMat = texToMaterial(makeTex(ctx => {
+    noiseFill(ctx, 0x9c6b35, 12);
+    ctx.fillStyle = '#7a5326';
+    for (let y=2;y<16;y+=4) ctx.fillRect(0,y,16,1);
+  }));
+  return _boatMat;
+}
+function buildBoatMesh() {
+  const g = new THREE.Group();
+  const mat = boatMaterial();
+  const box = (w,h,d) => { const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat); if (SHADOWS_ON) m.castShadow=true; return m; };
+  // дно
+  const floor = box(1.2, 0.12, 1.6); floor.position.set(0, 0.06, 0); g.add(floor);
+  // борта
+  const sideL = box(0.12, 0.34, 1.6); sideL.position.set(-0.54, 0.22, 0); g.add(sideL);
+  const sideR = box(0.12, 0.34, 1.6); sideR.position.set( 0.54, 0.22, 0); g.add(sideR);
+  const front = box(1.2, 0.34, 0.12); front.position.set(0, 0.22, -0.74); g.add(front);
+  const back  = box(1.2, 0.34, 0.12); back.position.set(0, 0.22, 0.74); g.add(back);
+  return g;
+}
+function spawnBoat(x, y, z) {
+  const mesh = buildBoatMesh();
+  mesh.position.set(x, y, z);
+  scene.add(mesh);
+  boats.push({ mesh, pos: new THREE.Vector3(x,y,z), vel: new THREE.Vector3(0,0,0), yaw: PLAYER.yaw, rider: false, sink: 0 });
+}
+function nearestBoat(maxD) {
+  let best=null, bd=maxD*maxD;
+  for (const b of boats) {
+    const dx=b.pos.x-PLAYER.pos.x, dy=b.pos.y-PLAYER.pos.y, dz=b.pos.z-PLAYER.pos.z;
+    const d=dx*dx+dy*dy+dz*dz;
+    if (d<bd){bd=d;best=b;}
+  }
+  return best;
+}
+function updateBoats(dt) {
+  for (let i = boats.length - 1; i >= 0; i--) {
+    const b = boats[i];
+    const bx = Math.floor(b.pos.x), by = Math.floor(b.pos.y), bz = Math.floor(b.pos.z);
+    const inLava = isLavaLiquid(World.getBlock(bx, by, bz)) || isLavaLiquid(World.getBlock(bx, Math.floor(b.pos.y+0.2), bz));
+    // на лаве — сгорает
+    if (inLava) {
+      scene.remove(b.mesh); boats.splice(i, 1);
+      if (b.rider) { b.rider = false; PLAYER.riding = null; }
+      playSound('break', BLOCK.WOOD);
+      continue;
+    }
+    const blockHere = World.getBlock(bx, by, bz);
+    const blockAbove = World.getBlock(bx, by + 1, bz);
+    const onWater = isWaterLiquid(blockHere) || isWaterLiquid(World.getBlock(bx, by - 1, bz));
+    const covered = isWaterLiquid(blockAbove); // воду налили сверху -> тонет (как в Minecraft)
+
+    if (b.rider) {
+      // управление: WASD относительно взгляда игрока
+      b.yaw = PLAYER.yaw;
+      const fwd = (keys['KeyW']?1:0) - (keys['KeyS']?1:0);
+      const acc = 6;
+      if (fwd !== 0) {
+        b.vel.x += -Math.sin(b.yaw) * fwd * acc * dt;
+        b.vel.z += -Math.cos(b.yaw) * fwd * acc * dt;
+      }
+      // поворот рулём A/D
+      // (поворот следует за камерой через yaw)
+    }
+    // трение
+    b.vel.x *= 0.90; b.vel.z *= 0.90;
+    const sp = Math.hypot(b.vel.x, b.vel.z);
+    if (sp > 5) { b.vel.x *= 5/sp; b.vel.z *= 5/sp; }
+
+    // вертикаль: плавучесть на воде / гравитация в воздухе / погружение если залито
+    const surfaceY = by + 0.86; // примерная поверхность блока воды
+    if (covered) {
+      // залито сверху — идёт ко дну
+      b.sink += dt;
+      b.vel.y -= GRAVITY * 0.3 * dt;
+      if (b.vel.y < -4) b.vel.y = -4;
+    } else if (onWater) {
+      b.sink = 0;
+      // мягко держим у поверхности
+      const targetY = surfaceY;
+      b.vel.y += (targetY - b.pos.y) * 6 * dt;
+      b.vel.y *= 0.8;
+    } else {
+      // в воздухе — падаем
+      b.vel.y -= GRAVITY * dt;
+      if (b.vel.y < -55) b.vel.y = -55;
+    }
+
+    // примитивная коллизия по осям (как у мобов, но проще)
+    const tryMove = (axis, amt) => {
+      b.pos[axis] += amt;
+      const nbx = Math.floor(b.pos.x), nby = Math.floor(b.pos.y), nbz = Math.floor(b.pos.z);
+      const solid = (X,Y,Z)=>{const bb=World.getBlock(X,Y,Z); return bb!==BLOCK.AIR && !isLiquid(bb);};
+      if (solid(nbx, nby, nbz)) {
+        b.pos[axis] -= amt;
+        if (axis==='y' && amt<0) b.vel.y = 0;
+        else b.vel[axis] = 0;
+      }
+    };
+    tryMove('y', b.vel.y * dt);
+    tryMove('x', b.vel.x * dt);
+    tryMove('z', b.vel.z * dt);
+
+    // если затонула слишком глубоко — ломается (роняет лодку-предмет)
+    if (b.sink > 2.2 || b.pos.y < -8) {
+      scene.remove(b.mesh); boats.splice(i, 1);
+      if (b.rider) { b.rider = false; PLAYER.riding = null; }
+      spawnDrop(ITEM.BOAT, b.pos.x, b.pos.y + 0.3, b.pos.z);
+      continue;
+    }
+
+    b.mesh.position.copy(b.pos);
+    b.mesh.rotation.y = b.yaw;
+
+    // везём игрока
+    if (b.rider) {
+      PLAYER.pos.x = b.pos.x; PLAYER.pos.z = b.pos.z;
+      PLAYER.pos.y = b.pos.y + 0.3;
+      PLAYER.vel.set(0,0,0);
+    }
+  }
+}
+
 // Материалы мобов (строятся лениво)
 const MOB_MAT = {};
 function buildMobMaterials() {
@@ -4164,6 +4465,33 @@ function updateMobs(dt) {
       if (p.vel.y < -55) p.vel.y = -55;
     }
 
+    // ЛАВА/ОГОНЬ: мобы горят и получают урон (как и игрок)
+    const inLava = isLavaLiquid(feetBlk) || isLavaLiquid(headBlk) ||
+                   isLavaLiquid(World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y+p.height*0.4), Math.floor(p.pos.z)));
+    const inFire = feetBlk === BLOCK.FIRE || World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y+p.height*0.4), Math.floor(p.pos.z)) === BLOCK.FIRE;
+    if (inLava) { p.burnTimer = Math.max(p.burnTimer || 0, 1.2); }
+    else if (inFire) { p.burnTimer = Math.max(p.burnTimer || 0, 0.8); }
+    if ((p.burnTimer || 0) > 0) {
+      if (!inWater) {  // вода тушит
+        p.burnTimer -= dt;
+        p.burnTick = (p.burnTick || 0) + dt;
+        const interval = inLava ? 0.5 : 1.0;
+        if (p.burnTick >= interval) {
+          p.burnTick = 0;
+          p.hp -= inLava ? 3 : 1;
+          p.hurtT = 0.3;
+          if (p.hp <= 0) {
+            // погиб от огня/лавы — выпадает (по возможности приготовленный) дроп
+            const n = p.def.dropCount();
+            const cookedMap = { [ITEM.PORK_RAW]: ITEM.PORK_COOKED, [ITEM.BEEF_RAW]: ITEM.BEEF_COOKED, [ITEM.CHICKEN_RAW]: ITEM.CHICKEN_COOKED };
+            const dropId = cookedMap[p.def.drop] || p.def.drop;
+            for (let k = 0; k < n; k++) spawnDrop(dropId, p.pos.x + (Math.random()-0.5)*0.4, p.pos.y + 0.4, p.pos.z + (Math.random()-0.5)*0.4);
+            scene.remove(p.mesh); mobs.splice(i, 1); continue;
+          }
+        }
+      } else { p.burnTimer = 0; }
+    }
+
     p.onGround = false;
     mobCollide(p, 'y', p.vel.y * dt);
     mobCollide(p, 'x', p.vel.x * dt);
@@ -4336,7 +4664,7 @@ function finishBreak(t) {
   else if (broken === BLOCK.COPPER_ORE) dropId = (tier >= 2) ? BLOCK.COPPER_ORE : null; // медную руду — каменной киркой+, плавить в печи
   else if (broken === BLOCK.DIAMOND_ORE) dropId = (tier >= 4) ? ITEM.DIAMOND : null; // алмаз — только железной киркой+
   else if (broken === BLOCK.OBSIDIAN) dropId = (tier >= 5) ? BLOCK.OBSIDIAN : null; // обсидиан — только алмазной киркой
-  else if (broken === BLOCK.GRAVEL) dropId = BLOCK.GRAVEL; // гравий всегда выпадает гравием
+  else if (broken === BLOCK.GRAVEL) dropId = (Math.random() < 0.1) ? ITEM.FLINT : BLOCK.GRAVEL; // 10% шанс кремня, иначе гравий
 
   if (dropId !== null) {
     spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
@@ -4380,6 +4708,64 @@ function swapActiveOneTo(newId) {
 }
 
 // Ведро: пустое — набрать ИСТОЧНИК воды/лавы; полное — вылить источник.
+// Проверка: целевая ячейка (внутри проёма) — часть портала в Ад?
+// Простой критерий: с обеих сторон по одной из горизонтальных осей стоит обсидиан,
+// и снизу тоже обсидиан (рамка). Этого достаточно для триггера-заглушки.
+function isNetherPortalSpot(x, y, z) {
+  // под ячейкой должен быть обсидиан (основание рамки)
+  if (World.getBlock(x, y - 1, z) !== BLOCK.OBSIDIAN) return false;
+  // обе стороны вдоль оси заканчиваются обсидианом в пределах 4 клеток (проём рамки)
+  const axisHasWalls = (dx, dz) => {
+    let posWall = false, negWall = false;
+    for (let s = 1; s <= 4; s++) {
+      const a = World.getBlock(x + dx*s, y, z + dz*s);
+      if (!posWall) { if (a === BLOCK.OBSIDIAN) posWall = true; else if (a !== BLOCK.AIR && a !== BLOCK.FIRE) break; }
+    }
+    for (let s = 1; s <= 4; s++) {
+      const b = World.getBlock(x - dx*s, y, z - dz*s);
+      if (!negWall) { if (b === BLOCK.OBSIDIAN) negWall = true; else if (b !== BLOCK.AIR && b !== BLOCK.FIRE) break; }
+    }
+    return posWall && negWall;
+  };
+  return axisHasWalls(1, 0) || axisHasWalls(0, 1);
+}
+
+// Зажигалка: поджечь блок (создать огонь над ним) или триггер портала.
+function useFlintAndSteel(t, slot) {
+  if (!t) return;
+  const nx = t.x + t.face[0], ny = t.y + t.face[1], nz = t.z + t.face[2];
+  if (ny < 0 || ny >= WORLD_HEIGHT) return;
+  // Портал в Ад (пока заглушка)
+  if (isNetherPortalSpot(nx, ny, nz)) {
+    showToast('Ад в разработке:>');
+    return; // не тратим прочность и не зажигаем
+  }
+  // огонь ставится только в воздух и на «опору» снизу/сбоку
+  if (World.getBlock(nx, ny, nz) !== BLOCK.AIR) return;
+  const support = World.getBlock(nx, ny - 1, nz);
+  const canLight = support !== BLOCK.AIR && !isLiquid(support);
+  if (!canLight) return;
+  FireSim.add(nx, ny, nz);
+  playSound('place', BLOCK.WOOD);
+  // расход прочности
+  if (useDurability(slot) || (slot.count <= 0)) { if (slot.count <= 0) slots[activeSlot] = null; }
+  refreshUI();
+}
+
+// Лодка: поставить на воду/землю перед игроком
+function placeBoat(t, slot) {
+  if (!t) return;
+  const nx = t.x + t.face[0], ny = t.y + t.face[1], nz = t.z + t.face[2];
+  if (ny < 0 || ny >= WORLD_HEIGHT) return;
+  // ставим лодку в воздух/на воду
+  const target = World.getBlock(nx, ny, nz);
+  if (target !== BLOCK.AIR && !isWaterLiquid(target)) return;
+  spawnBoat(nx + 0.5, ny + 0.2, nz + 0.5);
+  slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+  refreshUI();
+  playSound('place', BLOCK.PLANKS);
+}
+
 function useBucket(slot) {
   if (slot.id === ITEM.BUCKET) {
     // целимся в жидкость (луч останавливается на жидкости)
@@ -4415,6 +4801,12 @@ function useBucket(slot) {
 }
 
 function placeBlock() {
+  // сесть в ближайшую лодку (если смотрим в её сторону и она рядом)
+  if (!PLAYER.riding) {
+    const b = nearestBoat(2.4);
+    if (b) { b.rider = true; PLAYER.riding = b; PLAYER.vel.set(0,0,0); return; }
+  }
+
   const t = getTargetBlock();
   if (!t) return;
 
@@ -4443,6 +4835,10 @@ function placeBlock() {
   if (!slot || slot.count <= 0) return;
   // вёдра — особая обработка (набрать/вылить жидкость)
   if (slot.id === ITEM.BUCKET || slot.id === ITEM.WATER_BUCKET || slot.id === ITEM.LAVA_BUCKET) { useBucket(slot); return; }
+  // зажигалка — поджечь
+  if (slot.id === ITEM.FLINT_AND_STEEL) { useFlintAndSteel(t, slot); return; }
+  // лодка — спустить на воду
+  if (slot.id === ITEM.BOAT) { placeBoat(t, slot); return; }
   // еда — съедаем по ПКМ
   if (isFood(slot.id)) { tryEat(); return; }
   // палка/кирка не ставятся
@@ -4915,6 +5311,19 @@ function antiSuffocate(dt) {
 function updatePlayer(dt) {
   PLAYER.crouching = !!keys['ShiftLeft'];
 
+  // --- В лодке: физикой управляет лодка; выходим по Space/Shift ---
+  if (PLAYER.riding) {
+    // если лодка пропала из массива — слезть
+    if (!boats.includes(PLAYER.riding)) { PLAYER.riding = null; }
+    else {
+      if (keys['Space'] || keys['ShiftLeft']) {
+        PLAYER.riding.rider = false; PLAYER.riding = null;
+        PLAYER.pos.y += 0.6; PLAYER.vel.set(0, 1, 0);
+      }
+      return; // движение игрока — через updateBoats
+    }
+  }
+
   // направление ввода (относительно взгляда по горизонтали)
   const forward = new THREE.Vector3(-Math.sin(PLAYER.yaw), 0, -Math.cos(PLAYER.yaw));
   const right = new THREE.Vector3(Math.cos(PLAYER.yaw), 0, -Math.sin(PLAYER.yaw));
@@ -4952,7 +5361,7 @@ function updatePlayer(dt) {
   if (inLava) {
     PLAYER.burnTimer = Math.max(PLAYER.burnTimer || 0, 1.2); // лава поджигает надолго
     PLAYER.lavaTick = (PLAYER.lavaTick || 0) + dt;
-    if (PLAYER.lavaTick >= 0.5) { PLAYER.lavaTick = 0; damagePlayer(4); } // лава жжёт сильно
+    if (PLAYER.lavaTick >= 0.5) { PLAYER.lavaTick = 0; damagePlayer(4, "Вы сгорели в лаве"); } // лава жжёт сильно
   } else if (inFire) {
     PLAYER.burnTimer = Math.max(PLAYER.burnTimer || 0, 0.8);
   }
@@ -4960,7 +5369,7 @@ function updatePlayer(dt) {
   if (PLAYER.burnTimer > 0 && !inLava) {
     PLAYER.burnTimer -= dt;
     PLAYER.fireTick = (PLAYER.fireTick || 0) + dt;
-    if (PLAYER.fireTick >= 1.0) { PLAYER.fireTick = 0; if (PLAYER.hp > 0) damagePlayer(1); }
+    if (PLAYER.fireTick >= 1.0) { PLAYER.fireTick = 0; if (PLAYER.hp > 0) damagePlayer(1, "Вы сгорели"); }
     // вода тушит огонь
     if (PLAYER.inWater) PLAYER.burnTimer = 0;
   }
@@ -5032,7 +5441,7 @@ function updatePlayer(dt) {
   if (!wasOnGround && PLAYER.onGround && PLAYER.fallStart !== undefined) {
     const fall = PLAYER.fallStart - PLAYER.pos.y;
     if (fall > 3 && !PLAYER.inLiquid) {
-      damagePlayer(Math.floor(fall - 3));
+      damagePlayer(Math.floor(fall - 3), "Вы разбились при падении");
     }
     PLAYER.fallStart = undefined;
   }
@@ -5090,21 +5499,52 @@ function updateSurvival(dt) {
 function addExhaustion(v) { PLAYER.exhaustion += v; }
 
 // нанести урон игроку
-function damagePlayer(amount) {
+function damagePlayer(amount, reason) {
+  if (PLAYER.dead) return;             // уже мертвы — больше не получаем урон (фикс лишнего догорания)
   PLAYER.hp = Math.max(0, PLAYER.hp - amount);
   PLAYER.damageFlash = 1;
   playSound('hurt');
-  if (PLAYER.hp <= 0) respawnPlayer();
+  if (PLAYER.hp <= 0) onDeath(reason);
 }
 
-// возрождение
+// Смерть: остановить симуляцию игрока, показать экран смерти
+function onDeath(reason) {
+  if (PLAYER.dead) return;
+  PLAYER.dead = true;
+  PLAYER.vel.set(0, 0, 0);
+  PLAYER.burnTimer = 0;                // погасить горение, чтобы не «доуронивало»
+  PLAYER.damageFlash = 0;
+  document.exitPointerLock();
+  const reasonEl = document.getElementById('deathReason');
+  if (reasonEl) reasonEl.textContent = reason || 'Игра окончена';
+  document.getElementById('deathScreen').classList.add('on');
+}
+
+// возрождение (по кнопке)
 function respawnPlayer() {
+  PLAYER.dead = false;
   PLAYER.hp = PLAYER.maxHp;
   PLAYER.hunger = PLAYER.maxHunger;
   PLAYER.oxygen = PLAYER.maxOxygen;
   PLAYER.exhaustion = 0;
+  PLAYER.burnTimer = 0;
   PLAYER.vel.set(0,0,0);
+  PLAYER.fallStart = undefined;
   spawnPlayer();
+  document.getElementById('deathScreen').classList.remove('on');
+  refreshUI();
+  if (overlay.classList.contains('hidden')) canvas.requestPointerLock();
+}
+
+// маленькое уведомление (тост) — напр. «Ад в разработке»
+let _toastTimer = null;
+function showToast(text, ms = 2200) {
+  const el = document.getElementById('toastMsg');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add('on');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('on'), ms);
 }
 
 // съесть еду из активного слота
@@ -5131,7 +5571,7 @@ function updateOxygen(dt) {
       PLAYER.drownTimer += dt;
       if (PLAYER.drownTimer >= 1.0) {
         PLAYER.drownTimer = 0;
-        damagePlayer(2);
+        damagePlayer(2, "Вы утонули");
       }
     }
   } else {
@@ -5392,7 +5832,7 @@ function loop(now) {
   // пока мир не выбран — ничего не симулируем и не рисуем
   if (!gameStarted) { requestAnimationFrame(loop); return; }
 
-  if (overlay.classList.contains('hidden') && !invOpen) {
+  if (!PLAYER.dead && overlay.classList.contains('hidden') && !invOpen) {
     updatePlayer(dt);
     updateOxygen(dt);
     updateSurvival(dt);
@@ -5409,6 +5849,7 @@ function loop(now) {
   updateFurnaces(dt);
   updateAnimatedTextures(dt);
   updateClouds(dt);
+  if (!PLAYER.dead && overlay.classList.contains('hidden')) updateBoats(dt);
   if (!invOpen && overlay.classList.contains('hidden')) updateMobs(dt);
   updateChunks();
 
@@ -5588,6 +6029,22 @@ function openMenu() {
 
 document.getElementById('menuBtn').addEventListener('click', (e) => {
   e.stopPropagation();
+  openMenu();
+});
+
+// Экран смерти: возродиться / в главное меню
+document.getElementById('respawnBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  respawnPlayer();
+});
+document.getElementById('deathMenuBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  // выйти в меню, оставив игрока «мёртвым» — при возврате в мир он возродится
+  PLAYER.dead = false;
+  PLAYER.hp = PLAYER.maxHp; PLAYER.hunger = PLAYER.maxHunger;
+  PLAYER.oxygen = PLAYER.maxOxygen; PLAYER.burnTimer = 0; PLAYER.vel.set(0,0,0);
+  spawnPlayer();
+  document.getElementById('deathScreen').classList.remove('on');
   openMenu();
 });
 

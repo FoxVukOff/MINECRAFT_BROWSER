@@ -152,6 +152,37 @@
     background: rgba(180,20,20,0); transition: background 0.1s;
   }
 
+  /* Экран смерти */
+  #deathScreen {
+    position: fixed; inset: 0; z-index: 30; display: none;
+    background: rgba(80, 0, 0, 0.55);
+    align-items: center; justify-content: center;
+    font-family: monospace;
+  }
+  #deathScreen.on { display: flex; }
+  .death-box { text-align: center; }
+  .death-title { color: #ff5a5a; font-size: 46px; font-weight: bold; text-shadow: 3px 3px 0 #400; margin-bottom: 8px; }
+  .death-sub { color: #ffd0d0; font-size: 16px; margin-bottom: 28px; }
+  .death-btn {
+    display: block; width: 280px; margin: 10px auto; padding: 12px;
+    font-family: monospace; font-size: 16px; cursor: pointer;
+    background: #6a6a6a; color: #fff; border: 2px solid #222; border-bottom-width: 4px;
+    image-rendering: pixelated;
+  }
+  .death-btn:hover { background: #7d8a7d; }
+  .death-btn:active { border-bottom-width: 2px; transform: translateY(2px); }
+  .death-btn-sec { background: #555; }
+
+  /* Маленькое уведомление (тост) */
+  #toastMsg {
+    position: fixed; left: 50%; top: 70px; transform: translateX(-50%);
+    z-index: 32; display: none; pointer-events: none;
+    background: rgba(0,0,0,0.78); color: #ffe; font-family: monospace; font-size: 14px;
+    padding: 8px 16px; border-radius: 4px; border: 1px solid #555;
+  }
+  #toastMsg.on { display: block; animation: toastPop 0.2s ease-out; }
+  @keyframes toastPop { from { opacity: 0; transform: translateX(-50%) translateY(-6px); } to { opacity: 1; } }
+
   /* Экран загрузки (генерация чанков) */
   #loadingScreen {
     position: fixed; inset: 0; z-index: 50; display: none;
@@ -250,6 +281,19 @@
 
 <div id="hud"></div>
 <button id="menuBtn">Меню (Esc)</button>
+
+<!-- Экран смерти -->
+<div id="deathScreen">
+  <div class="death-box">
+    <div class="death-title">Вы погибли!</div>
+    <div class="death-sub" id="deathReason">Игра окончена</div>
+    <button id="respawnBtn" class="death-btn">Возродиться</button>
+    <button id="deathMenuBtn" class="death-btn death-btn-sec">Главное меню</button>
+  </div>
+</div>
+
+<!-- Маленькое уведомление (напр. про Ад) -->
+<div id="toastMsg"></div>
 <div id="saveToast" style="position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:14;background:rgba(0,0,0,0.7);color:#9fd;padding:6px 14px;border-radius:4px;font-family:monospace;font-size:13px;display:none;">Сохранено ✓</div>
 
 <div id="hotbar"></div>
