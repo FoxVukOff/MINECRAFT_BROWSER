@@ -34,7 +34,9 @@ const BLOCK = {
   GRAVEL:     24, // гравий (падает как песок)
   OBSIDIAN:   25, // обсидиан (лава-источник + вода), нужна алмазная кирка
   DIAMOND_ORE:26, // алмазная руда (очень редкая, глубоко)
-  NETHER_PORTAL:27, // портал в Ад (проходимый, анимированный; пока никуда не телепортирует)
+  NETHER_PORTAL:27, // портал в Ад (тонкий проходимый блок)
+  NETHERRACK: 28, // незерак (основной блок Ада)
+  GLOWSTONE:  29, // светящийся камень (в Аду)
 };
 
 // Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
@@ -86,6 +88,23 @@ const ITEM = {
   FLINT_AND_STEEL:181, // зажигалка (поджигает; имеет прочность)
   // Лодка
   BOAT:           190, // лодка (плавает по воде)
+  // Кожа (из коров) и броня
+  LEATHER:        200,
+  // Кожаная броня
+  LEATHER_HELMET:    210,
+  LEATHER_CHESTPLATE:211,
+  LEATHER_LEGGINGS:  212,
+  LEATHER_BOOTS:     213,
+  // Железная броня
+  IRON_HELMET:    220,
+  IRON_CHESTPLATE:221,
+  IRON_LEGGINGS:  222,
+  IRON_BOOTS:     223,
+  // Алмазная броня
+  DIAMOND_HELMET:    230,
+  DIAMOND_CHESTPLATE:231,
+  DIAMOND_LEGGINGS:  232,
+  DIAMOND_BOOTS:     233,
 };
 
 const BLOCK_NAMES = {
@@ -116,6 +135,8 @@ const BLOCK_NAMES = {
   [BLOCK.OBSIDIAN]: 'Обсидиан',
   [BLOCK.DIAMOND_ORE]: 'Алмазная руда',
   [BLOCK.NETHER_PORTAL]: 'Портал в Ад',
+  [BLOCK.NETHERRACK]: 'Незерак',
+  [BLOCK.GLOWSTONE]: 'Светопыль',
   [ITEM.STICK]:    'Палки',
   [ITEM.WOODEN_PICKAXE]: 'Деревянная кирка',
   [ITEM.STONE_PICKAXE]: 'Каменная кирка',
@@ -155,6 +176,19 @@ const BLOCK_NAMES = {
   [ITEM.FLINT]:         'Кремень',
   [ITEM.FLINT_AND_STEEL]: 'Зажигалка',
   [ITEM.BOAT]:          'Лодка',
+  [ITEM.LEATHER]:       'Кожа',
+  [ITEM.LEATHER_HELMET]:    'Кожаный шлем',
+  [ITEM.LEATHER_CHESTPLATE]:'Кожаная куртка',
+  [ITEM.LEATHER_LEGGINGS]:  'Кожаные штаны',
+  [ITEM.LEATHER_BOOTS]:     'Кожаные ботинки',
+  [ITEM.IRON_HELMET]:    'Железный шлем',
+  [ITEM.IRON_CHESTPLATE]:'Железный нагрудник',
+  [ITEM.IRON_LEGGINGS]:  'Железные поножи',
+  [ITEM.IRON_BOOTS]:     'Железные ботинки',
+  [ITEM.DIAMOND_HELMET]:    'Алмазный шлем',
+  [ITEM.DIAMOND_CHESTPLATE]:'Алмазный нагрудник',
+  [ITEM.DIAMOND_LEGGINGS]:  'Алмазные поножи',
+  [ITEM.DIAMOND_BOOTS]:     'Алмазные ботинки',
 };
 
 // Еда: сколько голода восстанавливает
@@ -249,6 +283,26 @@ function swordDamage(id) {
 // Любой инструмент
 function isTool(id) { return isPickaxe(id) || isAxe(id) || isShovel(id) || isSword(id); }
 
+// --- Броня ---
+// Слоты: 'helmet','chestplate','leggings','boots'. armorPoints — очки защиты (как в MC).
+const ARMOR = {
+  [ITEM.LEATHER_HELMET]:    { slot: 'helmet',     points: 1 },
+  [ITEM.LEATHER_CHESTPLATE]:{ slot: 'chestplate', points: 3 },
+  [ITEM.LEATHER_LEGGINGS]:  { slot: 'leggings',   points: 2 },
+  [ITEM.LEATHER_BOOTS]:     { slot: 'boots',      points: 1 },
+  [ITEM.IRON_HELMET]:    { slot: 'helmet',     points: 2 },
+  [ITEM.IRON_CHESTPLATE]:{ slot: 'chestplate', points: 6 },
+  [ITEM.IRON_LEGGINGS]:  { slot: 'leggings',   points: 5 },
+  [ITEM.IRON_BOOTS]:     { slot: 'boots',      points: 2 },
+  [ITEM.DIAMOND_HELMET]:    { slot: 'helmet',     points: 3 },
+  [ITEM.DIAMOND_CHESTPLATE]:{ slot: 'chestplate', points: 8 },
+  [ITEM.DIAMOND_LEGGINGS]:  { slot: 'leggings',   points: 6 },
+  [ITEM.DIAMOND_BOOTS]:     { slot: 'boots',      points: 3 },
+};
+function isArmor(id) { return ARMOR[id] !== undefined; }
+function armorSlotOf(id) { return ARMOR[id] ? ARMOR[id].slot : null; }
+function armorPointsOf(id) { return ARMOR[id] ? ARMOR[id].points : 0; }
+
 // --- Прочность предметов (пока только у зажигалки) ---
 // MC: 65 использований; делаем чуть быстрее — 50.
 const MAX_DURABILITY = {
@@ -273,7 +327,7 @@ function axeBlock(b) { return b === BLOCK.WOOD || b === BLOCK.PLANKS || b === BL
 function shovelBlock(b) { return b === BLOCK.DIRT || b === BLOCK.GRASS || b === BLOCK.SAND || b === BLOCK.GRAVEL; }
 
 // Блоки, для добычи которых нужна кирка (иначе ломается, но ничего не выпадает)
-function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE || b === BLOCK.DIAMOND_ORE || b === BLOCK.OBSIDIAN; }
+function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE || b === BLOCK.DIAMOND_ORE || b === BLOCK.OBSIDIAN || b === BLOCK.NETHERRACK || b === BLOCK.GLOWSTONE; }
 // Минимальный уровень кирки для добычи блока:
 //  руды железа/меди — каменная(2)+; алмаз — железная(4)+; обсидиан — алмазная(5).
 function minePickTier(b) {
@@ -305,6 +359,8 @@ const BREAK_TIME = {
   [BLOCK.DIAMOND_ORE]: 5.0, // алмазная руда очень крепкая
   [BLOCK.GRAVEL]:  0.6, // гравий копается быстро (лопатой)
   [BLOCK.OBSIDIAN]: 12.0, // обсидиан добывается долго даже алмазной киркой
+  [BLOCK.NETHERRACK]: 0.6, // незерак мягкий
+  [BLOCK.GLOWSTONE]: 0.6,
   [BLOCK.BEDROCK]: Infinity, // неразрушим
   [BLOCK.WATER]:   Infinity, // воду нельзя сломать
   [BLOCK.WATER_FLOW]: Infinity,
@@ -548,6 +604,23 @@ function buildTextures() {
     ctx.fillStyle = '#5a3f8a';
     ctx.fillRect(4,6,1,1); ctx.fillRect(9,10,1,1);
   });
+  // незерак — багрово-красный пористый камень
+  TEX.netherrack = makeTex(ctx => {
+    pixelFill(ctx, ['#5a1f1f','#6e2626','#4a1818','#7a2c2c','#3e1414'], [5,4,4,2,2], 2828);
+    ctx.fillStyle = '#852f2f';
+    for (const [gx,gy] of [[3,4],[10,6],[6,10],[12,12],[2,11],[8,2]]) ctx.fillRect(gx,gy,1,1);
+    ctx.fillStyle = '#3a1212';
+    for (const [gx,gy] of [[5,7],[11,3],[7,13],[1,5]]) ctx.fillRect(gx,gy,1,1);
+  });
+  // светопыль (glowstone) — жёлто-оранжевый светящийся
+  TEX.glowstone = makeTex(ctx => {
+    pixelFill(ctx, ['#e0a838','#d49028','#f0c860','#b87818'], [5,4,3,3], 2929);
+    ctx.fillStyle = '#fff0a0';
+    for (const [gx,gy] of [[3,3],[10,4],[6,9],[12,11],[4,12],[9,7]]) ctx.fillRect(gx,gy,2,2);
+    ctx.fillStyle = '#a86810';
+    ctx.fillRect(0,8,16,1); ctx.fillRect(8,0,1,16);
+  });
+  // кожа — текстура для предметной иконки рисуется кодом; здесь не нужна
   // стекло — почти прозрачное с рамкой/бликом
   TEX.glass = makeTex(ctx => {
     ctx.clearRect(0,0,16,16);
@@ -730,6 +803,13 @@ function buildMaterials() {
   const mDiamondOre= texToMaterial(TEX.diamond_ore);
   const mGravel    = texToMaterial(TEX.gravel);
   const mObsidian  = texToMaterial(TEX.obsidian);
+  const mNetherrack= texToMaterial(TEX.netherrack);
+  // светопыль — яркая, не затемняется (свечение)
+  const mGlowstone = (() => {
+    const t = new THREE.CanvasTexture(TEX.glowstone);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshBasicMaterial({ map: t });
+  })();
   const mFurSide   = texToMaterial(TEX.furnace_side);
   const mFurTop    = texToMaterial(TEX.furnace_top);
   const mFurFront  = texToMaterial(TEX.furnace_front);
@@ -797,6 +877,8 @@ function buildMaterials() {
   MATERIALS[BLOCK.DIAMOND_ORE] = [mDiamondOre, mDiamondOre, mDiamondOre, mDiamondOre, mDiamondOre, mDiamondOre];
   MATERIALS[BLOCK.GRAVEL] = [mGravel, mGravel, mGravel, mGravel, mGravel, mGravel];
   MATERIALS[BLOCK.OBSIDIAN] = [mObsidian, mObsidian, mObsidian, mObsidian, mObsidian, mObsidian];
+  MATERIALS[BLOCK.NETHERRACK] = [mNetherrack, mNetherrack, mNetherrack, mNetherrack, mNetherrack, mNetherrack];
+  MATERIALS[BLOCK.GLOWSTONE] = [mGlowstone, mGlowstone, mGlowstone, mGlowstone, mGlowstone, mGlowstone];
   MATERIALS[BLOCK.GLASS]   = [mGlass, mGlass, mGlass, mGlass, mGlass, mGlass];
   // печь: перед — топка (+Z), остальное булыжник
   MATERIALS[BLOCK.FURNACE] = [mFurSide, mFurSide, mFurTop, mFurTop, mFurFront, mFurSide];
@@ -866,6 +948,17 @@ function terrainHeight(wx, wz) {
   h /= sum; // 0..1
   // расширенная вариация: впадины уходят ниже уровня моря -> озёра/моря
   return Math.floor(12 + h * 26); // диапазон ~12..38
+}
+
+// Высота поверхности незерака в Аду (холмы с лавовыми низинами)
+function netherHeight(wx, wz) {
+  let h = 0, amp = 1, freq = 0.02, sum = 0;
+  for (let o = 0; o < 3; o++) {
+    h += valueNoise((wx+5000) * freq, (wz+5000) * freq) * amp;
+    sum += amp; amp *= 0.5; freq *= 2;
+  }
+  h /= sum; // 0..1
+  return Math.floor(14 + h * 22); // ~14..36 (ниже LAVA_SEA=18 -> лавовые моря)
 }
 
 // 3D-хеш для размещения руды (детерминированно, зависит от сида)
@@ -971,15 +1064,35 @@ function carveLavaLake(blocks, ccx, ccz) {
 // ============================================================
 //  Хранилище мира (чанки)
 // ============================================================
+// Каждое измерение хранит свой набор Map'ов состояния.
+function makeDimStore() {
+  return {
+    chunks: new Map(),       // "cx,cz" -> { blocks:Uint8Array, mesh, dirty }
+    edits: new Map(),        // "x,y,z" -> blockId
+    waterLevel: new Map(),   // "x,y,z" -> уровень жидкости
+    doorState: new Map(),
+    furnaces: new Map(),
+    chests: new Map(),
+    doubleChests: new Map(),
+    facing: new Map(),
+  };
+}
+
 const World = {
-  chunks: new Map(),          // "cx,cz" -> { blocks:Uint8Array, mesh, dirty }
-  edits: new Map(),           // "x,y,z" -> blockId  (изменения игрока)
-  waterLevel: new Map(),      // "x,y,z" -> уровень воды (1..8); источник = 8
-  doorState: new Map(),       // "x,y,z"(низ двери) -> {open}
-  furnaces: new Map(),        // "x,y,z" -> {input,fuel,output, burn, cookTime}
-  chests: new Map(),          // "x,y,z" -> массив из 27 слотов
-  doubleChests: new Map(),    // "x,y,z" -> "x,y,z" партнёра (двойной сундук)
-  facing: new Map(),          // "x,y,z" -> ориентация блока (см. ORIENT)
+  // активные ссылки (переключаются вместе с измерением)
+  chunks: null, edits: null, waterLevel: null, doorState: null,
+  furnaces: null, chests: null, doubleChests: null, facing: null,
+  dim: 'overworld',                 // текущее измерение
+  dims: { overworld: makeDimStore(), nether: makeDimStore() },
+
+  // переключить активное измерение (меняет ссылки на Map'ы)
+  setDimension(name) {
+    this.dim = name;
+    const s = this.dims[name];
+    this.chunks = s.chunks; this.edits = s.edits; this.waterLevel = s.waterLevel;
+    this.doorState = s.doorState; this.furnaces = s.furnaces; this.chests = s.chests;
+    this.doubleChests = s.doubleChests; this.facing = s.facing;
+  },
 
   key(cx, cz) { return cx + ',' + cz; },
   ekey(x, y, z) { return x + ',' + y + ',' + z; },
@@ -1001,6 +1114,7 @@ const World = {
   },
 
   generateChunk(cx, cz) {
+    if (this.dim === 'nether') return this.generateNetherChunk(cx, cz);
     const blocks = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -1090,6 +1204,38 @@ const World = {
     return { blocks, mesh: null, dirty: true, cx, cz };
   },
 
+  // --- Генерация Ада: незерак, потолок/пол из бедрока, озёра лавы, светопыль ---
+  generateNetherChunk(cx, cz) {
+    const blocks = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
+    const LAVA_SEA = 18; // уровень лавовых озёр в Аду
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        const wx = cx * CHUNK_SIZE + lx, wz = cz * CHUNK_SIZE + lz;
+        // холмистый рельеф незерака
+        const h = netherHeight(wx, wz);       // высота поверхности незерака ~24..36
+        for (let y = 0; y < WORLD_HEIGHT; y++) {
+          let b = BLOCK.AIR;
+          if (y === 0 || y >= WORLD_HEIGHT - 1) b = BLOCK.BEDROCK; // пол и потолок Ада
+          else if (y < h) {
+            b = BLOCK.NETHERRACK;
+            // вкрапления светопыли в толще
+            if (oreHash(wx + 11000, y, wz + 11000) < 0.006) b = BLOCK.GLOWSTONE;
+          } else if (y <= LAVA_SEA) {
+            b = BLOCK.LAVA; // лавовое море заполняет низины
+          }
+          blocks[idx(lx, y, lz)] = b;
+        }
+        // пещеры/пустоты в толще незерака (3D-шум)
+        for (let y = 2; y < WORLD_HEIGHT - 2; y++) {
+          if (blocks[idx(lx, y, lz)] === BLOCK.NETHERRACK && oreHash(wx + 13000, y, wz + 13000) < 0.10 && y > LAVA_SEA) {
+            blocks[idx(lx, y, lz)] = BLOCK.AIR;
+          }
+        }
+      }
+    }
+    return { blocks, mesh: null, dirty: true, cx, cz };
+  },
+
   getChunk(cx, cz) {
     const k = this.key(cx, cz);
     let c = this.chunks.get(k);
@@ -1136,7 +1282,7 @@ const World = {
     const lz = wz - cz * CHUNK_SIZE;
     c.blocks[idx(lx, wy, lz)] = id;
     c.dirty = true;
-    if (!transient) this.edits.set(this.ekey(wx, wy, wz), id);
+    if (!transient) { this.edits.set(this.ekey(wx, wy, wz), id); if (typeof requestSave === 'function') requestSave(); }
     // уровень храним только для течения (вода/лава); иначе чистим
     if (id !== BLOCK.WATER_FLOW && id !== BLOCK.LAVA_FLOW) this.clearLevel(wx, wy, wz);
     // воздух — сбросить ориентацию
@@ -1154,6 +1300,7 @@ const World = {
     if (c) c.dirty = true;
   },
 };
+World.setDimension('overworld'); // инициализировать активные ссылки на Map'ы
 
 function idx(x, y, z) {
   return y * CHUNK_SIZE * CHUNK_SIZE + z * CHUNK_SIZE + x;
@@ -1837,6 +1984,34 @@ function buildChunkMesh(c) {
           continue;
         }
 
+        // ---- Портал в Ад: тонкая «панель» (как стекло), а не целый блок ----
+        if (b === BLOCK.NETHER_PORTAL) {
+          const mat = MATERIALS[BLOCK.NETHER_PORTAL][0];
+          const mi = getMatIndex(mat);
+          let buf = byMat.get(mi);
+          if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], water:false }; byMat.set(mi, buf); }
+          // ось панели: вдоль X (порталы/обсидиан по ±X) -> тонкая по Z; иначе тонкая по X
+          const nbX = World.getBlock(wx+1,y,wz)===BLOCK.NETHER_PORTAL || World.getBlock(wx-1,y,wz)===BLOCK.NETHER_PORTAL ||
+                      World.getBlock(wx+1,y,wz)===BLOCK.OBSIDIAN || World.getBlock(wx-1,y,wz)===BLOCK.OBSIDIAN;
+          const TH = 0.12;
+          const addQuad = (p, nrm) => {
+            const base = buf.positions.length/3;
+            for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); }
+            buf.uvs.push(0,0,1,0,1,1,0,1);
+            buf.indices.push(base,base+1,base+2,base,base+2,base+3);
+          };
+          if (nbX) {
+            const z1 = 0.5 - TH/2, z2 = 0.5 + TH/2;
+            addQuad([[0,0,z2],[1,0,z2],[1,1,z2],[0,1,z2]],[0,0,1]);
+            addQuad([[1,0,z1],[0,0,z1],[0,1,z1],[1,1,z1]],[0,0,-1]);
+          } else {
+            const x1 = 0.5 - TH/2, x2 = 0.5 + TH/2;
+            addQuad([[x1,0,1],[x1,0,0],[x1,1,0],[x1,1,1]],[-1,0,0]);
+            addQuad([[x2,0,0],[x2,0,1],[x2,1,1],[x2,1,0]],[1,0,0]);
+          }
+          continue;
+        }
+
         const liquid = isLiquid(b);
         const lava = isLavaLiquid(b);
         // материалы с учётом ориентации блока.
@@ -2159,6 +2334,7 @@ const PLAYER = {
   dead: false,       // мёртв (показан экран смерти)
   inLiquid: false,
   riding: null,      // лодка, в которой плывём
+  armor: { helmet: null, chestplate: null, leggings: null, boots: null }, // надетая броня
 };
 
 const GRAVITY = 26;
@@ -2190,14 +2366,11 @@ const WorldManager = {
     // удалить меши
     for (const [, mesh] of loadedMeshes) { scene.remove(mesh); disposeGroup(mesh); }
     loadedMeshes.clear();
-    World.chunks.clear();
-    World.edits.clear();
-    World.waterLevel.clear();
-    World.doorState.clear();
-    World.furnaces.clear();
-    World.chests.clear();
-    World.doubleChests.clear();
-    World.facing.clear();
+    // очистить оба измерения
+    World.dims.overworld = makeDimStore();
+    World.dims.nether = makeDimStore();
+    World.setDimension('overworld');
+    PLAYER.armor = { helmet: null, chestplate: null, leggings: null, boots: null };
     openFurnacePos = null;
     openChestPos = null;
     // очистить сущности
@@ -2249,29 +2422,51 @@ const WorldManager = {
   },
 
   // сохранить текущий мир в localStorage
+  // сериализовать состояние одного измерения в компактный объект
+  serializeDim(s) {
+    return {
+      edits: Array.from(s.edits.entries()).map(([k, v]) => k + ':' + v),
+      doors: Array.from(s.doorState.entries()).map(([k, v]) => k + ':' + (v.open ? 1 : 0) + ':' + (v.hinge || 'right')),
+      furnaces: Array.from(s.furnaces.entries()).map(([k, f]) => ({ k, input: f.input, fuel: f.fuel, output: f.output })),
+      chests: Array.from(s.chests.entries()).map(([k, arr]) => ({ k, items: arr.map(x => x ? { id: x.id, count: x.count } : null) })),
+      facing: Array.from(s.facing.entries()).map(([k, v]) => k + ':' + v),
+      doubleChests: Array.from(s.doubleChests.entries()).map(([k, v]) => k + '>' + v),
+    };
+  },
+  // восстановить состояние измерения из объекта
+  deserializeDim(s, d) {
+    if (!d) return;
+    for (const e of (d.edits || [])) { const i = e.lastIndexOf(':'); s.edits.set(e.slice(0, i), parseInt(e.slice(i+1), 10)); }
+    for (const e of (d.doors || [])) { const p = e.split(':'); s.doorState.set(p[0], { open: p[1]==='1', hinge: p[2]==='left'?'left':'right' }); }
+    for (const f of (d.furnaces || [])) s.furnaces.set(f.k, { input: f.input||null, fuel: f.fuel||null, output: f.output||null, burn:0, burnMax:0, cook:0 });
+    for (const ch of (d.chests || [])) { const arr = new Array(CHEST_SIZE).fill(null); const it = ch.items||[]; for (let i=0;i<CHEST_SIZE;i++) arr[i] = it[i]?{id:it[i].id,count:it[i].count}:null; s.chests.set(ch.k, arr); }
+    for (const e of (d.doubleChests || [])) { const i = e.indexOf('>'); if (i>0) s.doubleChests.set(e.slice(0,i), e.slice(i+1)); }
+    for (const e of (d.facing || [])) { const i = e.lastIndexOf(':'); s.facing.set(e.slice(0,i), parseInt(e.slice(i+1), 10)); }
+  },
+
   save() {
     if (!this.current) return false;
+    const armorOut = {};
+    for (const sl of ['helmet','chestplate','leggings','boots']) {
+      const a = PLAYER.armor && PLAYER.armor[sl];
+      armorOut[sl] = a ? { id: a.id, dur: a.dur } : null;
+    }
     const data = {
       seed: WORLD_SEED,
+      dim: World.dim,
+      dimReturn: _dimReturn,
       player: {
         x: PLAYER.pos.x, y: PLAYER.pos.y, z: PLAYER.pos.z,
         yaw: PLAYER.yaw, pitch: PLAYER.pitch,
         oxygen: PLAYER.oxygen, hp: PLAYER.hp, hunger: PLAYER.hunger,
       },
-      slots: slots.map(s => s ? { id: s.id, count: s.count } : null),
+      armor: armorOut,
+      slots: slots.map(s => s ? { id: s.id, count: s.count, dur: s.dur } : null),
       activeSlot,
-      // правки блоков: "x,y,z:id"  (только постоянные изменения игрока)
-      edits: Array.from(World.edits.entries()).map(([k, v]) => k + ':' + v),
-      doors: Array.from(World.doorState.entries()).map(([k, v]) => k + ':' + (v.open ? 1 : 0) + ':' + (v.hinge || 'right')),
-      furnaces: Array.from(World.furnaces.entries()).map(([k, f]) => ({
-        k, input: f.input, fuel: f.fuel, output: f.output,
-      })),
-      chests: Array.from(World.chests.entries()).map(([k, arr]) => ({
-        k, items: arr.map(s => s ? { id: s.id, count: s.count } : null),
-      })),
-      facing: Array.from(World.facing.entries()).map(([k, v]) => k + ':' + v),
-      doubleChests: Array.from(World.doubleChests.entries()).map(([k, v]) => k + '>' + v),
       discovered: Array.from(discovered),
+      // оба измерения
+      overworld: this.serializeDim(World.dims.overworld),
+      nether: this.serializeDim(World.dims.nether),
     };
     try {
       localStorage.setItem(this.LS_PREFIX + this.current, JSON.stringify(data));
@@ -2296,50 +2491,32 @@ const WorldManager = {
     WORLD_SEED = data.seed | 0;
     this.current = name;
 
-    // восстановить правки блоков
-    for (const s of (data.edits || [])) {
-      const i = s.lastIndexOf(':');
-      const k = s.slice(0, i), v = parseInt(s.slice(i + 1), 10);
-      World.edits.set(k, v);
+    // восстановить оба измерения (со старой совместимостью: старый формат хранил поля прямо в data)
+    if (data.overworld || data.nether) {
+      this.deserializeDim(World.dims.overworld, data.overworld);
+      this.deserializeDim(World.dims.nether, data.nether);
+    } else {
+      // старый сейв (одно измерение) -> overworld
+      this.deserializeDim(World.dims.overworld, data);
     }
-    // двери  (формат: "x,y,z:open[:hinge]")
-    for (const s of (data.doors || [])) {
-      // ключ — это "x,y,z" (две запятые); состояние после последних двоеточий
-      const parts = s.split(':');
-      // первые 3 части (через запятую внутри) — нет; ключ содержит запятые, не двоеточия
-      // поэтому ключ = всё до первого ':'? нет — ключ "x,y,z" без двоеточий, значит split(':') корректен
-      const key = parts[0];
-      const open = parts[1] === '1';
-      const hinge = parts[2] === 'left' ? 'left' : 'right';
-      World.doorState.set(key, { open, hinge });
-    }
-    // печи
-    for (const f of (data.furnaces || [])) {
-      World.furnaces.set(f.k, { input: f.input || null, fuel: f.fuel || null, output: f.output || null, burn: 0, burnMax: 0, cook: 0 });
-    }
-    // сундуки
-    for (const ch of (data.chests || [])) {
-      const arr = new Array(CHEST_SIZE).fill(null);
-      const items = ch.items || [];
-      for (let i = 0; i < CHEST_SIZE; i++) arr[i] = items[i] ? { id: items[i].id, count: items[i].count } : null;
-      World.chests.set(ch.k, arr);
-    }
-    // двойные сундуки
-    for (const s of (data.doubleChests || [])) {
-      const i = s.indexOf('>');
-      if (i > 0) World.doubleChests.set(s.slice(0, i), s.slice(i + 1));
-    }
-    // ориентации блоков
-    for (const s of (data.facing || [])) {
-      const i = s.lastIndexOf(':');
-      World.facing.set(s.slice(0, i), parseInt(s.slice(i + 1), 10));
-    }
+    if (data.dimReturn) { _dimReturn.overworld = data.dimReturn.overworld || null; _dimReturn.nether = data.dimReturn.nether || null; }
+    World.setDimension(data.dim || 'overworld');
+
     // открытые рецепты (справочник)
     discovered = new Set((data.discovered || []).map(Number));
-    // инвентарь (новый формат слотов; старые сейвы без slots -> пустой инвентарь)
+    // инвентарь
     if (Array.isArray(data.slots)) {
       for (let i = 0; i < TOTAL_SLOTS; i++) {
-        slots[i] = data.slots[i] ? { id: data.slots[i].id, count: data.slots[i].count } : null;
+        const d = data.slots[i];
+        slots[i] = d ? { id: d.id, count: d.count, ...(d.dur!==undefined?{dur:d.dur}:{}) } : null;
+      }
+    }
+    // броня
+    PLAYER.armor = { helmet: null, chestplate: null, leggings: null, boots: null };
+    if (data.armor) {
+      for (const sl of ['helmet','chestplate','leggings','boots']) {
+        const a = data.armor[sl];
+        if (a) PLAYER.armor[sl] = { id: a.id, ...(a.dur!==undefined?{dur:a.dur}:{}) };
       }
     }
     activeSlot = data.activeSlot || 0;
@@ -2355,7 +2532,7 @@ const WorldManager = {
     PLAYER.hunger = p.hunger ?? PLAYER.maxHunger;
     PLAYER.exhaustion = 0;
 
-    // пере-запустить воду и песок вокруг изменённых клеток, чтобы каналы/обвалы восстановились
+    // пере-запустить воду и песок вокруг изменённых клеток текущего измерения
     for (const k of World.edits.keys()) {
       const [x, y, z] = k.split(',').map(Number);
       WaterSim.touchAround(x, y, z);
@@ -2455,10 +2632,18 @@ function beginGame() {
   document.getElementById('menuBtn').style.display = 'block';
   initAudio();
   canvas.requestPointerLock();
-  // автосохранение каждые 20 секунд
+  // автосохранение каждые 10 секунд (чаще — надёжнее)
   if (!WorldManager._autosave) {
-    WorldManager._autosave = setInterval(() => { if (gameStarted) WorldManager.save(); }, 20000);
+    WorldManager._autosave = setInterval(() => { if (gameStarted) WorldManager.save(); }, 10000);
   }
+}
+
+// отложенное сохранение после изменений (дебаунс, чтобы не писать каждый кадр)
+let _saveDebounce = null;
+function requestSave() {
+  if (!gameStarted) return;
+  clearTimeout(_saveDebounce);
+  _saveDebounce = setTimeout(() => { if (gameStarted) WorldManager.save(); }, 1500);
 }
 
 // сохранять при выходе со страницы
@@ -2471,6 +2656,11 @@ window.addEventListener('beforeunload', (e) => {
     return '';
   }
 });
+// сохранять при сворачивании вкладки / потере фокуса (надёжность сейвов)
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && gameStarted) WorldManager.save();
+});
+window.addEventListener('pagehide', () => { if (gameStarted) WorldManager.save(); });
 
 canvas.addEventListener('click', () => {
   if (!pointerLocked && overlay.classList.contains('hidden') && !invOpen) {
@@ -2774,6 +2964,31 @@ function iconCanvas(id, size) {
     ctx.beginPath(); ctx.moveTo(11*u,5*u); ctx.lineTo(14*u,9*u); ctx.stroke();
     return c;
   }
+  // кожа — коричневый кусок шкуры
+  if (id === ITEM.LEATHER) {
+    const u = size/16;
+    ctx.fillStyle = '#8a5a32';
+    ctx.fillRect(3*u,4*u,10*u,8*u);
+    ctx.fillStyle = '#a06a3c'; ctx.fillRect(4*u,5*u,8*u,3*u);
+    ctx.fillStyle = '#6e472488'; ctx.fillRect(3*u,10*u,10*u,1*u);
+    ctx.strokeStyle = '#5e3a1e'; ctx.lineWidth=1; ctx.strokeRect(3*u,4*u,10*u,8*u);
+    // стежки
+    ctx.fillStyle = '#c89a6a'; for (let i=4;i<12;i+=2) ctx.fillRect(i*u,4*u,1*u,1*u);
+    return c;
+  }
+  // броня — рисуем по типу куска + цвету материала
+  if (isArmor(id)) {
+    const u = size/16;
+    const mat = (id>=ITEM.DIAMOND_HELMET)?'#3fd6e0':(id>=ITEM.IRON_HELMET)?'#cfd3da':'#8a5a32';
+    const dark = (id>=ITEM.DIAMOND_HELMET)?'#1f9fb0':(id>=ITEM.IRON_HELMET)?'#9aa0a8':'#5e3a1e';
+    const sl = armorSlotOf(id);
+    ctx.fillStyle = mat;
+    if (sl === 'helmet') { ctx.fillRect(4*u,3*u,8*u,5*u); ctx.fillStyle=dark; ctx.fillRect(4*u,7*u,8*u,1*u); ctx.fillStyle='#0008'; ctx.fillRect(6*u,5*u,4*u,2*u); }
+    else if (sl === 'chestplate') { ctx.fillRect(3*u,3*u,10*u,3*u); ctx.fillRect(4*u,6*u,8*u,7*u); ctx.fillStyle=dark; ctx.fillRect(4*u,9*u,8*u,1*u); ctx.fillStyle=mat; ctx.fillRect(2*u,4*u,2*u,4*u); ctx.fillRect(12*u,4*u,2*u,4*u); }
+    else if (sl === 'leggings') { ctx.fillRect(4*u,3*u,8*u,4*u); ctx.fillRect(4*u,7*u,3*u,7*u); ctx.fillRect(9*u,7*u,3*u,7*u); ctx.fillStyle=dark; ctx.fillRect(7*u,4*u,2*u,3*u); }
+    else { ctx.fillRect(3*u,8*u,4*u,5*u); ctx.fillRect(9*u,8*u,4*u,5*u); ctx.fillStyle=dark; ctx.fillRect(3*u,12*u,4*u,1*u); ctx.fillRect(9*u,12*u,4*u,1*u); }
+    return c;
+  }
   // ведро (пустое/вода/лава)
   if (id === ITEM.BUCKET || id === ITEM.WATER_BUCKET || id === ITEM.LAVA_BUCKET) {
     const u = size/16;
@@ -2934,6 +3149,8 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.DIAMOND_ORE) tex = TEX.diamond_ore;
   else if (id === BLOCK.GRAVEL) tex = TEX.gravel;
   else if (id === BLOCK.OBSIDIAN) tex = TEX.obsidian;
+  else if (id === BLOCK.NETHERRACK) tex = TEX.netherrack;
+  else if (id === BLOCK.GLOWSTONE) tex = TEX.glowstone;
   else if (id === BLOCK.GLASS) tex = TEX.glass;
   else if (id === BLOCK.FURNACE) tex = TEX.furnace_front;
   else if (id === BLOCK.CHEST) tex = TEX.chest_front;
@@ -3031,7 +3248,16 @@ function renderHotbar() {
 // Каждый рецепт: { shapeless?, pattern (для формовых), result:{id,count} }
 // Для простоты: формовые задаются как массив строк с символами,
 // бесформенные — как набор {id:count}.
-const P = BLOCK.PLANKS, S = ITEM.STICK, C = BLOCK.COBBLESTONE, O = 0, I = ITEM.IRON_INGOT, U = ITEM.COPPER_INGOT, D = ITEM.DIAMOND;
+const P = BLOCK.PLANKS, S = ITEM.STICK, C = BLOCK.COBBLESTONE, O = 0, I = ITEM.IRON_INGOT, U = ITEM.COPPER_INGOT, D = ITEM.DIAMOND, L = ITEM.LEATHER;
+// шаблоны брони (3x3): шлем/нагрудник/поножи/ботинки
+function armorRecipe(m, helmet, chest, legs, boots) {
+  return [
+    { shaped:true, w:3, h:2, need3x3:true, cells:[m,m,m, m,O,m], result:{ id: helmet, count:1 } },
+    { shaped:true, w:3, h:3, need3x3:true, cells:[m,O,m, m,m,m, m,m,m], result:{ id: chest, count:1 } },
+    { shaped:true, w:3, h:3, need3x3:true, cells:[m,m,m, m,O,m, m,O,m], result:{ id: legs, count:1 } },
+    { shaped:true, w:3, h:2, need3x3:true, cells:[m,O,m, m,O,m], result:{ id: boots, count:1 } },
+  ];
+}
 const RECIPES = [
   // 1 дерево -> 4 доски (бесформенно)
   { shapeless: true, ingredients: { [BLOCK.WOOD]: 1 }, result: { id: BLOCK.PLANKS, count: 4 } },
@@ -3090,6 +3316,10 @@ const RECIPES = [
   { shaped: true, w: 2, h: 2, need3x3: true, cells: [I,O, O,ITEM.FLINT], result: { id: ITEM.FLINT_AND_STEEL, count: 1 } },
   // Лодка: 5 досок «U» (2x3 без центра верха)
   { shaped: true, w: 3, h: 2, need3x3: true, cells: [P,O,P, P,P,P], result: { id: ITEM.BOAT, count: 1 } },
+  // ---- Броня ----
+  ...armorRecipe(L, ITEM.LEATHER_HELMET, ITEM.LEATHER_CHESTPLATE, ITEM.LEATHER_LEGGINGS, ITEM.LEATHER_BOOTS),
+  ...armorRecipe(I, ITEM.IRON_HELMET, ITEM.IRON_CHESTPLATE, ITEM.IRON_LEGGINGS, ITEM.IRON_BOOTS),
+  ...armorRecipe(D, ITEM.DIAMOND_HELMET, ITEM.DIAMOND_CHESTPLATE, ITEM.DIAMOND_LEGGINGS, ITEM.DIAMOND_BOOTS),
   // дверь: 2 в ширину, 3 в высоту из досок (6 досок) -> предмет двери.
   // (полный столбец 2x3, чтобы не путать с верстаком 2x2)
   { shaped: true, w: 2, h: 3, need3x3: true,
@@ -4316,6 +4546,16 @@ function buildMobMaterials() {
   }));
   MOB_MAT.chicken_beak = texToMaterial(makeTex(ctx => noiseFill(ctx, 0xe8a83a, 4))); // оранжевый клюв/лапы
   MOB_MAT.chicken_comb = texToMaterial(makeTex(ctx => noiseFill(ctx, 0xc83a2a, 4))); // красный гребень
+  // --- Зомбифицированный пиглин ---
+  MOB_MAT.piglin_skin = texToMaterial(makeTex(ctx => {        // зеленовато-розовая зомби-кожа
+    noiseFill(ctx, 0x6a8a5a, 8);
+    ctx.fillStyle = '#7a5a6a'; for (let i=0;i<6;i++) ctx.fillRect((Math.random()*14)|0,(Math.random()*14)|0,2,2);
+  }));
+  MOB_MAT.piglin_snout = texToMaterial(makeTex(ctx => {       // характерный нос-пятак
+    noiseFill(ctx, 0xc88a98, 6);
+    ctx.fillStyle = '#7a4a58'; ctx.fillRect(4,7,3,3); ctx.fillRect(9,7,3,3);
+  }));
+  MOB_MAT.piglin_cloth = texToMaterial(makeTex(ctx => noiseFill(ctx, 0x8a6a2a, 6))); // золотистая одежда/штаны
 }
 
 const EYE_MAT = () => new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
@@ -4389,6 +4629,39 @@ const MOB_TYPES = {
     },
     width: 0.5, height: 0.7, hp: 4,
   },
+  piglin: {
+    spawnOn: BLOCK.NETHERRACK, drop: ITEM.PORK_RAW, dropCount: () => 1 + (Math.random()*2|0),
+    idleSound: 'oink', hurtSound: 'oink_hurt',
+    hostile: true,      // может атаковать игрока (после агра)
+    pack: true,         // вся стая агрится при ударе по одному
+    build() {
+      const g = new THREE.Group();
+      const box = (w,h,d,mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat||MOB_MAT.piglin_skin); if (SHADOWS_ON) m.castShadow=true; return m; };
+      // ноги
+      const legs = []; const lp = [[-0.16,0],[0.16,0]];
+      for (const [lx,lz] of lp) { const leg = box(0.26,0.7,0.26, MOB_MAT.piglin_cloth); leg.geometry.translate(0,-0.35,0); leg.position.set(lx,0.7,lz); g.add(leg); legs.push(leg); }
+      g.userData.legs = legs;
+      // тело
+      const body = box(0.6, 0.75, 0.34, MOB_MAT.piglin_cloth); body.position.set(0, 1.05, 0); g.add(body);
+      const torso = box(0.6, 0.3, 0.34); torso.position.set(0, 1.34, 0); g.add(torso);
+      // руки
+      const armL = box(0.2,0.7,0.2); armL.geometry.translate(0,-0.35,0); armL.position.set(-0.4,1.42,0); g.add(armL);
+      const armR = armL.clone(); armR.position.x = 0.4; g.add(armR);
+      g.userData.legs.push(armL, armR); // руки качаются вместе с ногами
+      // голова
+      const head = new THREE.Group();
+      head.add(box(0.55,0.5,0.5));
+      const snout = box(0.42,0.2,0.16, MOB_MAT.piglin_snout); snout.position.set(0,-0.08,0.3); head.add(snout);
+      // уши
+      const earL = box(0.1,0.18,0.06, MOB_MAT.piglin_snout); earL.position.set(-0.3,0.1,0); head.add(earL);
+      const earR = earL.clone(); earR.position.x = 0.3; head.add(earR);
+      const eL = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.08,0.02), EYE_MAT()); eL.position.set(-0.14,0.06,0.26); head.add(eL);
+      const eR = eL.clone(); eR.position.x = 0.14; head.add(eR);
+      head.position.set(0, 1.75, 0); g.add(head); g.userData.head = head;
+      return g;
+    },
+    width: 0.6, height: 2.0, hp: 16,
+  },
 };
 
 function spawnMob(type, x, y, z) {
@@ -4402,6 +4675,8 @@ function spawnMob(type, x, y, z) {
     yaw: Math.random()*Math.PI*2, width: def.width, height: def.height,
     onGround: false, state: 'idle', stateT: 1+Math.random()*2,
     walkPhase: 0, hp: def.hp, hurtT: 0, idleT: 3+Math.random()*8, flee: 0,
+    aggro: 0,           // >0 — преследует игрока (агрессивен)
+    attackCd: 0,        // кулдаун атаки
   });
 }
 
@@ -4412,8 +4687,14 @@ function trySpawnMobs(dt) {
   if (mobSpawnTimer > 0) return;
   mobSpawnTimer = 6 + Math.random()*6;
   if (mobs.length >= MAX_MOBS) return;
-  const r = Math.random();
-  const type = r < 0.4 ? 'pig' : (r < 0.75 ? 'chicken' : 'cow');
+  // в Аду спавнятся зомбифицированные пиглины, в обычном мире — мирные животные
+  let type;
+  if (World.dim === 'nether') {
+    type = 'piglin';
+  } else {
+    const r = Math.random();
+    type = r < 0.4 ? 'pig' : (r < 0.75 ? 'chicken' : 'cow');
+  }
   for (let tries = 0; tries < 8; tries++) {
     const ang = Math.random()*Math.PI*2;
     const dist = 12 + Math.random()*12;
@@ -4474,25 +4755,48 @@ function updateMobs(dt) {
 
     // --- ИИ ---
     p.hurtT = Math.max(0, p.hurtT - dt);
+    p.attackCd = Math.max(0, (p.attackCd || 0) - dt);
     p.idleT -= dt;
     if (p.idleT <= 0) { p.idleT = 6 + Math.random()*10; if (dist2ToPlayer(p) < 26*26) playSound(p.def.idleSound); }
 
     let moving = false;
-    if (p.flee > 0) {
-      p.flee -= dt;
-      const ax = p.pos.x - PLAYER.pos.x, az = p.pos.z - PLAYER.pos.z;
-      p.yaw = Math.atan2(ax, az);
-      moving = true;
-    } else {
-      p.stateT -= dt;
-      if (p.stateT <= 0) {
-        if (Math.random() < 0.5) { p.state = 'walk'; p.yaw = Math.random()*Math.PI*2; p.stateT = 2+Math.random()*4; }
-        else { p.state = 'idle'; p.stateT = 1.5+Math.random()*3; }
+    let chasing = false;
+    if ((p.aggro || 0) > 0) {
+      // --- Агрессия: преследуем игрока и атакуем вблизи ---
+      p.aggro -= dt;
+      const d2 = dist2ToPlayer(p);
+      if (d2 > 40*40) { p.aggro = 0; } // слишком далеко — теряем цель
+      else {
+        const ax = PLAYER.pos.x - p.pos.x, az = PLAYER.pos.z - p.pos.z;
+        p.yaw = Math.atan2(ax, az);
+        chasing = true; moving = true;
+        // атака при контакте
+        if (d2 < 2.0*2.0 && p.attackCd <= 0 && !PLAYER.dead) {
+          p.attackCd = 1.0;
+          damagePlayer(3, 'Вас убил зомби-пиглин');
+          // отбросить игрока
+          const len = Math.hypot(ax, az) || 1;
+          PLAYER.vel.x += (ax/len)*3; PLAYER.vel.z += (az/len)*3; PLAYER.vel.y = 4;
+        }
       }
-      moving = (p.state === 'walk');
+    }
+    if (!chasing) {
+      if (p.flee > 0) {
+        p.flee -= dt;
+        const ax = p.pos.x - PLAYER.pos.x, az = p.pos.z - PLAYER.pos.z;
+        p.yaw = Math.atan2(ax, az);
+        moving = true;
+      } else {
+        p.stateT -= dt;
+        if (p.stateT <= 0) {
+          if (Math.random() < 0.5) { p.state = 'walk'; p.yaw = Math.random()*Math.PI*2; p.stateT = 2+Math.random()*4; }
+          else { p.state = 'idle'; p.stateT = 1.5+Math.random()*3; }
+        }
+        moving = (p.state === 'walk');
+      }
     }
 
-    const speed = p.flee > 0 ? 3.2 : 1.4;
+    const speed = chasing ? 3.6 : (p.flee > 0 ? 3.2 : 1.4);
     if (moving) {
       const dirx = Math.sin(p.yaw), dirz = Math.cos(p.yaw);
       // избегать захода в воду: если впереди вода — развернуться (мобы реже сидят в воде)
@@ -4550,6 +4854,7 @@ function updateMobs(dt) {
             const cookedMap = { [ITEM.PORK_RAW]: ITEM.PORK_COOKED, [ITEM.BEEF_RAW]: ITEM.BEEF_COOKED, [ITEM.CHICKEN_RAW]: ITEM.CHICKEN_COOKED };
             const dropId = cookedMap[p.def.drop] || p.def.drop;
             for (let k = 0; k < n; k++) spawnDrop(dropId, p.pos.x + (Math.random()-0.5)*0.4, p.pos.y + 0.4, p.pos.z + (Math.random()-0.5)*0.4);
+            if (p.type === 'cow') { const lc=1+(Math.random()*2|0); for(let k=0;k<lc;k++) spawnDrop(ITEM.LEATHER, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4); }
             scene.remove(p.mesh); mobs.splice(i, 1); continue;
           }
         }
@@ -4639,20 +4944,34 @@ function hurtMob(p) {
   const dmg = isSword(heldId) ? swordDamage(heldId) : 1;
   p.hp -= dmg;
   p.hurtT = 0.3;
-  p.flee = 3 + Math.random()*2;
   addExhaustion(0.1); // атака тратит голод
   playSound(p.def.hurtSound);
+  // Враждебные пачные мобы (пиглины): при ударе агрятся сами + вся стая (пока кто-то жив)
+  if (p.def && p.def.hostile) {
+    p.aggro = 30;
+    if (p.def.pack) {
+      for (const m of mobs) if (m.type === p.type && dist2Between(m, p) < 24*24) m.aggro = Math.max(m.aggro||0, 30);
+    }
+  } else {
+    p.flee = 3 + Math.random()*2; // мирные — убегают
+  }
   const ax = p.pos.x - PLAYER.pos.x, az = p.pos.z - PLAYER.pos.z;
   const len = Math.hypot(ax, az) || 1;
   p.vel.x += (ax/len) * 4; p.vel.z += (az/len) * 4; p.vel.y = 4;
   if (p.hp <= 0) {
-    // выпадает мясо
+    // выпадает дроп
     const n = p.def.dropCount();
     for (let k = 0; k < n; k++) spawnDrop(p.def.drop, p.pos.x + (Math.random()-0.5)*0.4, p.pos.y + 0.4, p.pos.z + (Math.random()-0.5)*0.4);
+    // коровы дополнительно роняют кожу
+    if (p.type === 'cow') { const lc = 1 + (Math.random()*2|0); for (let k=0;k<lc;k++) spawnDrop(ITEM.LEATHER, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4); }
     const idx = mobs.indexOf(p);
     scene.remove(p.mesh);
     if (idx >= 0) mobs.splice(idx, 1);
   }
+}
+function dist2Between(a, b) {
+  const dx=a.pos.x-b.pos.x, dy=a.pos.y-b.pos.y, dz=a.pos.z-b.pos.z;
+  return dx*dx+dy*dy+dz*dz;
 }
 
 
@@ -4729,6 +5048,8 @@ function finishBreak(t) {
   else if (broken === BLOCK.DIAMOND_ORE) dropId = (tier >= 4) ? ITEM.DIAMOND : null; // алмаз — только железной киркой+
   else if (broken === BLOCK.OBSIDIAN) dropId = (tier >= 5) ? BLOCK.OBSIDIAN : null; // обсидиан — только алмазной киркой
   else if (broken === BLOCK.GRAVEL) dropId = (Math.random() < 0.16) ? ITEM.FLINT : BLOCK.GRAVEL; // 16% шанс кремня, иначе гравий
+  else if (broken === BLOCK.NETHERRACK) dropId = havePick ? BLOCK.NETHERRACK : null;
+  else if (broken === BLOCK.GLOWSTONE) dropId = havePick ? BLOCK.GLOWSTONE : null;
 
   if (dropId !== null) {
     spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
@@ -4835,10 +5156,10 @@ function useFlintAndSteel(t, slot) {
   if (!t) return;
   const nx = t.x + t.face[0], ny = t.y + t.face[1], nz = t.z + t.face[2];
   if (ny < 0 || ny >= WORLD_HEIGHT) return;
-  // Портал в Ад: активируется, но никуда не телепортирует (заглушка с уведомлением)
+  // Портал в Ад: активируется (заливается порталом), ведёт в Ад
   if (isNetherPortalSpot(nx, ny, nz)) {
     if (activateNetherPortal(nx, ny, nz)) {
-      showToast('Ад в разработке:>');
+      showToast('Портал активирован');
       playSound('place', BLOCK.WOOD);
       if (useDurability(slot) || (slot.count <= 0)) { if (slot.count <= 0) slots[activeSlot] = null; }
       refreshUI();
@@ -4944,6 +5265,8 @@ function placeBlock() {
   if (slot.id === ITEM.FLINT_AND_STEEL) { useFlintAndSteel(t, slot); return; }
   // лодка — спустить на воду
   if (slot.id === ITEM.BOAT) { placeBoat(t, slot); return; }
+  // броня — надеть по ПКМ
+  if (isArmor(slot.id)) { equipArmor(slot); return; }
   // еда — съедаем по ПКМ
   if (isFood(slot.id)) { tryEat(); return; }
   // палка/кирка не ставятся
@@ -5464,14 +5787,14 @@ function updatePlayer(dt) {
   const fBlk = blockAtPlayer(0.1);
   const bBlk = blockAtPlayer(0.9);
   const inFire = fBlk === BLOCK.FIRE || bBlk === BLOCK.FIRE;
-  // ---- Портал в Ад: внутри портала показываем уведомление, но НЕ телепортируем ----
+  // ---- Портал в Ад: после паузы в портале — телепортация в другое измерение ----
   if (fBlk === BLOCK.NETHER_PORTAL || bBlk === BLOCK.NETHER_PORTAL) {
     PLAYER._portalT = (PLAYER._portalT || 0) + dt;
-    if (PLAYER._portalT >= 1.0 && !PLAYER._portalShown) {
-      PLAYER._portalShown = true;
-      showToast('Ад в разработке:> (портал пока никуда не ведёт)');
+    if (PLAYER._portalT >= 1.2 && !PLAYER._porting) {
+      PLAYER._porting = true;
+      teleportDimension(World.dim === 'overworld' ? 'nether' : 'overworld');
     }
-  } else { PLAYER._portalT = 0; PLAYER._portalShown = false; }
+  } else { PLAYER._portalT = 0; PLAYER._porting = false; }
   if (inLava) {
     PLAYER.burnTimer = Math.max(PLAYER.burnTimer || 0, 1.2); // лава поджигает надолго
     PLAYER.lavaTick = (PLAYER.lavaTick || 0) + dt;
@@ -5613,8 +5936,21 @@ function updateSurvival(dt) {
 function addExhaustion(v) { PLAYER.exhaustion += v; }
 
 // нанести урон игроку
+// сумма очков брони (0..20)
+function totalArmorPoints() {
+  let p = 0;
+  for (const sl of ['helmet','chestplate','leggings','boots']) {
+    const a = PLAYER.armor && PLAYER.armor[sl];
+    if (a) p += armorPointsOf(a.id);
+  }
+  return Math.min(20, p);
+}
 function damagePlayer(amount, reason) {
   if (PLAYER.dead) return;             // уже мертвы — больше не получаем урон (фикс лишнего догорания)
+  // броня поглощает часть урона (как в MC: каждое очко ~4% защиты)
+  const ap = totalArmorPoints();
+  if (ap > 0) amount = amount * (1 - Math.min(0.8, ap * 0.04));
+  amount = Math.max(0, amount);
   PLAYER.hp = Math.max(0, PLAYER.hp - amount);
   PLAYER.damageFlash = 1;
   playSound('hurt');
@@ -5650,7 +5986,7 @@ function respawnPlayer() {
   if (overlay.classList.contains('hidden')) canvas.requestPointerLock();
 }
 
-// маленькое уведомление (тост) — напр. «Ад в разработке»
+// маленькое уведомление (тост) внизу-сверху экрана
 let _toastTimer = null;
 function showToast(text, ms = 2200) {
   const el = document.getElementById('toastMsg');
@@ -5662,6 +5998,23 @@ function showToast(text, ms = 2200) {
 }
 
 // съесть еду из активного слота
+// надеть броню из активного слота в соответствующий слот брони
+function equipArmor(slot) {
+  if (!slot || !isArmor(slot.id)) return;
+  const sl = armorSlotOf(slot.id);
+  const prev = PLAYER.armor[sl];
+  // надеть новую (с прочностью предмета, если была)
+  PLAYER.armor[sl] = { id: slot.id, ...(slot.dur!==undefined?{dur:slot.dur}:{}) };
+  // убрать одну единицу из слота
+  slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+  // если был старый предмет — вернуть в инвентарь
+  if (prev) addToInventory(prev.id, 1);
+  playSound('place', BLOCK.PLANKS);
+  onObtain(slot.id);
+  refreshUI();
+  if (typeof requestSave === 'function') requestSave();
+}
+
 function tryEat() {
   const slot = activeItem();
   if (!slot || !isFood(slot.id)) return false;
@@ -5756,6 +6109,83 @@ function spawnPlayer() {
 // spawnPlayer вызывается из WorldManager после выбора/создания мира
 
 // ============================================================
+//  Телепортация между измерениями (Обычный мир <-> Ад)
+// ============================================================
+// сохранённые координаты входа в каждом измерении (чтобы возвращаться рядом)
+const _dimReturn = { overworld: null, nether: null };
+
+// построить аварийный портал-площадку у точки назначения (рамка обсидиана + портал)
+function buildArrivalPortal(px, py, pz) {
+  // небольшая платформа из обсидиана + 2x3 проём, залитый порталом, ось по X
+  for (let dx = -1; dx <= 2; dx++) for (let dz = -1; dz <= 1; dz++) {
+    World.setBlock(px + dx, py - 1, pz + dz, BLOCK.OBSIDIAN); // пол
+  }
+  // рамка (стойки на px-1 и px+2), проём px..px+1, высота 3
+  for (let dy = 0; dy <= 3; dy++) { World.setBlock(px-1, py+dy, pz, BLOCK.OBSIDIAN); World.setBlock(px+2, py+dy, pz, BLOCK.OBSIDIAN); }
+  for (let dx = 0; dx <= 1; dx++) { World.setBlock(px+dx, py+3, pz, BLOCK.OBSIDIAN); }
+  // воздух в проёме + портал
+  for (let dx = 0; dx <= 1; dx++) for (let dy = 0; dy <= 2; dy++) {
+    World.setBlock(px+dx, py+dy, pz, BLOCK.NETHER_PORTAL);
+  }
+  // воздух перед порталом, чтобы было где встать
+  for (let dx = 0; dx <= 1; dx++) for (let dy = 0; dy <= 2; dy++) {
+    if (World.getBlock(px+dx, py+dy, pz+1) !== BLOCK.OBSIDIAN) World.setBlock(px+dx, py+dy, pz+1, BLOCK.AIR);
+  }
+}
+
+let _teleporting = false;
+function teleportDimension(target) {
+  if (_teleporting) return;
+  _teleporting = true;
+  // запомнить точку выхода в текущем измерении
+  _dimReturn[World.dim] = { x: PLAYER.pos.x, y: PLAYER.pos.y, z: PLAYER.pos.z };
+
+  // выгрузить меши текущего измерения
+  for (const [, mesh] of loadedMeshes) { scene.remove(mesh); disposeGroup(mesh); }
+  loadedMeshes.clear();
+  // очистить сущности (мобы/дропы своего измерения)
+  for (const p of mobs) scene.remove(p.mesh); mobs.length = 0;
+  for (const d of drops) { scene.remove(d.mesh); } drops.length = 0;
+  for (const b of boats) { scene.remove(b.mesh); } boats.length = 0;
+  PLAYER.riding = null;
+  LiquidSim.queue.length = 0; LiquidSim.inQueue.clear(); LiquidSim.changedChunks.clear();
+  FireSim.clear();
+  fallingSand.length = 0; sandCheckQueue.length = 0; sandInQueue.clear();
+
+  // переключить измерение
+  World.setDimension(target);
+
+  // координаты назначения: в Аду делим X/Z на 8 (как в Minecraft)
+  let tx, ty, tz;
+  if (_dimReturn[target]) {
+    tx = Math.floor(_dimReturn[target].x); ty = Math.floor(_dimReturn[target].y); tz = Math.floor(_dimReturn[target].z);
+  } else if (target === 'nether') {
+    tx = Math.floor(PLAYER.pos.x / 8); tz = Math.floor(PLAYER.pos.z / 8);
+    // найти безопасную высоту над лавой
+    ty = 24; for (let y = WORLD_HEIGHT-4; y > 20; y--) { if (World.getBlock(tx,y,tz)===BLOCK.AIR && World.getBlock(tx,y-1,tz)!==BLOCK.AIR && !isLiquid(World.getBlock(tx,y-1,tz))) { ty = y; break; } }
+  } else {
+    tx = Math.floor(PLAYER.pos.x * 8); tz = Math.floor(PLAYER.pos.z * 8);
+    ty = terrainHeight(tx, tz) + 1;
+  }
+  // построить площадку-портал в точке назначения, чтобы было куда вернуться
+  buildArrivalPortal(tx, ty, tz);
+  PLAYER.pos.set(tx + 1.5, ty, tz + 1.5);  // встать рядом с порталом, не в нём
+  PLAYER.vel.set(0,0,0);
+  PLAYER._portalT = 0; PLAYER._porting = true; // не телепортироваться сразу обратно
+
+  showToast(target === 'nether' ? 'Добро пожаловать в Ад!' : 'Вы вернулись в обычный мир');
+
+  // предзагрузить чанки вокруг и перестроить меши, затем снять флаг
+  const pcx = Math.floor(PLAYER.pos.x / CHUNK_SIZE), pcz = Math.floor(PLAYER.pos.z / CHUNK_SIZE);
+  for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++)
+    for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++)
+      World.getChunk(pcx+dx, pcz+dz);
+  updateChunks();
+  _teleporting = false;
+  WorldManager.save();
+}
+
+// ============================================================
 //  HUD
 // ============================================================
 const hudEl = document.getElementById('hud');
@@ -5763,6 +6193,7 @@ const waterOverlayEl = document.getElementById('waterOverlay');
 const fireOverlayEl = document.getElementById('fireOverlay');
 const statusBarsEl = document.getElementById('statusBars');
 const oxygenRowEl = document.getElementById('oxygenRow');
+const armorBarEl = document.getElementById('armorBar');
 const heartsBarEl = document.getElementById('heartsBar');
 const hungerBarEl = document.getElementById('hungerBar');
 const damageFlashEl = document.getElementById('damageFlash');
@@ -5869,6 +6300,30 @@ function bubbleIcon(state) {
   });
 }
 
+// иконка брони (нагрудник): full | half | empty
+function armorIcon(state) {
+  return statusCanvas(x => {
+    const back = '#23262b';
+    const shape = [
+      [1,1],[2,1],[6,1],[7,1],
+      [1,2],[2,2],[3,2],[4,2],[5,2],[6,2],[7,2],
+      [1,3],[2,3],[3,3],[4,3],[5,3],[6,3],[7,3],
+      [2,4],[3,4],[4,4],[5,4],[6,4],
+      [2,5],[3,5],[4,5],[5,5],[6,5],
+      [2,6],[3,6],[5,6],[6,6],
+    ];
+    for (const [gx,gy] of shape) px(x, back, gx, gy);
+    if (state === 'empty') return;
+    const steel = '#c4c8cf', hi = '#eef1f5';
+    for (const [gx,gy] of shape) {
+      if (state === 'half' && gx > 4) continue;
+      px(x, steel, gx, gy);
+    }
+    px(x, hi, 2, 2); px(x, hi, 3, 2);
+    if (state === 'full') px(x, hi, 6, 2);
+  });
+}
+
 let _lastStatus = '';
 function updateWaterUI() {
   // синий оверлей когда голова под водой
@@ -5888,9 +6343,20 @@ function updateWaterUI() {
   const hunger = Math.max(0, Math.round(PLAYER.hunger));
   const oxy = Math.max(0, Math.ceil(PLAYER.oxygen));
   const showOxy = PLAYER.submerged || PLAYER.oxygen < PLAYER.maxOxygen - 0.01;
-  const sig = hp + '|' + hunger + '|' + (showOxy ? oxy : 'x');
+  const armorPts = totalArmorPoints();
+  const sig = hp + '|' + hunger + '|' + (showOxy ? oxy : 'x') + '|' + armorPts;
   if (sig === _lastStatus) return;
   _lastStatus = sig;
+
+  // --- броня (10 иконок = 20 очков) слева сверху, показываем только если есть броня ---
+  armorBarEl.innerHTML = '';
+  if (armorPts > 0) {
+    for (let i = 0; i < 10; i++) {
+      const v = armorPts - i * 2;
+      const st = v >= 2 ? 'full' : (v === 1 ? 'half' : 'empty');
+      armorBarEl.appendChild(armorIcon(st));
+    }
+  }
 
   // --- сердца (10 шт = 20 hp) ---
   heartsBarEl.innerHTML = '';
@@ -5967,6 +6433,13 @@ function loop(now) {
   if (!invOpen && overlay.classList.contains('hidden')) updateMobs(dt);
   updateChunks();
 
+  // солнце и облака не видны в Аду
+  const overworldSky = World.dim === 'overworld';
+  sunDisc.visible = overworldSky;
+  cloudGroup.visible = overworldSky;
+  // в Аду равномерное освещение (нет солнечных теней) — поднимем амбиент
+  ambient.intensity = overworldSky ? (SHADOWS_ON ? 0.5 : 0.55) : 0.95;
+  sun.visible = overworldSky;
   // солнечный диск в небе — в направлении источника света, далеко от игрока
   sunDisc.position.set(PLAYER.pos.x + 140, PLAYER.pos.y + 230, PLAYER.pos.z + 95);
 
@@ -6012,11 +6485,16 @@ function loop(now) {
   // fps
   fpsCount++; fpsTime += dt;
   if (fpsTime >= 0.5) { fps = Math.round(fpsCount / fpsTime); fpsCount = 0; fpsTime = 0; }
-  // подводная атмосфера: синий туман и фон
+  // атмосфера: вода / Ад / обычный мир
   if (PLAYER.submerged) {
     scene.fog.color.setHex(0x2a5aa0);
     scene.fog.near = 1; scene.fog.far = 18;
     scene.background.setHex(0x2a5aa0);
+  } else if (World.dim === 'nether') {
+    // Ад: багровый сумрак, плотный туман, без солнца/облаков
+    scene.fog.color.setHex(0x330808);
+    scene.fog.near = 4; scene.fog.far = RENDER_DISTANCE * CHUNK_SIZE * 0.85;
+    scene.background.setHex(0x330808);
   } else {
     scene.fog.color.setHex(0x87ceeb);
     scene.fog.near = RENDER_DISTANCE * CHUNK_SIZE * 0.6;

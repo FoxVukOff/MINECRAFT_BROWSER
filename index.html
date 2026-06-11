@@ -139,8 +139,10 @@
     pointer-events: none; width: 460px;
   }
   #statusBars.on { display: flex; }
-  /* верхняя строка — кислород (по центру) */
-  #oxygenRow { display: flex; gap: 1px; justify-content: center; height: 11px; }
+  /* верхний ряд: слева броня, справа кислород */
+  #topRow { display: flex; justify-content: space-between; width: 100%; min-height: 11px; }
+  #armorBar { display: flex; gap: 1px; }
+  #oxygenRow { display: flex; gap: 1px; height: 11px; }
   #oxygenRow.hidden { visibility: hidden; }
   /* нижняя строка — слева сердца, справа голод (раздвинуты по краям) */
   #vitalRow { display: flex; justify-content: space-between; width: 100%; }
@@ -272,7 +274,12 @@
 <div id="fireOverlay"></div>
 <div id="damageFlash"></div>
 <div id="statusBars">
-  <div id="oxygenRow"></div>
+  <!-- верхний ряд: слева броня (если надета), справа кислород (под водой) -->
+  <div id="topRow">
+    <div id="armorBar"></div>
+    <div id="oxygenRow"></div>
+  </div>
+  <!-- нижний ряд: слева здоровье, справа голод -->
   <div id="vitalRow">
     <div id="heartsBar"></div>
     <div id="hungerBar"></div>
