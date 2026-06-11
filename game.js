@@ -34,6 +34,7 @@ const BLOCK = {
   GRAVEL:     24, // гравий (падает как песок)
   OBSIDIAN:   25, // обсидиан (лава-источник + вода), нужна алмазная кирка
   DIAMOND_ORE:26, // алмазная руда (очень редкая, глубоко)
+  NETHER_PORTAL:27, // портал в Ад (проходимый, анимированный; пока никуда не телепортирует)
 };
 
 // Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
@@ -114,6 +115,7 @@ const BLOCK_NAMES = {
   [BLOCK.GRAVEL]: 'Гравий',
   [BLOCK.OBSIDIAN]: 'Обсидиан',
   [BLOCK.DIAMOND_ORE]: 'Алмазная руда',
+  [BLOCK.NETHER_PORTAL]: 'Портал в Ад',
   [ITEM.STICK]:    'Палки',
   [ITEM.WOODEN_PICKAXE]: 'Деревянная кирка',
   [ITEM.STONE_PICKAXE]: 'Каменная кирка',
@@ -182,7 +184,8 @@ function isDoor(b) { return b === BLOCK.DOOR_BOTTOM || b === BLOCK.DOOR_TOP; }
 function isTransparent(b) {
   return b === BLOCK.AIR || b === BLOCK.WATER || b === BLOCK.WATER_FLOW ||
          b === BLOCK.LEAVES || b === BLOCK.GLASS || isDoor(b) ||
-         b === BLOCK.LAVA || b === BLOCK.LAVA_FLOW || b === BLOCK.FIRE;
+         b === BLOCK.LAVA || b === BLOCK.LAVA_FLOW || b === BLOCK.FIRE ||
+         b === BLOCK.NETHER_PORTAL;
 }
 // Жидкости (не твёрдые для коллизий)
 function isWaterLiquid(b) { return b === BLOCK.WATER || b === BLOCK.WATER_FLOW; }
@@ -414,6 +417,12 @@ function buildTextures() {
     layer('#ff8a20', [[5,10,6,6],[5,7,6,3],[6,4,4,3],[7,2,2,2]]);          // среднее
     layer('#ffd24a', [[6,11,4,5],[7,8,2,3],[7,5,2,2]]);                     // ядро
     layer('#fff0a0', [[7,12,2,3]]);                                        // самое яркое
+  });
+  // портал в Ад — фиолетовая «дымка» (анимируется)
+  TEX.portal = makeTex(ctx => {
+    pixelFill(ctx, ['#7a2fb8','#5a1f9a','#9a4fd8','#3a1268','#6a2aa8'], [4,4,3,3,3], 2727);
+    ctx.fillStyle = '#c79cff';
+    for (const [gx,gy] of [[4,3],[10,6],[6,10],[12,12],[2,8]]) ctx.fillRect(gx,gy,1,1);
   });
   // песок — светлый, мягкие точки
   TEX.sand    = makeTex(ctx => {
@@ -769,6 +778,13 @@ function buildMaterials() {
     return new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.25, side: THREE.DoubleSide, depthWrite: false });
   })();
   MATERIALS[BLOCK.FIRE] = [mFire, mFire, mFire, mFire, mFire, mFire];
+  // портал — полупрозрачный фиолетовый, светится (Basic), виден с обеих сторон
+  const mPortal = (() => {
+    const t = new THREE.CanvasTexture(TEX.portal);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
+  })();
+  MATERIALS[BLOCK.NETHER_PORTAL] = [mPortal, mPortal, mPortal, mPortal, mPortal, mPortal];
   MATERIALS[BLOCK.SAND]    = [mSand, mSand, mSand, mSand, mSand, mSand];
   MATERIALS[BLOCK.WOOD]    = [mWoodSide, mWoodSide, mWoodTop, mWoodTop, mWoodSide, mWoodSide];
   MATERIALS[BLOCK.LEAVES]  = [mLeaves, mLeaves, mLeaves, mLeaves, mLeaves, mLeaves];
@@ -1009,10 +1025,10 @@ const World = {
             if (y > 1 && y < 14 && oreHash(wx + 1000, y, wz + 1000) < 0.024) b = BLOCK.IRON_ORE;
             // Гравий — карманы под землёй (как в Minecraft), небольшими залежами
             if (oreHash(wx + 8000, y, wz + 8000) < 0.028) b = BLOCK.GRAVEL;
-            // Алмазы — ОЧЕНЬ редкие, только в самом низу (y 1..10)
-            if (y > 1 && y < 10 && oreHash(wx + 9000, y, wz + 9000) < 0.0016) b = BLOCK.DIAMOND_ORE;
-            // Лавовые карманы — очень глубоко (y 2..7), редкими «озёрами»
-            if (y >= 2 && y <= 6 && oreHash(wx + 3000, y, wz + 3000) < 0.020) b = BLOCK.LAVA;
+            // Алмазы — редкие, но чуть чаще, в самом низу (y 1..11)
+            if (y > 1 && y < 11 && oreHash(wx + 9000, y, wz + 9000) < 0.0028) b = BLOCK.DIAMOND_ORE;
+            // Лавовые карманы — очень глубоко (y 2..6), реже, чем было
+            if (y >= 2 && y <= 6 && oreHash(wx + 3000, y, wz + 3000) < 0.011) b = BLOCK.LAVA;
           }
           else if (y < h - 1) b = beach ? BLOCK.SAND : BLOCK.DIRT; // под верхним слоем тоже песок на пляже
           else if (y < h) {
@@ -1288,6 +1304,31 @@ const LiquidSim = {
     return true;
   },
 
+  // есть ли поблизости горючий блок (радиус 2 по горизонтали, 1 по высоте)?
+  _flammableNear(x, y, z) {
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -2; dx <= 2; dx++)
+        for (let dz = -2; dz <= 2; dz++)
+          if (isFlammable(World.getBlock(x+dx, y+dy, z+dz))) return true;
+    return false;
+  },
+  // Лава поджигает близкие горючие блоки: ищет вокруг (радиус ~2 по горизонтали, 1 по высоте)
+  // горючий блок, рядом с которым есть воздух, и ставит туда огонь.
+  _igniteNear(x, y, z) {
+    for (let tries = 0; tries < 4; tries++) {
+      const dx = (Math.random()*5|0) - 2; // -2..2
+      const dz = (Math.random()*5|0) - 2;
+      const dy = (Math.random()*3|0) - 1; // -1..1
+      const fx = x+dx, fy = y+dy, fz = z+dz;
+      if (!isFlammable(World.getBlock(fx, fy, fz))) continue;
+      // зажечь воздух СВЕРХУ или сбоку от горючего блока
+      const spots = [[fx,fy+1,fz],[fx+1,fy,fz],[fx-1,fy,fz],[fx,fy,fz+1],[fx,fy,fz-1]];
+      for (const [ax,ay,az] of spots) {
+        if (World.getBlock(ax,ay,az) === BLOCK.AIR) { FireSim.add(ax, ay, az); return; }
+      }
+    }
+  },
+
   // желаемый уровень течения исходя из питания соседями (kind-специфично)
   desiredLevel(kind, x, y, z) {
     const src = this.srcBlock(kind), flow = this.flowBlock(kind);
@@ -1414,6 +1455,14 @@ const LiquidSim = {
 
     // лава, соприкоснувшаяся с водой сбоку/сверху — затвердевает
     if (kind === 'lava' && this.contactSolidify(x, y, z)) return;
+
+    // лава поджигает горючие блоки рядом (как в Minecraft): иногда зажигает воздух
+    // у горючих блоков в радиусе 1-2 клеток вокруг лавы.
+    if (kind === 'lava' && this._flammableNear(x, y, z)) {
+      if (Math.random() < 0.5) this._igniteNear(x, y, z);
+      // держим эту клетку лавы «активной», чтобы поджоги продолжались
+      this.enqueue(x, y, z);
+    }
 
     // лава над водой: если ПОД лавой вода — лава затвердевает
     // (источник -> обсидиан, течение -> булыжник; вода под ней превращается в камень)
@@ -1844,6 +1893,8 @@ function buildChunkMesh(c) {
             if (!isTransparent(nb)) continue;
             // между двумя блоками листвы грань не рисуем (избегаем двойных граней)
             if (b === BLOCK.LEAVES && nb === BLOCK.LEAVES) continue;
+            if (b === BLOCK.NETHER_PORTAL && nb === BLOCK.NETHER_PORTAL) continue;
+            if (b === BLOCK.GLASS && nb === BLOCK.GLASS) continue;
           }
           const material = blockMats[f.mat];
           const mi = getMatIndex(material);
@@ -1934,11 +1985,12 @@ const sunDiscMat = new THREE.SpriteMaterial({
     x.fillStyle = g; x.fillRect(0,0,64,64);
     const t = new THREE.CanvasTexture(c); return t;
   })(),
-  transparent: true, depthWrite: false, depthTest: false, fog: false,
+  // depthTest:true -> солнце перекрывается блоками (не просвечивает сквозь землю)
+  transparent: true, depthWrite: false, depthTest: true, fog: false,
 });
 const sunDisc = new THREE.Sprite(sunDiscMat);
 sunDisc.scale.set(34, 34, 1);
-sunDisc.renderOrder = -1;
+sunDisc.renderOrder = 2; // рисуем после непрозрачной геометрии, но с проверкой глубины
 scene.add(sunDisc);
 
 // Облака: плоские белые «пиксельные» спрайты, медленно дрейфуют
@@ -1992,8 +2044,18 @@ function updateAnimatedTextures(dt) {
   // перерисовать canvas-текстуры лавы/огня/воды и пометить на обновление
   redrawLavaTex(_animFrame);
   redrawFireTex(_animFrame);
+  redrawPortalTex(_animFrame);
   if (MATERIALS[BLOCK.LAVA] && MATERIALS[BLOCK.LAVA][0].map) MATERIALS[BLOCK.LAVA][0].map.needsUpdate = true;
   if (MATERIALS[BLOCK.FIRE] && MATERIALS[BLOCK.FIRE][0].map) MATERIALS[BLOCK.FIRE][0].map.needsUpdate = true;
+  if (MATERIALS[BLOCK.NETHER_PORTAL] && MATERIALS[BLOCK.NETHER_PORTAL][0].map) MATERIALS[BLOCK.NETHER_PORTAL][0].map.needsUpdate = true;
+}
+function redrawPortalTex(frame) {
+  const ctx = TEX.portal.getContext('2d');
+  const seed = 2727 + frame * 53;
+  pixelFillRegion(ctx, 0, 0, 16, 16, ['#7a2fb8','#5a1f9a','#9a4fd8','#3a1268','#6a2aa8'], [4,4,3,3,3], seed);
+  let s = (seed*2246822519)>>>0; const rnd=()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};
+  ctx.fillStyle = '#c79cff';
+  for (let i=0;i<5;i++) ctx.fillRect((rnd()*15)|0,(rnd()*15)|0,1,1);
 }
 function redrawLavaTex(frame) {
   const ctx = TEX.lava.getContext('2d');
@@ -4148,7 +4210,7 @@ function updateBoats(dt) {
       // управление: WASD относительно взгляда игрока
       b.yaw = PLAYER.yaw;
       const fwd = (keys['KeyW']?1:0) - (keys['KeyS']?1:0);
-      const acc = 6;
+      const acc = 11; // быстрее разгон
       if (fwd !== 0) {
         b.vel.x += -Math.sin(b.yaw) * fwd * acc * dt;
         b.vel.z += -Math.cos(b.yaw) * fwd * acc * dt;
@@ -4156,10 +4218,11 @@ function updateBoats(dt) {
       // поворот рулём A/D
       // (поворот следует за камерой через yaw)
     }
-    // трение
-    b.vel.x *= 0.90; b.vel.z *= 0.90;
+    // трение (чуть меньше, чтобы лодка дольше скользила и была быстрее)
+    b.vel.x *= 0.92; b.vel.z *= 0.92;
     const sp = Math.hypot(b.vel.x, b.vel.z);
-    if (sp > 5) { b.vel.x *= 5/sp; b.vel.z *= 5/sp; }
+    const MAXSP = 9; // выше максимальная скорость
+    if (sp > MAXSP) { b.vel.x *= MAXSP/sp; b.vel.z *= MAXSP/sp; }
 
     // вертикаль: плавучесть на воде / гравитация в воздухе / погружение если залито
     const surfaceY = by + 0.86; // примерная поверхность блока воды
@@ -4372,6 +4435,7 @@ function trySpawnMobs(dt) {
 function mobSolid(x, y, z) {
   const b = World.getBlock(x, y, z);
   if (b === BLOCK.AIR || isLiquid(b)) return false;
+  if (b === BLOCK.NETHER_PORTAL) return false;
   if (isDoor(b) && isDoorOpen(x, y, z)) return false;
   return true;
 }
@@ -4664,7 +4728,7 @@ function finishBreak(t) {
   else if (broken === BLOCK.COPPER_ORE) dropId = (tier >= 2) ? BLOCK.COPPER_ORE : null; // медную руду — каменной киркой+, плавить в печи
   else if (broken === BLOCK.DIAMOND_ORE) dropId = (tier >= 4) ? ITEM.DIAMOND : null; // алмаз — только железной киркой+
   else if (broken === BLOCK.OBSIDIAN) dropId = (tier >= 5) ? BLOCK.OBSIDIAN : null; // обсидиан — только алмазной киркой
-  else if (broken === BLOCK.GRAVEL) dropId = (Math.random() < 0.1) ? ITEM.FLINT : BLOCK.GRAVEL; // 10% шанс кремня, иначе гравий
+  else if (broken === BLOCK.GRAVEL) dropId = (Math.random() < 0.16) ? ITEM.FLINT : BLOCK.GRAVEL; // 16% шанс кремня, иначе гравий
 
   if (dropId !== null) {
     spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
@@ -4730,15 +4794,56 @@ function isNetherPortalSpot(x, y, z) {
   return axisHasWalls(1, 0) || axisHasWalls(0, 1);
 }
 
-// Зажигалка: поджечь блок (создать огонь над ним) или триггер портала.
+// Активировать портал: залить внутренний проём рамки блоками портала.
+// Возвращает true, если портал зажёгся. (Телепортации нет — пока заглушка.)
+function activateNetherPortal(x, y, z) {
+  // ось проёма: вдоль X или Z (где стоят обсидиановые стенки)
+  const axisX = (() => { // стенки слева/справа по X => проём по X
+    let p=false,n=false;
+    for (let s=1;s<=4;s++){const a=World.getBlock(x+s,y,z); if(!p){if(a===BLOCK.OBSIDIAN)p=true; else if(a!==BLOCK.AIR&&a!==BLOCK.FIRE)break;}}
+    for (let s=1;s<=4;s++){const b=World.getBlock(x-s,y,z); if(!n){if(b===BLOCK.OBSIDIAN)n=true; else if(b!==BLOCK.AIR&&b!==BLOCK.FIRE)break;}}
+    return p&&n;
+  })();
+  const dirX = axisX ? 1 : 0, dirZ = axisX ? 0 : 1;
+  // flood-fill проёма (воздух/огонь), ограничен обсидианом, лимит на размер
+  const fill = [];
+  const seen = new Set();
+  const stack = [[x,y,z]];
+  let ok = true;
+  while (stack.length) {
+    const [cx,cy,cz] = stack.pop();
+    const k = cx+','+cy+','+cz;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const b = World.getBlock(cx,cy,cz);
+    if (b === BLOCK.OBSIDIAN) continue;          // граница
+    if (b !== BLOCK.AIR && b !== BLOCK.FIRE && b !== BLOCK.NETHER_PORTAL) { ok = false; break; } // не замкнут
+    fill.push([cx,cy,cz]);
+    if (fill.length > 30) { ok = false; break; } // слишком большой/открытый — не портал
+    // распространяемся вверх/вниз и вдоль оси проёма
+    stack.push([cx,cy+1,cz]); stack.push([cx,cy-1,cz]);
+    stack.push([cx+dirX,cy,cz+dirZ]); stack.push([cx-dirX,cy,cz-dirZ]);
+  }
+  if (!ok || fill.length === 0) return false;
+  for (const [cx,cy,cz] of fill) World.setBlock(cx, cy, cz, BLOCK.NETHER_PORTAL);
+  for (const [cx,cy,cz] of fill) rebuildAround(cx, cz);
+  return true;
+}
+
+// Зажигалка: поджечь блок (создать огонь над ним) или активировать портал.
 function useFlintAndSteel(t, slot) {
   if (!t) return;
   const nx = t.x + t.face[0], ny = t.y + t.face[1], nz = t.z + t.face[2];
   if (ny < 0 || ny >= WORLD_HEIGHT) return;
-  // Портал в Ад (пока заглушка)
+  // Портал в Ад: активируется, но никуда не телепортирует (заглушка с уведомлением)
   if (isNetherPortalSpot(nx, ny, nz)) {
-    showToast('Ад в разработке:>');
-    return; // не тратим прочность и не зажигаем
+    if (activateNetherPortal(nx, ny, nz)) {
+      showToast('Ад в разработке:>');
+      playSound('place', BLOCK.WOOD);
+      if (useDurability(slot) || (slot.count <= 0)) { if (slot.count <= 0) slots[activeSlot] = null; }
+      refreshUI();
+    }
+    return;
   }
   // огонь ставится только в воздух и на «опору» снизу/сбоку
   if (World.getBlock(nx, ny, nz) !== BLOCK.AIR) return;
@@ -5194,6 +5299,7 @@ function disposeGroup(group) {
 function isSolidForPlayer(x, y, z) {
   const bb = World.getBlock(x, y, z);
   if (bb === BLOCK.AIR || isLiquid(bb)) return false;
+  if (bb === BLOCK.NETHER_PORTAL) return false; // сквозь портал можно пройти
   if (isDoor(bb)) return false; // двери обрабатываются отдельно (тонкая AABB)
   return true;
 }
@@ -5358,6 +5464,14 @@ function updatePlayer(dt) {
   const fBlk = blockAtPlayer(0.1);
   const bBlk = blockAtPlayer(0.9);
   const inFire = fBlk === BLOCK.FIRE || bBlk === BLOCK.FIRE;
+  // ---- Портал в Ад: внутри портала показываем уведомление, но НЕ телепортируем ----
+  if (fBlk === BLOCK.NETHER_PORTAL || bBlk === BLOCK.NETHER_PORTAL) {
+    PLAYER._portalT = (PLAYER._portalT || 0) + dt;
+    if (PLAYER._portalT >= 1.0 && !PLAYER._portalShown) {
+      PLAYER._portalShown = true;
+      showToast('Ад в разработке:> (портал пока никуда не ведёт)');
+    }
+  } else { PLAYER._portalT = 0; PLAYER._portalShown = false; }
   if (inLava) {
     PLAYER.burnTimer = Math.max(PLAYER.burnTimer || 0, 1.2); // лава поджигает надолго
     PLAYER.lavaTick = (PLAYER.lavaTick || 0) + dt;
