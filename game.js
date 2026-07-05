@@ -267,14 +267,16 @@ function isFalling(b) { return b === BLOCK.SAND || b === BLOCK.GRAVEL; }
 function isDoor(b) { return b === BLOCK.DOOR_BOTTOM || b === BLOCK.DOOR_TOP; }
 
 // Прозрачные блоки (через них видно грани соседей).
-// Листва/стекло/дверь прозрачны для меширования внутренних граней.
+// Листва/стекло/дверь/кровать прозрачны для меширования внутренних граней,
+// т.к. имеют нестандартную геометрию (кровать низкая, дверь тонкая и т.д.).
 function isTransparent(b) {
   return b === BLOCK.AIR || b === BLOCK.WATER || b === BLOCK.WATER_FLOW ||
          b === BLOCK.LEAVES || b === BLOCK.GLASS || isDoor(b) ||
          b === BLOCK.LAVA || b === BLOCK.LAVA_FLOW || b === BLOCK.FIRE ||
          b === BLOCK.NETHER_PORTAL || b === BLOCK.TORCH ||
          b === BLOCK.REDSTONE_DUST || b === BLOCK.REDSTONE_TORCH || b === BLOCK.LEVER ||
-         b === BLOCK.BUTTON || b === BLOCK.PISTON_HEAD;
+         b === BLOCK.BUTTON || b === BLOCK.PISTON_HEAD ||
+         b === BLOCK.BED_FOOT || b === BLOCK.BED_HEAD;
 }
 // Быстрый lookup-массив: OPAQUE[b] = 1 если блок НЕ прозрачен (для face culling).
 // Заполняется один раз после определения всех BLOCK-констант.
@@ -2526,10 +2528,12 @@ function buildChunkMesh(c) {
           const mSide = mats[0]; // бок матраса
           const mEnd  = mats[4]; // торец матраса
           const mLeg  = mats[3]; // ножки (дерево)
-          const bl = faceBrightness(c, lx, y, lz);
+          // свет: берём освещённость верхней грани блока (y+1) — матрас приподнят,
+          // и гарантируем минимум 0.45, чтобы кровать не выглядела чёрной в тени.
+          const bl = Math.max(0.45, faceBrightness(c, lx, y + 1, lz));
           const blTop  = Math.min(1, bl);
-          const blSide = bl * 0.82;
-          const blBot  = bl * 0.6;
+          const blSide = Math.max(0.4, bl * 0.82);
+          const blBot  = Math.max(0.35, bl * 0.6);
           function qB(mat, bright, pts, nrm) {
             const mi = getMatIndex(mat);
             let buf = byMat.get(mi);
@@ -3226,6 +3230,7 @@ const overlay = document.getElementById('overlay');
 // ============================================================
 const WorldManager = {
   current: null, // имя текущего мира
+  cheatsEnabled: false, // читы текущего мира (false для старых/без-читов миров)
   LS_INDEX: 'minicraft_worlds',     // список миров
   LS_PREFIX: 'minicraft_world_',    // данные мира
 
@@ -3281,12 +3286,13 @@ const WorldManager = {
   },
 
   // создать новый мир
-  create(name, seedStr) {
+  create(name, seedStr, cheatsEnabled) {
     name = (name || '').trim() || ('Мир ' + (this.list().length + 1));
     const seed = parseSeed(seedStr);
     this.resetState();
     WORLD_SEED = seed;
     this.current = name;
+    this.cheatsEnabled = !!cheatsEnabled; // читы для нового мира
     spawnPlayer();
     renderHotbar();
 
@@ -3347,6 +3353,7 @@ const WorldManager = {
       seed: WORLD_SEED,
       dim: World.dim,
       dimReturn: _dimReturn,
+      cheatsEnabled: !!this.cheatsEnabled, // флаг читов для мира
       player: {
         x: PLAYER.pos.x, y: PLAYER.pos.y, z: PLAYER.pos.z,
         yaw: PLAYER.yaw, pitch: PLAYER.pitch,
@@ -3384,6 +3391,9 @@ const WorldManager = {
     this.resetState();
     WORLD_SEED = data.seed | 0;
     this.current = name;
+    // МИГРАЦИЯ: старые миры (без поля cheatsEnabled) — читы выключены (cheatsDisabled = true).
+    // Новые миры явно хранят cheatsEnabled (true/false).
+    this.cheatsEnabled = (data.cheatsEnabled === true);
 
     // восстановить оба измерения (со старой совместимостью: старый формат хранил поля прямо в data)
     if (data.overworld || data.nether) {
@@ -3576,6 +3586,7 @@ function beginGame() {
   document.getElementById('menuBtn').style.display = 'block';
   initAudio();
   canvas.requestPointerLock();
+  if (typeof updateChatMiniVisibility === 'function') updateChatMiniVisibility();
   // автосохранение каждые 10 секунд (чаще — надёжнее)
   if (!WorldManager._autosave) {
     WorldManager._autosave = setInterval(() => { if (gameStarted) WorldManager.save(); }, 10000);
@@ -4888,6 +4899,7 @@ function toggleInventory(mode) {
     refreshUI();
     if (overlay.classList.contains('hidden')) canvas.requestPointerLock();
   }
+  if (typeof updateChatMiniVisibility === 'function') updateChatMiniVisibility();
 }
 
 renderHotbar();
@@ -5343,6 +5355,24 @@ function itemDropMaterial(id) {
   return m;
 }
 
+// Блоки с нестандартной/плоской геометрией — их дроп рендерим как 2D-спрайт (плоскость),
+// а не как 3D-куб (как в Minecraft: факел, редстоуновая пыль/факел, рычаг, кнопка лежат плоско).
+function isFlatDropBlock(id) {
+  return id === BLOCK.TORCH || id === BLOCK.REDSTONE_TORCH ||
+         id === BLOCK.REDSTONE_DUST || id === BLOCK.LEVER ||
+         id === BLOCK.BUTTON || id === BLOCK.FIRE ||
+         id === BLOCK.NETHER_PORTAL;
+}
+
+// создать меш дропа для предмета/блока
+function makeDropMesh(id) {
+  if (isBlock(id) && MATERIALS[id] && !isFlatDropBlock(id)) {
+    return new THREE.Mesh(whiteColors(new THREE.BoxGeometry(0.28, 0.28, 0.28)), MATERIALS[id]);
+  }
+  // плоский 2D-спрайт (для предметов и «тонких» блоков)
+  return new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), itemDropMaterial(id));
+}
+
 // добавить белые цвета вершин (для геометрий, использующих vertexColors-материалы блоков)
 function whiteColors(geo) {
   const n = geo.attributes.position.count;
@@ -5352,13 +5382,7 @@ function whiteColors(geo) {
 }
 
 function spawnDrop(id, x, y, z) {
-  let mesh;
-  if (isBlock(id) && MATERIALS[id]) {
-    mesh = new THREE.Mesh(whiteColors(new THREE.BoxGeometry(0.28, 0.28, 0.28)), MATERIALS[id]);
-  } else {
-    // предмет — плоский «спрайт»
-    mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), itemDropMaterial(id));
-  }
+  const mesh = makeDropMesh(id);
   mesh.position.set(x, y, z);
   scene.add(mesh);
   drops.push({
@@ -5377,12 +5401,7 @@ function tossDropForward(id) {
     Math.sin(PLAYER.pitch),
     -Math.cos(PLAYER.yaw) * Math.cos(PLAYER.pitch)
   ).normalize();
-  let mesh;
-  if (isBlock(id) && MATERIALS[id]) {
-    mesh = new THREE.Mesh(whiteColors(new THREE.BoxGeometry(0.28, 0.28, 0.28)), MATERIALS[id]);
-  } else {
-    mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), itemDropMaterial(id));
-  }
+  const mesh = makeDropMesh(id);
   const sx = ex + dir.x*0.6, sy = ey + dir.y*0.6, sz = ez + dir.z*0.6;
   mesh.position.set(sx, sy, sz);
   scene.add(mesh);
@@ -5435,7 +5454,12 @@ function updateDrops(dt) {
     }
     d.mesh.position.copy(d.pos);
     d.mesh.position.y += Math.sin(d.age * 3) * 0.05 + 0.05; // покачивание
-    d.mesh.rotation.y += dt * 1.5;
+    // плоские дропы (факел и т.д.) — билборд к камере; 3D-кубы — вращаются
+    if (isFlatDropBlock(d.id) || !isBlock(d.id)) {
+      d.mesh.lookAt(camera.position.x, d.mesh.position.y, camera.position.z);
+    } else {
+      d.mesh.rotation.y += dt * 1.5;
+    }
 
     // предметы СГОРАЮТ в лаве/огне
     const inBlk = World.getBlock(Math.floor(d.pos.x), Math.floor(d.pos.y + 0.1), Math.floor(d.pos.z));
@@ -6305,9 +6329,9 @@ function mobUnderCursor(maxDist) {
   return best;
 }
 
-// поспать в кровати: только ночью — плавно промотать время к утру + spawn у кровати
-// bx,by,bz — координаты блока кровати (для точки возрождения)
-let sleepTransition = null; // {from, to, t, dur, spawnX, spawnY, spawnZ}
+// поспать в кровати: только ночью — плавно промотать время ВПЕРЁД к рассвету + spawn у кровати
+// bx,by,bz — координаты блока кровати (для точки возрождения и камеры)
+let sleepTransition = null; // {from, span, t, dur, sx, sy, sz, camFromX, camFromY, camFromZ}
 function sleepInBed(bx, by, bz) {
   if (World.dim !== 'overworld') { showToast('Здесь нельзя спать'); return; }
   const dl = daylight();
@@ -6317,14 +6341,17 @@ function sleepInBed(bx, by, bz) {
   const sx = (bx !== undefined ? bx + 0.5 : PLAYER.pos.x);
   const sz = (bz !== undefined ? bz + 0.5 : PLAYER.pos.z);
   const sy = (by !== undefined ? by + 1 : PLAYER.pos.y);
-  // плавная промотка времени к рассвету (0.0) за ~2.5 секунды
-  // считаем кратчайший путь по кругу к 0.0
-  let from = DAY.time;
-  // ночь: time в районе 0.6..1.0 или 0.0..0.2; цель 0.0
-  // если from > 0, идём вперёд до 1.0 (== 0.0)
+  // Рассвет = DAY.time 0.30 (daylight ~0.5). Считаем, сколько ВПЕРЁД прибавить,
+  // чтобы дойти от текущего time до 0.30 по кругу (без отката назад).
+  const DAWN = 0.30;
+  let span = (DAWN - DAY.time + 1) % 1;
+  if (span < 0.01) span = 1.0; // если уже почти рассвет — крутим полные сутки
+  // сохранить позицию камеры для возврата после сна
+  const camFromX = PLAYER.pos.x, camFromY = PLAYER.pos.y, camFromZ = PLAYER.pos.z;
   sleepTransition = {
-    from: from, to: 1.3, t: 0, dur: 2.5,
-    sx, sy, sz,
+    from: DAY.time, span: span, t: 0, dur: 2.5,
+    sx, sy, sz, camFromX, camFromY, camFromZ,
+    bedX: sx, bedY: sy, bedZ: sz,
   };
   showToast('Спокойной ночи…');
   // включить оверлей сна
@@ -6338,17 +6365,21 @@ function updateSleepTransition(dt) {
   if (!sleepTransition) return;
   sleepTransition.t += dt;
   const k = Math.min(1, sleepTransition.t / sleepTransition.dur);
-  // плавный заход от from к to (вперёд по кругу)
-  const span = (sleepTransition.to - sleepTransition.from + 1) % 1;
-  DAY.time = (sleepTransition.from + span * k) % 1;
+  // ИНКРЕМЕНТИРУЕМ время вперёд (никакого отката назад) до рассвета
+  DAY.time = (sleepTransition.from + sleepTransition.span * k) % 1;
   const dl = daylight();
   DAY.skyLevel = Math.round(4 + dl * 11);
   if (DAY.skyLevel !== DAY._lastStep) {
     DAY._lastStep = DAY.skyLevel;
     for (const c of World.chunks.values()) c.dirty = true;
   }
+  // плавно переместить камеру игрока к кровати (лёгкое «опускание» на кровать)
+  const kk = k < 0.5 ? k * 2 : 1; // первая половина — движение к кровати
+  PLAYER.pos.x = sleepTransition.camFromX + (sleepTransition.bedX - sleepTransition.camFromX) * kk;
+  PLAYER.pos.y = sleepTransition.camFromY + (sleepTransition.bedY - sleepTransition.camFromY) * kk;
+  PLAYER.pos.z = sleepTransition.camFromZ + (sleepTransition.bedZ - sleepTransition.camFromZ) * kk;
   if (k >= 1) {
-    DAY.time = 0.3; // утро (daylight ~0.5+)
+    DAY.time = 0.30; // рассвет (daylight ~0.5)
     DAY.skyLevel = 15; DAY._lastStep = 15;
     for (const c of World.chunks.values()) c.dirty = true;
     PLAYER.spawnPoint = { x: sleepTransition.sx, y: sleepTransition.sy, z: sleepTransition.sz };
@@ -7407,13 +7438,18 @@ function isPistonPushable(b) {
   return true;
 }
 // активировать поршень: если не выдвинут и спереди толкаемый блок — выдвинуть + толкнуть
-function updatePistons() {
-  // собираем все поршни в радиусе пересчёта (берём из dirty center)
-  // простой проход по всем блокам PISTON в загруженных чанках
+function updatePistons(minX, maxX, minZ, maxZ) {
+  // Проходим только по чанкам в пределах редстоун-радиуса (а не по всем загруженным).
+  // Это убирает сканирование миллионов блоков каждый кадр.
+  const ccxMin = Math.floor(minX / CHUNK_SIZE), ccxMax = Math.floor(maxX / CHUNK_SIZE);
+  const cczMin = Math.floor(minZ / CHUNK_SIZE), cczMax = Math.floor(maxZ / CHUNK_SIZE);
   const checked = new Set();
-  for (const c of World.chunks.values()) {
-    const x0 = c.cx * CHUNK_SIZE, z0 = c.cz * CHUNK_SIZE;
-    for (let lx = 0; lx < CHUNK_SIZE; lx++) for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let y = 0; y < WORLD_HEIGHT; y++) {
+  for (let ccx = ccxMin; ccx <= ccxMax; ccx++) {
+    for (let ccz = cczMin; ccz <= cczMax; ccz++) {
+      const c = World.chunks.get(World.key(ccx, ccz));
+      if (!c) continue;
+      const x0 = c.cx * CHUNK_SIZE, z0 = c.cz * CHUNK_SIZE;
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let y = 0; y < WORLD_HEIGHT; y++) {
       const b = c.blocks[idx(lx, y, lz)];
       if (b !== BLOCK.PISTON) continue;
       const wx = x0 + lx, wz = z0 + lz;
@@ -7479,8 +7515,9 @@ function updatePistons() {
         rebuildAround(wx, wz); rebuildAround(wx+dx, wz+dz);
         playSound('piston');
       }
-    }
-  }
+      } // for lx/lz/y
+    } // for ccz
+  } // for ccx
 }
 
 // уровень мощности в точке
@@ -7526,14 +7563,19 @@ function sourcePowerAt(x, y, z) {
 // Простой BFS: источники дают 15, пыль передаёт мощность-1 соседям-пыли, не ниже 0.
 let redstoneDirty = false;
 let redstoneDirtyCenter = null;
+let redstoneTimer = 0; // аккумулятор для троттлинга (не чаще 6 раз/сек)
 function markRedstoneDirty(x, y, z) {
   redstoneDirty = true;
   redstoneDirtyCenter = redstoneDirtyCenter || { x, y, z };
 }
 
-const RS_RADIUS = 24; // радиус пересчёта вокруг эпицентра (блоков)
-function updateRedstone() {
+const RS_RADIUS = 16; // радиус пересчёта вокруг эпицентра (блоков) — уменьшено для производительности
+function updateRedstone(dt) {
   if (!redstoneDirty) return;
+  // троттлинг: не чаще 6 раз/сек, чтобы не лагать при быстрых переключениях
+  redstoneTimer += dt;
+  if (redstoneTimer < 0.16) return;
+  redstoneTimer = 0;
   redstoneDirty = false;
   const cx = redstoneDirtyCenter ? redstoneDirtyCenter.x : PLAYER.pos.x;
   const cy = redstoneDirtyCenter ? redstoneDirtyCenter.y : PLAYER.pos.y;
@@ -7599,7 +7641,7 @@ function updateRedstone() {
   syncDoorsWithRedstone(minX,maxX,minY,maxY,minZ,maxZ);
 
   // 5) активировать поршни (толкают/задвигают по изменению сигнала)
-  updatePistons();
+  updatePistons(minX, maxX, minZ, maxZ);
 
   // 6) перестроить изменившиеся чанки
   for (const k of changed) {
@@ -8646,20 +8688,7 @@ function updateHUD(t) {
       tip.classList.remove('on');
     }
   }
-  // индикатор времени суток
-  const ti = document.getElementById('timeIcon');
-  const tl = document.getElementById('timeLabel');
-  if (ti && tl) {
-    const dl = daylight();
-    let icon, label;
-    if (World.dim === 'nether') { icon = '🔥'; label = 'Ад'; }
-    else if (dl > 0.7) { icon = '☀'; label = 'День'; }
-    else if (dl > 0.3) { icon = '🌤'; label = dl > 0.5 ? 'День' : 'Сумерки'; }
-    else if (dl > 0.05) { icon = '🌆'; label = 'Закат'; }
-    else { icon = '🌙'; label = 'Ночь'; }
-    if (sleepTransition) { icon = '💤'; label = 'Спим…'; }
-    ti.textContent = icon; tl.textContent = label;
-  }
+  // индикатор времени суток скрыт по запросу (убран из HUD)
 }
 
 // ============================================================
@@ -8698,7 +8727,7 @@ function loop(now) {
   updateGlowingOre(dt);
   updateButtons(dt);
   updateParticles(dt);
-  updateRedstone();
+  updateRedstone(dt);
   updateAmbientSounds(dt);
   if (!PLAYER.dead && overlay.classList.contains('hidden')) updateBoats(dt);
   if (!invOpen && overlay.classList.contains('hidden')) updateMobs(dt);
@@ -8835,7 +8864,13 @@ function renderWorldList() {
     nm.textContent = w.name;
     const meta = document.createElement('div');
     meta.className = 'wm-meta';
-    meta.textContent = 'Сид: ' + w.seed + ' · ' + timeAgo(w.updated);
+    // прочитать флаг читов из данных мира (старые миры — без читов)
+    let cheatsOn = false;
+    try {
+      const d = JSON.parse(localStorage.getItem(WorldManager.LS_PREFIX + w.name));
+      cheatsOn = !!(d && d.cheatsEnabled);
+    } catch (e) {}
+    meta.textContent = 'Сид: ' + w.seed + ' · ' + timeAgo(w.updated) + (cheatsOn ? ' · читы ✓' : '');
     info.appendChild(nm); info.appendChild(meta);
 
     const loadBtn = document.createElement('button');
@@ -8859,8 +8894,30 @@ function renderWorldList() {
 document.getElementById('createWorldBtn').addEventListener('click', () => {
   const name = document.getElementById('newWorldName').value;
   const seed = document.getElementById('newWorldSeed').value;
-  WorldManager.create(name, seed);
+  const cheats = document.getElementById('cheatsToggle').checked;
+  WorldManager.create(name, seed, cheats);
 });
+
+// ---- Навигация главного меню: Играть -> подменю миров -> Назад ----
+const mainMenuBox = document.getElementById('mainMenuBox');
+const worldsMenuBox = document.getElementById('worldsMenuBox');
+document.getElementById('playBtn').addEventListener('click', () => {
+  mainMenuBox.style.display = 'none';
+  worldsMenuBox.style.display = 'block';
+  renderWorldList();
+});
+document.getElementById('backToMainBtn').addEventListener('click', () => {
+  worldsMenuBox.style.display = 'none';
+  mainMenuBox.style.display = 'block';
+});
+// обновление подписи чита-тумблера
+const cheatsToggleEl = document.getElementById('cheatsToggle');
+const cheatsLabelEl = document.getElementById('cheatsLabel');
+function updateCheatsLabel() {
+  cheatsLabelEl.textContent = cheatsToggleEl.checked ? 'Читы: Вкл' : 'Читы: Выкл';
+}
+cheatsToggleEl.addEventListener('change', updateCheatsLabel);
+updateCheatsLabel();
 
 // ---- Настройка прорисовки чанков ----
 function setRenderDistance(rd) {
@@ -8905,7 +8962,11 @@ function openMenu() {
   document.exitPointerLock();
   if (invOpen) toggleInventory();
   overlay.classList.remove('hidden');
+  // при паузе из игры — показываем подменю миров (чтобы можно было переключиться/создать)
+  mainMenuBox.style.display = 'none';
+  worldsMenuBox.style.display = 'block';
   renderWorldList();
+  if (typeof updateChatMiniVisibility === 'function') updateChatMiniVisibility();
 }
 
 document.getElementById('menuBtn').addEventListener('click', (e) => {
@@ -8977,7 +9038,8 @@ function addChatMessage(text, cls) {
   line.className = 'chat-line ' + cls;
   line.textContent = text;
   chatLogEl.appendChild(line);
-  chatLogEl.scrollTop = chatLogEl.scrollHeight;
+  // авто-прокрутка вниз (requestAnimationFrame — гарантия после layout)
+  requestAnimationFrame(() => { chatLogEl.scrollTop = chatLogEl.scrollHeight; });
   // обновить мини-лог
   renderChatMini();
 }
@@ -8990,11 +9052,16 @@ function renderChatMini() {
     chatMiniEl.appendChild(line);
   }
 }
+// скрыть/показать мини-лог чата в зависимости от состояния UI (меню/инвентарь открыты?)
+function updateChatMiniVisibility() {
+  const uiHidden = !overlay.classList.contains('hidden') || invOpen || chatOpen;
+  chatMiniEl.classList.toggle('hidden-ui', uiHidden);
+}
 function openChat(withSlash) {
   if (chatOpen) return;
   chatOpen = true;
   chatBoxEl.classList.add('open');
-  chatMiniEl.style.display = 'none';
+  chatMiniEl.classList.add('hidden-ui');
   chatInputEl.value = withSlash ? '/' : '';
   chatInputEl.focus();
   // снять захват указателя, чтобы можно было печатать
@@ -9004,8 +9071,8 @@ function closeChat() {
   chatOpen = false;
   chatBoxEl.classList.remove('open');
   chatInputEl.blur();
-  chatMiniEl.style.display = '';
-  // вернуть захват указателя при клике на канвас
+  // мини-лог показывается только если игровой UI активен
+  updateChatMiniVisibility();
 }
 chatInputEl.addEventListener('keydown', (e) => {
   e.stopPropagation();
@@ -9018,10 +9085,20 @@ chatInputEl.addEventListener('keydown', (e) => {
     // обработка команд
     if (msg.startsWith('/')) {
       const cmd = msg.slice(1).toLowerCase().split(/\s+/)[0];
+      // /help доступен всегда; прочие команды блокируются, если читы выключены
       if (cmd === 'help' || cmd === '?') {
-        addChatMessage('Команд нету пока-что, они на стадии разработки. И в этом мире их нельзя будет использовать, так как тут они изначально не включены', 'chat-sys');
+        if (WorldManager.cheatsEnabled) {
+          addChatMessage('Команды в разработке. Читы для этого мира включены — скоро будут доступны.', 'chat-sys');
+        } else {
+          addChatMessage('Команд нету пока-что, они на стадии разработки. И в этом мире их нельзя будет использовать, так как тут они изначально не включены', 'chat-sys');
+        }
       } else {
-        addChatMessage('Неизвестная команда: /' + cmd + '. Введите /help', 'chat-sys');
+        // любая другая команда
+        if (!WorldManager.cheatsEnabled) {
+          addChatMessage('Команды заблокированы: читы выключены для этого мира. /help для справки.', 'chat-sys');
+        } else {
+          addChatMessage('Неизвестная команда: /' + cmd + '. Введите /help', 'chat-sys');
+        }
       }
     } else {
       // обычное сообщение от игрока

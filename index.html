@@ -314,6 +314,27 @@
   }
   #menuBtn:hover { background: rgba(0,0,0,0.7); }
 
+  /* Большая кнопка «Играть» в главном меню */
+  .wm-play-big {
+    display: block; width: 100%; margin: 12px 0 8px; padding: 16px;
+    font-family: monospace; font-size: 20px; font-weight: bold; letter-spacing: 2px;
+    color: #fff; cursor: pointer;
+    background: linear-gradient(180deg, #6fbf3f 0%, #4d8e2a 100%);
+    border: 3px solid #3d6e27; border-radius: 6px;
+    box-shadow: 0 4px 0 #2d5219, inset 0 2px 0 rgba(255,255,255,0.3);
+    text-shadow: 2px 2px 0 #2d5219;
+    transition: all 0.12s ease;
+  }
+  .wm-play-big:hover { background: linear-gradient(180deg, #7fd04f 0%, #5d9e3a 100%); transform: translateY(-1px); box-shadow: 0 5px 0 #2d5219, inset 0 2px 0 rgba(255,255,255,0.4); }
+  .wm-play-big:active { transform: translateY(3px); box-shadow: 0 1px 0 #2d5219, inset 0 2px 0 rgba(255,255,255,0.2); }
+  /* Кнопка «Назад» в подменю */
+  .wm-back {
+    display: block; width: 100%; margin-top: 14px; padding: 10px;
+    font-family: monospace; font-size: 14px; color: #ccc; cursor: pointer;
+    background: #4a4a4a; border: 2px solid #2a2a2a; border-radius: 4px;
+  }
+  .wm-back:hover { background: #5a5a5a; color: #fff; }
+
   /* Окно чата */
   #chatBox {
     position: fixed; left: 10px; bottom: 64px; z-index: 15; display: none;
@@ -325,8 +346,12 @@
     background: rgba(0,0,0,0.55); color: #fff; font-size: 12px; line-height: 1.5;
     padding: 6px 10px; max-height: 180px; overflow-y: auto; border-radius: 4px 4px 0 0;
     border: 1px solid #444; border-bottom: none;
+    scrollbar-width: thin; scrollbar-color: #666 transparent;
   }
-  #chatLog .chat-line { padding: 1px 0; text-shadow: 1px 1px 0 #000; }
+  #chatLog::-webkit-scrollbar { width: 6px; }
+  #chatLog::-webkit-scrollbar-thumb { background: #666; border-radius: 3px; }
+  #chatLog::-webkit-scrollbar-track { background: transparent; }
+  #chatLog .chat-line { padding: 1px 0; text-shadow: 1px 1px 0 #000; word-wrap: break-word; white-space: pre-wrap; }
   #chatLog .chat-sys { color: #ffd24a; font-style: italic; }
   #chatLog .chat-me { color: #bfe89a; }
   #chatInput {
@@ -335,13 +360,16 @@
     border: 1px solid #666; border-radius: 0 0 4px 4px; outline: none;
   }
   #chatInput:focus { border-color: #6fbf3f; box-shadow: 0 0 0 2px rgba(111,191,63,0.2); }
-  /* мини-лог чата (последние строки) в углу, когда чат закрыт */
+  /* мини-лог чата (последние строки) в углу, когда чат закрыт.
+     Скрывается, когда скрыт основной UI (меню открыто / игра на паузе). */
   #chatMini {
     position: fixed; left: 10px; bottom: 64px; z-index: 14; pointer-events: none;
     font-family: monospace; font-size: 12px; max-width: 460px; max-height: 120px; overflow: hidden;
+    display: flex; flex-direction: column; gap: 1px;
   }
-  #chatMini .chat-line { background: rgba(0,0,0,0.4); padding: 1px 6px; margin-bottom: 1px; border-radius: 2px;
-    color: #fff; text-shadow: 1px 1px 0 #000; display: inline-block; }
+  #chatMini.hidden-ui { display: none; }
+  #chatMini .chat-line { background: rgba(0,0,0,0.4); padding: 1px 6px; border-radius: 2px;
+    color: #fff; text-shadow: 1px 1px 0 #000; word-wrap: break-word; white-space: pre-wrap; }
   #chatMini .chat-sys { color: #ffd24a; }
   #chatMini .chat-me { color: #bfe89a; }
 </style>
@@ -369,7 +397,6 @@
 
 <div id="hud"></div>
 <button id="menuBtn">Меню (Esc)</button>
-<div id="timeIndicator"><span id="timeIcon">☀</span><span class="time-label" id="timeLabel">День</span></div>
 
 <!-- Экран смерти -->
 <div id="deathScreen">
@@ -405,7 +432,8 @@
 </div>
 
 <div id="overlay">
-  <div class="box">
+  <!-- Главное меню (чистый вид: ник + Играть + настройки) -->
+  <div class="box" id="mainMenuBox">
     <h1>MiniCraft</h1>
     <p>Бесконечный мир в духе старого Minecraft</p>
 
@@ -415,22 +443,7 @@
       <p class="wm-note">Ник сохраняется в браузере и используется в чате.</p>
     </div>
 
-    <div class="wm-section">
-      <h3>Создать мир</h3>
-      <input id="newWorldName" class="wm-input" type="text" placeholder="Название мира" maxlength="24">
-      <input id="newWorldSeed" class="wm-input" type="text" placeholder="Сид (число/текст, можно пусто)" maxlength="32">
-      <button id="createWorldBtn">Создать и играть</button>
-    </div>
-
-    <div class="wm-section">
-      <h3>Мои миры</h3>
-      <div id="worldList" class="wm-list"></div>
-      <div style="display:flex;gap:8px;margin-top:8px;">
-        <button id="exportWorldBtn" class="wm-load" style="flex:1;">Экспорт мира</button>
-        <button id="importWorldBtn" class="wm-load" style="flex:1;">Импорт мира</button>
-      </div>
-      <input id="importFileInput" type="file" accept=".json,application/json" style="display:none;">
-    </div>
+    <button id="playBtn" class="wm-play-big">▶ Играть</button>
 
     <div class="wm-section">
       <h3>Настройки</h3>
@@ -454,16 +467,35 @@
       <p><kbd>ПКМ</kbd> по рычагу/кнопке — сигнал · по кровати — спать</p>
       <p><kbd>T</kbd> или <kbd>/</kbd> — открыть чат</p>
     </div>
+  </div>
+
+  <!-- Подменю: выбор мира (список / создать / удалить) -->
+  <div class="box" id="worldsMenuBox" style="display:none;">
+    <h1>Мои миры</h1>
+    <p>Выберите мир или создайте новый</p>
+
     <div class="wm-section">
-      <h3>Что нового</h3>
-      <p style="font-size:11px;color:#bfe89a;line-height:1.6;">
-        🔴 Редстоун: пыль, факел, рычаг, кнопка, поршень<br>
-        ✂️ Ножницы: стрижка овец, сбор листвы<br>
-        🛏️ Кровать: сон + точка возрождения<br>
-        🔊 Звуки шагов и пещерный эмбиент<br>
-        💬 Чат (T/), 🏷️ Профиль, 💾 Экспорт/Импорт миров
-      </p>
+      <h3>Создать мир</h3>
+      <input id="newWorldName" class="wm-input" type="text" placeholder="Название мира" maxlength="24">
+      <input id="newWorldSeed" class="wm-input" type="text" placeholder="Сид (число/текст, можно пусто)" maxlength="32">
+      <label class="wm-setting wm-check" style="margin-top:6px;">
+        <input id="cheatsToggle" type="checkbox"> <span id="cheatsLabel">Читы: Выкл</span>
+      </label>
+      <p class="wm-note">Читы разрешают консольные команды в игре (старые миры — всегда без читов).</p>
+      <button id="createWorldBtn" style="margin-top:6px;">Создать и играть</button>
     </div>
+
+    <div class="wm-section">
+      <h3>Сохранённые миры</h3>
+      <div id="worldList" class="wm-list"></div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button id="exportWorldBtn" class="wm-load" style="flex:1;">Экспорт мира</button>
+        <button id="importWorldBtn" class="wm-load" style="flex:1;">Импорт мира</button>
+      </div>
+      <input id="importFileInput" type="file" accept=".json,application/json" style="display:none;">
+    </div>
+
+    <button id="backToMainBtn" class="wm-back">← Назад</button>
   </div>
 </div>
 
