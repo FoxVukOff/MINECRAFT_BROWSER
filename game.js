@@ -42,6 +42,10 @@ const BLOCK = {
   BED_HEAD:   32, // кровать, изголовье
   WOOL:       33, // шерсть (выпадает с овец)
   DEEPSLATE:  34, // глубинный камень (глубоко под землёй вместо бедрока)
+  REDSTONE_ORE:  35, // редстоуновая руда (светится при клике/наступании)
+  REDSTONE_DUST: 36, // редстоуновая пыль (плоский блок, передаёт сигнал)
+  REDSTONE_TORCH:37, // редстоуновый факел (источник сигнала 15)
+  LEVER:      38, // рычаг (источник/выключатель сигнала)
 };
 
 // Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
@@ -121,6 +125,10 @@ const ITEM = {
   DIAMOND_CHESTPLATE:231,
   DIAMOND_LEGGINGS:  232,
   DIAMOND_BOOTS:     233,
+  // Ножницы (из 2 железных слитков) — стрижка овец, сбор листвы
+  SHEARS:            240,
+  // Редстоун (предмет — выпадает из руды, ставится как пыль)
+  REDSTONE:          241,
 };
 
 const BLOCK_NAMES = {
@@ -158,6 +166,10 @@ const BLOCK_NAMES = {
   [BLOCK.BED_HEAD]: 'Кровать',
   [BLOCK.WOOL]:    'Шерсть',
   [BLOCK.DEEPSLATE]: 'Глубинный камень',
+  [BLOCK.REDSTONE_ORE]: 'Редстоуновая руда',
+  [BLOCK.REDSTONE_DUST]: 'Редстоуновая пыль',
+  [BLOCK.REDSTONE_TORCH]: 'Редстоуновый факел',
+  [BLOCK.LEVER]: 'Рычаг',
   [ITEM.STICK]:    'Палки',
   [ITEM.WOODEN_PICKAXE]: 'Деревянная кирка',
   [ITEM.STONE_PICKAXE]: 'Каменная кирка',
@@ -218,6 +230,8 @@ const BLOCK_NAMES = {
   [ITEM.DIAMOND_CHESTPLATE]:'Алмазный нагрудник',
   [ITEM.DIAMOND_LEGGINGS]:  'Алмазные поножи',
   [ITEM.DIAMOND_BOOTS]:     'Алмазные ботинки',
+  [ITEM.SHEARS]:   'Ножницы',
+  [ITEM.REDSTONE]: 'Редстоун',
 };
 
 // Еда: сколько голода восстанавливает
@@ -252,7 +266,8 @@ function isTransparent(b) {
   return b === BLOCK.AIR || b === BLOCK.WATER || b === BLOCK.WATER_FLOW ||
          b === BLOCK.LEAVES || b === BLOCK.GLASS || isDoor(b) ||
          b === BLOCK.LAVA || b === BLOCK.LAVA_FLOW || b === BLOCK.FIRE ||
-         b === BLOCK.NETHER_PORTAL || b === BLOCK.TORCH;
+         b === BLOCK.NETHER_PORTAL || b === BLOCK.TORCH ||
+         b === BLOCK.REDSTONE_DUST || b === BLOCK.REDSTONE_TORCH || b === BLOCK.LEVER;
 }
 // Кровать (две половинки)
 function isBed(b) { return b === BLOCK.BED_FOOT || b === BLOCK.BED_HEAD; }
@@ -276,7 +291,8 @@ const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND, BLOCK.GRAVE
                    BLOCK.WOOD, BLOCK.LEAVES, BLOCK.PLANKS, BLOCK.CRAFTING_TABLE,
                    BLOCK.COBBLESTONE, BLOCK.GLASS, BLOCK.FURNACE, BLOCK.CHEST, ITEM.DOOR,
                    BLOCK.IRON_ORE, BLOCK.COPPER_ORE, BLOCK.DIAMOND_ORE, BLOCK.OBSIDIAN,
-                   BLOCK.TORCH, BLOCK.WOOL, BLOCK.BED_FOOT];
+                   BLOCK.TORCH, BLOCK.WOOL, BLOCK.BED_FOOT,
+                   BLOCK.REDSTONE_ORE, ITEM.REDSTONE, BLOCK.REDSTONE_TORCH, BLOCK.LEVER];
 
 // Инструменты-кирки (ускоряют добычу камня и позволяют получить булыжник)
 function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.COPPER_PICKAXE || id === ITEM.IRON_PICKAXE || id === ITEM.DIAMOND_PICKAXE; }
@@ -351,6 +367,7 @@ function armorPointsOf(id) { return ARMOR[id] ? ARMOR[id].points : 0; }
 // MC: 65 использований; делаем чуть быстрее — 50.
 const MAX_DURABILITY = {
   [ITEM.FLINT_AND_STEEL]: 50,
+  [ITEM.SHEARS]: 238, // как в Minecraft
 };
 function hasDurability(id) { return MAX_DURABILITY[id] !== undefined; }
 // израсходовать 1 заряд прочности у предмета в слоте; вернуть true если предмет сломался
@@ -371,13 +388,14 @@ function axeBlock(b) { return b === BLOCK.WOOD || b === BLOCK.PLANKS || b === BL
 function shovelBlock(b) { return b === BLOCK.DIRT || b === BLOCK.GRASS || b === BLOCK.SAND || b === BLOCK.GRAVEL; }
 
 // Блоки, для добычи которых нужна кирка (иначе ломается, но ничего не выпадает)
-function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE || b === BLOCK.DIAMOND_ORE || b === BLOCK.OBSIDIAN || b === BLOCK.NETHERRACK || b === BLOCK.GLOWSTONE || b === BLOCK.DEEPSLATE; }
+function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE || b === BLOCK.DIAMOND_ORE || b === BLOCK.OBSIDIAN || b === BLOCK.NETHERRACK || b === BLOCK.GLOWSTONE || b === BLOCK.DEEPSLATE || b === BLOCK.REDSTONE_ORE; }
 // Минимальный уровень кирки для добычи блока:
 //  руды железа/меди — каменная(2)+; алмаз — железная(4)+; обсидиан — алмазная(5).
 function minePickTier(b) {
   if (b === BLOCK.OBSIDIAN) return 5;
   if (b === BLOCK.DIAMOND_ORE) return 4;
   if (b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE) return 2;
+  if (b === BLOCK.REDSTONE_ORE) return 2; // редстоуновая руда — каменной киркой+
   return 1;
 }
 
@@ -410,6 +428,10 @@ const BREAK_TIME = {
   [BLOCK.BED_HEAD]: 0.4,
   [BLOCK.WOOL]:    0.8,   // шерсть мягкая
   [BLOCK.DEEPSLATE]: 3.0, // глубинный камень крепче обычного
+  [BLOCK.REDSTONE_ORE]: 3.0,   // редстоуновая руда
+  [BLOCK.REDSTONE_DUST]: 0.1,  // пыль ломается мгновенно
+  [BLOCK.REDSTONE_TORCH]: 0.1,
+  [BLOCK.LEVER]: 0.1,
   [BLOCK.BEDROCK]: Infinity, // неразрушим
   [BLOCK.WATER]:   Infinity, // воду нельзя сломать
   [BLOCK.WATER_FLOW]: Infinity,
@@ -859,6 +881,69 @@ function buildTextures() {
     ctx.fillStyle = '#6b4a24'; ctx.fillRect(0,11,16,5);
     ctx.fillStyle = '#5a3d1d'; ctx.fillRect(0,11,16,1);
   });
+  // редстоуновая руда: камень с красными вкраплениями
+  TEX.redstone_ore = makeTex(ctx => {
+    pixelFill(ctx, ['#888888','#7a7a7a','#969696','#6e6e6e'], [5,4,3,2], 1818);
+    // красные кристаллы редстоуна
+    ctx.fillStyle = '#c0201a';
+    const spots = [[3,3],[8,2],[12,5],[5,8],[10,10],[2,11],[13,12],[7,13]];
+    for (const [gx,gy] of spots) { ctx.fillRect(gx,gy,2,2); }
+    ctx.fillStyle = '#ff4830'; // блик
+    for (const [gx,gy] of [[3,3],[8,2],[12,5],[5,8]]) ctx.fillRect(gx,gy,1,1);
+  });
+  // редстоуновая руда (светящаяся, при клике/наступании)
+  TEX.redstone_ore_lit = makeTex(ctx => {
+    pixelFill(ctx, ['#888888','#7a7a7a','#969696','#6e6e6e'], [5,4,3,2], 1819);
+    ctx.fillStyle = '#ff3020';
+    const spots = [[3,3],[8,2],[12,5],[5,8],[10,10],[2,11],[13,12],[7,13]];
+    for (const [gx,gy] of spots) { ctx.fillRect(gx,gy,2,2); }
+    ctx.fillStyle = '#ffd060'; // яркое свечение
+    for (const [gx,gy] of spots) ctx.fillRect(gx,gy,1,1);
+  });
+  // редстоуновая пыль: плоский крест/линия на прозрачном фоне
+  TEX.redstone_dust = makeTex(ctx => {
+    ctx.clearRect(0,0,16,16);
+    // фон слегка виден (серый — как «на камне»), но пыль ярко-красная
+    ctx.fillStyle = '#b81818';
+    // центральный крест (соединяется с соседями)
+    ctx.fillRect(6,7,4,2); ctx.fillRect(7,6,2,4);
+    // «капли» по краям
+    ctx.fillRect(2,7,3,2); ctx.fillRect(11,7,3,2);
+    ctx.fillRect(7,2,2,3); ctx.fillRect(7,11,2,3);
+    ctx.fillStyle = '#ff3830'; // блик
+    ctx.fillRect(7,7,2,2);
+  });
+  TEX.redstone_dust_on = makeTex(ctx => {
+    ctx.clearRect(0,0,16,16);
+    ctx.fillStyle = '#ff2018';
+    ctx.fillRect(6,7,4,2); ctx.fillRect(7,6,2,4);
+    ctx.fillRect(2,7,3,2); ctx.fillRect(11,7,3,2);
+    ctx.fillRect(7,2,2,3); ctx.fillRect(7,11,2,3);
+    ctx.fillStyle = '#ff8050'; ctx.fillRect(7,7,2,2);
+  });
+  // редстоуновый факел: красная палочка с огоньком
+  TEX.redstone_torch = makeTex(ctx => {
+    ctx.clearRect(0,0,16,16);
+    ctx.fillStyle = '#6b4a24'; ctx.fillRect(7,7,2,8);   // палка
+    ctx.fillStyle = '#5a3d1d'; ctx.fillRect(7,7,1,8);
+    ctx.fillStyle = '#3a2a1a'; ctx.fillRect(6,5,4,2);
+    ctx.fillStyle = '#d82018'; ctx.fillRect(6,2,4,4);   // красный огонёк
+    ctx.fillStyle = '#ff5040'; ctx.fillRect(7,3,2,3);
+    ctx.fillStyle = '#ffb060'; ctx.fillRect(7,4,1,1);
+  });
+  // рычаг: корпус + ручка
+  TEX.lever = makeTex(ctx => {
+    ctx.clearRect(0,0,16,16);
+    // основание (камень)
+    ctx.fillStyle = '#7a7a7a'; ctx.fillRect(5,10,6,4);
+    ctx.fillStyle = '#5a5a5a'; ctx.fillRect(5,13,6,1);
+    // ручка (деревянная палка вверх)
+    ctx.fillStyle = '#6b4a24'; ctx.fillRect(7,3,2,8);
+    ctx.fillStyle = '#5a3d1d'; ctx.fillRect(7,3,1,8);
+    // шарик на конце
+    ctx.fillStyle = '#8a6a3f'; ctx.fillRect(6,2,4,3);
+    ctx.fillStyle = '#5a3d1d'; ctx.fillRect(6,4,4,1);
+  });
 }
 
 buildTextures();
@@ -1051,6 +1136,44 @@ function buildMaterials() {
   // двойной сундук — половинки (выбираются в мешере по facing/стороне стыка)
   MATERIALS.DCHEST_LEFT  = [mChestSide, mChestSide, mDChestTL, mChestTop, mDChestFL, mChestSide];
   MATERIALS.DCHEST_RIGHT = [mChestSide, mChestSide, mDChestTR, mChestTop, mDChestFR, mChestSide];
+
+  // --- Редстоун ---
+  const mRedOre = texToMaterial(TEX.redstone_ore);
+  MATERIALS[BLOCK.REDSTONE_ORE] = [mRedOre, mRedOre, mRedOre, mRedOre, mRedOre, mRedOre];
+  // светящаяся руда (включается при клике/наступании) — яркая, без затенения
+  const mRedOreLit = (() => {
+    const t = new THREE.CanvasTexture(TEX.redstone_ore_lit);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshBasicMaterial({ map: t });
+  })();
+  MATERIALS.REDSTONE_ORE_LIT = [mRedOreLit, mRedOreLit, mRedOreLit, mRedOreLit, mRedOreLit, mRedOreLit];
+  // пыль — плоский «ковёр» (прозрачный, рисуется как верхняя грань)
+  const mDustOff = (() => {
+    const t = new THREE.CanvasTexture(TEX.redstone_dust);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.2, side: THREE.DoubleSide, vertexColors: true });
+  })();
+  const mDustOn = (() => {
+    const t = new THREE.CanvasTexture(TEX.redstone_dust_on);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.2, side: THREE.DoubleSide });
+  })();
+  MATERIALS[BLOCK.REDSTONE_DUST] = [mDustOff, mDustOff, mDustOff, mDustOff, mDustOff, mDustOff];
+  MATERIALS.REDSTONE_DUST_ON = [mDustOn, mDustOn, mDustOn, mDustOn, mDustOn, mDustOn];
+  // редстоуновый факел — светящийся билборд
+  const mRTorch = (() => {
+    const t = new THREE.CanvasTexture(TEX.redstone_torch);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshBasicMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, depthWrite: true });
+  })();
+  MATERIALS[BLOCK.REDSTONE_TORCH] = [mRTorch, mRTorch, mRTorch, mRTorch, mRTorch, mRTorch];
+  // рычаг — билборд-перекладина
+  const mLever = (() => {
+    const t = new THREE.CanvasTexture(TEX.lever);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true });
+  })();
+  MATERIALS[BLOCK.LEVER] = [mLever, mLever, mLever, mLever, mLever, mLever];
 }
 buildMaterials();
 
@@ -1313,6 +1436,8 @@ const World = {
             if (oreHash(wx + 8000, y, wz + 8000) < 0.028) b = BLOCK.GRAVEL;
             // Алмазы — редкие, но чуть чаще, в самом низу
             if (y > 1 && y < 11 + DEPTH && oreHash(wx + 9000, y, wz + 9000) < 0.0028) b = BLOCK.DIAMOND_ORE;
+            // Редстоуновая руда — средняя глубина, реже железа, чаще алмазов
+            if (y > 2 && y < 15 + DEPTH && oreHash(wx + 6000, y, wz + 6000) < 0.018) b = BLOCK.REDSTONE_ORE;
             // Лавовые карманы — очень глубоко, реже, чем было
             if (y >= 2 && y <= 6 + DEPTH && oreHash(wx + 3000, y, wz + 3000) < 0.011) b = BLOCK.LAVA;
           }
@@ -1379,7 +1504,8 @@ const World = {
   generateNetherChunk(cx, cz) {
     const blocks = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
     // Ад: бескрайний ЛАВОВЫЙ ОКЕАН снизу, над ним парят ОСТРОВА из незерака
-    // (с вкраплениями светопыли). Бедрока нет — низ из глубинного камня под лавой.
+    // (с вкраплениями светопыли). Нижний слой (y=0) — бедрок (неразрушим), над ним
+    // глубинный камень как дно лавового океана.
     const LAVA_SEA = 20 + DEPTH;        // уровень лавового океана
     const FLOOR = 6;                    // толщина глубинного дна под лавой
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -1395,8 +1521,10 @@ const World = {
         const islandBottom = islandTop - thickness;
         for (let y = 0; y < WORLD_HEIGHT; y++) {
           let b = BLOCK.AIR;
-          if (y < FLOOR) {
-            b = BLOCK.DEEPSLATE;                     // дно вместо бедрока
+          if (y === 0) {
+            b = BLOCK.BEDROCK;                       // самый нижний слой Ада — бедрок (неразрушим)
+          } else if (y < FLOOR) {
+            b = BLOCK.DEEPSLATE;                     // дно под лавой из глубинного камня
           } else if (y <= LAVA_SEA) {
             b = BLOCK.LAVA;                          // лавовый океан
           }
@@ -2098,7 +2226,9 @@ const CAN_ORIENT = {};
 [BLOCK.WOOD, BLOCK.FURNACE, BLOCK.CHEST, BLOCK.CRAFTING_TABLE,
  BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND, BLOCK.PLANKS,
  BLOCK.COBBLESTONE, BLOCK.GLASS, BLOCK.LEAVES, BLOCK.COAL_ORE,
- BLOCK.IRON_ORE, BLOCK.COPPER_ORE].forEach(b => CAN_ORIENT[b] = true);
+ BLOCK.IRON_ORE, BLOCK.COPPER_ORE,
+ BLOCK.BED_FOOT, BLOCK.BED_HEAD, BLOCK.REDSTONE_TORCH, BLOCK.LEVER,
+ BLOCK.REDSTONE_DUST].forEach(b => CAN_ORIENT[b] = true);
 
 // ============================================================
 //  Цикл день/ночь
@@ -2140,7 +2270,8 @@ function lightPasses(b) {
   return b === BLOCK.AIR || b === BLOCK.WATER || b === BLOCK.WATER_FLOW ||
          b === BLOCK.LEAVES || b === BLOCK.GLASS || isDoor(b) ||
          b === BLOCK.LAVA || b === BLOCK.LAVA_FLOW || b === BLOCK.FIRE ||
-         b === BLOCK.NETHER_PORTAL || b === BLOCK.TORCH;
+         b === BLOCK.NETHER_PORTAL || b === BLOCK.TORCH ||
+         b === BLOCK.REDSTONE_DUST || b === BLOCK.REDSTONE_TORCH || b === BLOCK.LEVER;
 }
 // сколько света излучает блок (0..15)
 function lightEmission(b) {
@@ -2149,6 +2280,7 @@ function lightEmission(b) {
   if (b === BLOCK.LAVA || b === BLOCK.LAVA_FLOW) return 12;
   if (b === BLOCK.FIRE) return 14;
   if (b === BLOCK.NETHER_PORTAL) return 7;
+  if (b === BLOCK.REDSTONE_TORCH) return 7;
   return 0;
 }
 // В Аду неба нет — глобальная подсветка незерака, чтобы не было кромешной тьмы
@@ -2292,6 +2424,75 @@ function buildChunkMesh(c) {
           continue;
         }
 
+        // ---- Кровать: уменьшенная геометрия (матрас ~0.55) на ножках ----
+        if (isBed(b)) {
+          const mats = MATERIALS[b];
+          const mTop  = mats[2]; // верх матраса (подушка/одеяло)
+          const mSide = mats[0]; // бок матраса
+          const mEnd  = mats[4]; // торец матраса
+          const mLeg  = mats[3]; // ножки (дерево)
+          const bl = faceBrightness(c, lx, y, lz);
+          const blTop  = Math.min(1, bl);
+          const blSide = bl * 0.82;
+          const blBot  = bl * 0.6;
+          function qB(mat, bright, pts, nrm) {
+            const mi = getMatIndex(mat);
+            let buf = byMat.get(mi);
+            if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
+            const base = buf.positions.length / 3;
+            for (const v of pts) { buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(bright,bright,bright); }
+            buf.uvs.push(0,0, 1,0, 1,1, 0,1);
+            buf.indices.push(base,base+1,base+2, base,base+2,base+3);
+          }
+          // параллелепипед (x1..x2, y1..y2, z1..z2) с материалами по 6 граням
+          function boxB(x1,y1,z1,x2,y2,z2, mPx,mNx,mPy,mNy,mPz,mNz) {
+            qB(mPx, blSide, [[x2,y1,z1],[x2,y1,z2],[x2,y2,z2],[x2,y2,z1]], [1,0,0]);
+            qB(mNx, blSide, [[x1,y1,z2],[x1,y1,z1],[x1,y2,z1],[x1,y2,z2]], [-1,0,0]);
+            qB(mPy, blTop,  [[x1,y2,z2],[x2,y2,z2],[x2,y2,z1],[x1,y2,z1]], [0,1,0]);
+            qB(mNy, blBot,  [[x1,y1,z1],[x2,y1,z1],[x2,y1,z2],[x1,y1,z2]], [0,-1,0]);
+            qB(mPz, blSide, [[x1,y1,z2],[x2,y1,z2],[x2,y2,z2],[x1,y2,z2]], [0,0,1]);
+            qB(mNz, blSide, [[x2,y1,z1],[x1,y1,z1],[x1,y2,z1],[x2,y2,z1]], [0,0,-1]);
+          }
+          // ориентация: front указывает от ножной части к изголовью
+          const fr = hasFacing ? World.facing.get(wx + ',' + y + ',' + wz) : undefined;
+          let fnx = 0, fnz = 1; // по умолчанию FACE_PZ
+          if (fr === FACE_PX) { fnx = 1; fnz = 0; }
+          else if (fr === FACE_NX) { fnx = -1; fnz = 0; }
+          else if (fr === FACE_PZ) { fnx = 0; fnz = 1; }
+          else if (fr === FACE_NZ) { fnx = 0; fnz = -1; }
+          const longX = fnx !== 0; // длинная ось кровати — X
+          // ножки
+          const legW = 0.12, legH = 0.3, legInset = 0.07;
+          const corners = [
+            [legInset, legInset], [1-legInset-legW, legInset],
+            [legInset, 1-legInset-legW], [1-legInset-legW, 1-legInset-legW],
+          ];
+          for (const cc of corners) boxB(cc[0], 0, cc[1], cc[0]+legW, legH, cc[1]+legW, mLeg,mLeg,mLeg,mLeg,mLeg,mLeg);
+          // матрас
+          const mIns = 0.08;
+          const mY1 = legH, mY2 = legH + 0.22; // 0.3 .. 0.52
+          if (longX) {
+            // торцы по ±X, бока по ±Z
+            boxB(mIns, mY1, mIns, 1-mIns, mY2, 1-mIns, mEnd,mEnd,mTop,mLeg,mSide,mSide);
+          } else {
+            boxB(mIns, mY1, mIns, 1-mIns, mY2, 1-mIns, mSide,mSide,mTop,mLeg,mEnd,mEnd);
+          }
+          // изголовье/ножное ограждение
+          const bThick = 0.1, bIns = mIns;
+          if (b === BLOCK.BED_HEAD) {
+            // изголовье у +front (высокое)
+            const hbH = 0.82;
+            if (longX) { const bx = fnx > 0 ? (1-bIns-bThick) : bIns; boxB(bx, mY1, bIns, bx+bThick, hbH, 1-bIns, mEnd,mEnd,mEnd,mLeg,mEnd,mEnd); }
+            else       { const bz = fnz > 0 ? (1-bIns-bThick) : bIns; boxB(bIns, mY1, bz, 1-bIns, hbH, bz+bThick, mEnd,mEnd,mEnd,mLeg,mEnd,mEnd); }
+          } else {
+            // BED_FOOT: ножное ограждение у -front (низкое)
+            const fbH = 0.6;
+            if (longX) { const bx = fnx > 0 ? bIns : (1-bIns-bThick); boxB(bx, mY1, bIns, bx+bThick, fbH, 1-bIns, mEnd,mEnd,mEnd,mLeg,mEnd,mEnd); }
+            else       { const bz = fnz > 0 ? bIns : (1-bIns-bThick); boxB(bIns, mY1, bz, 1-bIns, fbH, bz+bThick, mEnd,mEnd,mEnd,mLeg,mEnd,mEnd); }
+          }
+          continue;
+        }
+
         // ---- Факел: тонкий столбик с пламенем (билборд-крест, светится) ----
         if (b === BLOCK.TORCH) {
           const mat = MATERIALS[BLOCK.TORCH][0];
@@ -2314,6 +2515,86 @@ function buildChunkMesh(c) {
           const w = 0.12, h = 0.62;
           addQuad([[ox-w,oy,oz-w],[ox+w,oy,oz+w],[ox+w,oy+h,oz+w],[ox-w,oy+h,oz-w]]);
           addQuad([[ox+w,oy,oz-w],[ox-w,oy,oz+w],[ox-w,oy+h,oz+w],[ox+w,oy+h,oz-w]]);
+          continue;
+        }
+
+        // ---- Редстоуновый факел: как обычный, но красный (светится) ----
+        if (b === BLOCK.REDSTONE_TORCH) {
+          const powered = redstoneTorchPowered(wx, y, wz); // если выключен (запитан) — тусклый
+          const mat = MATERIALS[BLOCK.REDSTONE_TORCH][0];
+          const mi = getMatIndex(mat);
+          let buf = byMat.get(mi);
+          if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
+          const addQuad = (p) => {
+            const base = buf.positions.length/3;
+            const bright = powered ? 0.4 : 1.0; // выключенный факел тусклее
+            for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(0,1,0); buf.colors.push(bright,bright,bright); }
+            buf.uvs.push(0,0,1,0,1,1,0,1);
+            buf.indices.push(base,base+1,base+2,base,base+2,base+3);
+          };
+          const fr = (hasFacing) ? World.facing.get(wx + ',' + y + ',' + wz) : undefined;
+          let ox = 0.5, oz = 0.5, oy = 0;
+          if (fr === FACE_PX) ox = 0.18; else if (fr === FACE_NX) ox = 0.82;
+          else if (fr === FACE_PZ) oz = 0.18; else if (fr === FACE_NZ) oz = 0.82;
+          if (fr !== undefined) oy = 0.2;
+          const w = 0.12, h = 0.62;
+          addQuad([[ox-w,oy,oz-w],[ox+w,oy,oz+w],[ox+w,oy+h,oz+w],[ox-w,oy+h,oz-w]]);
+          addQuad([[ox+w,oy,oz-w],[ox-w,oy,oz+w],[ox-w,oy+h,oz+w],[ox+w,oy+h,oz-w]]);
+          continue;
+        }
+
+        // ---- Рычаг: каменное основание + деревянная ручка (наклон по on/off) ----
+        if (b === BLOCK.LEVER) {
+          const mat = MATERIALS[BLOCK.LEVER][0];
+          const mi = getMatIndex(mat);
+          let buf = byMat.get(mi);
+          if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
+          const st = leverState(wx, y, wz); // {on, facing}
+          const bl = faceBrightness(c, lx, y, lz);
+          const addQuad = (p, nrm) => {
+            const base = buf.positions.length/3;
+            for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(bl,bl,bl); }
+            buf.uvs.push(0,0,1,0,1,1,0,1);
+            buf.indices.push(base,base+1,base+2,base,base+2,base+3);
+          };
+          // основание-плита (0.1 высотой)
+          addQuad([[0.3,0,0.3],[0.7,0,0.3],[0.7,0,0.7],[0.3,0,0.7]],[0,-1,0]);
+          addQuad([[0.3,0.1,0.3],[0.7,0.1,0.3],[0.7,0,0.3],[0.3,0,0.3]],[0,0,-1]);
+          addQuad([[0.7,0.1,0.7],[0.3,0.1,0.7],[0.3,0,0.7],[0.7,0,0.7]],[0,0,1]);
+          addQuad([[0.7,0.1,0.3],[0.7,0.1,0.7],[0.7,0,0.7],[0.7,0,0.3]],[1,0,0]);
+          addQuad([[0.3,0.1,0.7],[0.3,0.1,0.3],[0.3,0,0.3],[0.3,0,0.7]],[-1,0,0]);
+          addQuad([[0.3,0.1,0.3],[0.7,0.1,0.3],[0.7,0.1,0.7],[0.3,0.1,0.7]],[0,1,0]);
+          // билборд-ручка (крест) — наклон зависит от on/off
+          const tilt = st.on ? 0.35 : -0.35;
+          const baseY = 0.1, len = 0.45;
+          const cx = 0.5, cz = 0.5;
+          // ручка-крест вдоль двух диагоналей
+          const handleQuad = (dx, dz) => {
+            const ex = cx + dx*0.05, ez = cz + dz*0.05;
+            const tx = cx + dx*len, tz = cz + dz*len;
+            const ty = baseY + len + tilt;
+            addQuad([[cx-0.04,baseY,cz-0.04],[cx+0.04,baseY,cz+0.04],[tx+0.04,ty,tz+0.04],[tx-0.04,ty,tz-0.04]],[0,1,0]);
+            addQuad([[cx+0.04,baseY,cz-0.04],[cx-0.04,baseY,cz+0.04],[tx-0.04,ty,tz-0.04],[tx+0.04,ty,tz+0.04]],[0,1,0]);
+          };
+          handleQuad(1, 1); handleQuad(1, -1);
+          continue;
+        }
+
+        // ---- Редстоуновая пыль: плоский «ковёр» на верхней грани блока снизу ----
+        if (b === BLOCK.REDSTONE_DUST) {
+          const pwr = redstonePowerAt(wx, y, wz);
+          const mats = pwr > 0 ? MATERIALS.REDSTONE_DUST_ON : MATERIALS[BLOCK.REDSTONE_DUST];
+          const mat = mats[2]; // верхняя грань
+          const mi = getMatIndex(mat);
+          let buf = byMat.get(mi);
+          if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
+          const bl = pwr > 0 ? 1 : faceBrightness(c, lx, y, lz) * 0.9;
+          const H = 0.02; // чуть выше блока снизу
+          // основная плоскость
+          const base = buf.positions.length/3;
+          for (const v of [[0,H,0],[1,H,0],[1,H,1],[0,H,1]]) { buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(0,1,0); buf.colors.push(bl,bl,bl); }
+          buf.uvs.push(0,0, 1,0, 1,1, 0,1);
+          buf.indices.push(base,base+1,base+2, base,base+2,base+3);
           continue;
         }
 
@@ -2391,6 +2672,10 @@ function buildChunkMesh(c) {
             const isLeft = (px - wx) === rx && (pz - wz) === rz;
             baseMats = isLeft ? MATERIALS.DCHEST_LEFT : MATERIALS.DCHEST_RIGHT;
           }
+        }
+        // светящаяся редстоуновая руда (при клике/наступании) — яркий материал
+        if (b === BLOCK.REDSTONE_ORE && glowingOre && glowingOre.has(wx + ',' + y + ',' + wz)) {
+          baseMats = MATERIALS.REDSTONE_ORE_LIT;
         }
         const blockMats = (front !== undefined && MATERIALS[b])
           ? orientedMaterialsFrom(baseMats, front, b === BLOCK.WOOD) : baseMats;
@@ -3214,6 +3499,10 @@ function updateMining(dt) {
     time *= speedMul(axeTier(heldId));
   } else if (shovelBlock(mining.block) && isShovel(heldId)) {
     time *= speedMul(shovelTier(heldId));
+  } else if (mining.block === BLOCK.LEAVES && heldId === ITEM.SHEARS) {
+    time *= 0.15; // ножницы мгновенно срезают листву
+  } else if (mining.block === BLOCK.WOOL && heldId === ITEM.SHEARS) {
+    time *= 0.2;  // ножницы быстро режут шерсть
   }
   mining.progress += dt / time;
 
@@ -3610,6 +3899,37 @@ function iconCanvas(id, size) {
     return c;
   }
 
+  // Ножницы — два железных лезвия + центральный винт
+  if (id === ITEM.SHEARS) {
+    const u = size/16;
+    // лезвия (серебристые, X-образно)
+    ctx.fillStyle = '#c4c8cf';
+    ctx.fillRect(4*u,3*u,2*u,6*u);  ctx.fillRect(10*u,3*u,2*u,6*u);
+    ctx.fillRect(5*u,8*u,2*u,5*u);  ctx.fillRect(9*u,8*u,2*u,5*u);
+    // тёмный контур
+    ctx.fillStyle = '#7a8088';
+    ctx.fillRect(4*u,8*u,1*u,4*u);  ctx.fillRect(11*u,8*u,1*u,4*u);
+    // отверстия-кольца внизу
+    ctx.fillStyle = '#3a3e44';
+    ctx.fillRect(5*u,12*u,2*u,2*u); ctx.fillRect(9*u,12*u,2*u,2*u);
+    // центральный винт
+    ctx.fillStyle = '#5a5e64'; ctx.fillRect(7*u,6*u,2*u,2*u);
+    ctx.fillStyle = '#e6e9ee'; ctx.fillRect(7*u,6*u,1*u,1*u);
+    return c;
+  }
+  // Редстоун — кучка красных кристаллов
+  if (id === ITEM.REDSTONE) {
+    const u = size/16;
+    ctx.fillStyle = '#3a3a3e'; ctx.fillRect(2*u,8*u,12*u,5*u); // подложка
+    ctx.fillStyle = '#c0201a';
+    const pts = [[3,9],[6,8],[9,9],[12,8],[4,11],[8,11],[11,11]];
+    for (const [gx,gy] of pts) ctx.fillRect(gx*u,gy*u,2*u,2*u);
+    ctx.fillStyle = '#ff4830';
+    for (const [gx,gy] of [[3,9],[6,8],[9,9]]) ctx.fillRect(gx*u,gy*u,1*u,1*u);
+    ctx.fillStyle = '#ff8060'; ctx.fillRect(7*u,9*u,1*u,1*u);
+    return c;
+  }
+
   // Блоки — рисуем текстуру верхней/боковой грани
   let tex = TEX.stone;
   if (id === BLOCK.GRASS) tex = TEX.grass_side;
@@ -3634,6 +3954,10 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.NETHERRACK) tex = TEX.netherrack;
   else if (id === BLOCK.GLOWSTONE) tex = TEX.glowstone;
   else if (id === BLOCK.DEEPSLATE) tex = TEX.deepslate;
+  else if (id === BLOCK.REDSTONE_ORE) tex = TEX.redstone_ore;
+  else if (id === BLOCK.REDSTONE_DUST) { ctx.fillStyle = '#3a3a3e'; ctx.fillRect(0,0,size,size); tex = TEX.redstone_dust; }
+  else if (id === BLOCK.REDSTONE_TORCH) tex = TEX.redstone_torch;
+  else if (id === BLOCK.LEVER) tex = TEX.lever;
   else if (id === BLOCK.WOOL) tex = TEX.wool;
   else if (id === BLOCK.GLASS) tex = TEX.glass;
   else if (id === BLOCK.FURNACE) tex = TEX.furnace_front;
@@ -3826,6 +4150,16 @@ const RECIPES = [
     cells: [P,P,P,
             P,O,P,
             P,P,P], result: { id: BLOCK.CHEST, count: 1 } },
+  // ножницы: 2 железных слитка по диагонали (2x2) -> ножницы
+  { shaped: true, w: 2, h: 2,
+    cells: [I,O,
+            O,I], result: { id: ITEM.SHEARS, count: 1 } },
+  // рычаг: булыжник + палка (столбик) -> рычаг
+  { shaped: true, w: 1, h: 2,
+    cells: [C, S], result: { id: BLOCK.LEVER, count: 1 } },
+  // редстоуновый факел: редстоун над палкой -> 1 факел
+  { shaped: true, w: 1, h: 2,
+    cells: [ITEM.REDSTONE, S], result: { id: BLOCK.REDSTONE_TORCH, count: 1 } },
 ];
 
 // нормализовать содержимое сетки крафта к компактной матрице (обрезать пустые края)
@@ -4385,16 +4719,29 @@ function tone(freq, dur, gainVal, type = 'sine') {
 // Параметры звука по материалу
 function soundProfile(block) {
   switch (block) {
-    case BLOCK.STONE:   return { freq: 380, dur: 0.12, type: 'lowpass' };
+    case BLOCK.STONE:   return { freq: 380, dur: 0.12, type: 'lowpass' };        // звонкий камень
     case BLOCK.BEDROCK: return { freq: 300, dur: 0.14, type: 'lowpass' };
-    case BLOCK.DIRT:    return { freq: 700, dur: 0.10, type: 'lowpass' };
-    case BLOCK.GRASS:   return { freq: 1200, dur: 0.10, type: 'lowpass' };
+    case BLOCK.DEEPSLATE: return { freq: 320, dur: 0.16, type: 'lowpass' };       // глухой глубинный
+    case BLOCK.COBBLESTONE: return { freq: 360, dur: 0.13, type: 'lowpass' };
+    case BLOCK.DIRT:    return { freq: 700, dur: 0.10, type: 'lowpass' };         // глухая земля
+    case BLOCK.GRASS:   return { freq: 1200, dur: 0.10, type: 'lowpass' };        // мягкая трава
     // песок: мягкое сыпучее «шшш» — высокочастотный шум через highpass
     case BLOCK.SAND:    return { freq: 2600, dur: 0.16, type: 'highpass', sand: true };
-    case BLOCK.WOOD:    return { freq: 520, dur: 0.13, type: 'lowpass' };
+    case BLOCK.GRAVEL:  return { freq: 1500, dur: 0.14, type: 'bandpass' };       // хруст гравия
+    case BLOCK.WOOD:    return { freq: 520, dur: 0.13, type: 'lowpass' };         // глухое дерево
     case BLOCK.PLANKS:  return { freq: 600, dur: 0.12, type: 'lowpass' };
     case BLOCK.CRAFTING_TABLE: return { freq: 560, dur: 0.12, type: 'lowpass' };
-    case BLOCK.LEAVES:  return { freq: 3000, dur: 0.12, type: 'highpass' };
+    case BLOCK.LEAVES:  return { freq: 3000, dur: 0.12, type: 'highpass' };       // шуршание листвы
+    case BLOCK.GLASS:   return { freq: 2200, dur: 0.10, type: 'highpass' };       // звон стекла
+    case BLOCK.WOOL:    return { freq: 900, dur: 0.08, type: 'lowpass' };         // мягкая шерсть
+    case BLOCK.WATER:   return { freq: 800, dur: 0.14, type: 'lowpass' };         // всплеск воды
+    case BLOCK.NETHERRACK: return { freq: 420, dur: 0.12, type: 'lowpass' };
+    case BLOCK.REDSTONE_ORE: return { freq: 380, dur: 0.12, type: 'lowpass' };
+    case BLOCK.REDSTONE_DUST: return { freq: 2800, dur: 0.06, type: 'highpass' };
+    case BLOCK.IRON_ORE:
+    case BLOCK.COPPER_ORE:
+    case BLOCK.COAL_ORE:
+    case BLOCK.DIAMOND_ORE: return { freq: 360, dur: 0.13, type: 'lowpass' };
     default:            return { freq: 600, dur: 0.10, type: 'lowpass' };
   }
 }
@@ -4441,6 +4788,46 @@ function playSound(kind, block) {
     playerHurt();
   } else if (kind === 'burp') {
     playerBurp();
+  } else if (kind === 'click') {
+    // щелчок рычага/кнопки — короткий деревянный «клак»
+    tone(420, 0.05, 0.25, 'square');
+    setTimeout(() => tone(280, 0.06, 0.2, 'square'), 30);
+  } else if (kind === 'shear') {
+    // стрижка — шуршащий «вжик»
+    noiseBurst(0.22, 3200, 0.28, 'highpass');
+  } else if (kind === 'cave') {
+    // жуткий пещерный эмбиент — низкий гул + далёкий звук
+    playCaveAmbient();
+  }
+}
+
+// пещерный эмбиент: случайные жуткие звуки под землём при низком освещении
+function playCaveAmbient() {
+  if (!AudioEngine.ctx) return;
+  const ctx = AudioEngine.ctx;
+  const t0 = ctx.currentTime;
+  // низкий гул
+  const osc = ctx.createOscillator(); osc.type = 'sine';
+  osc.frequency.setValueAtTime(70 + Math.random()*30, t0);
+  osc.frequency.linearRampToValueAtTime(55, t0 + 2.5);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.8);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.0);
+  const filt = ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 220;
+  osc.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
+  osc.start(t0); osc.stop(t0 + 3.2);
+  // далёкий «звенящий» обертон (как капля/эхо)
+  if (Math.random() < 0.6) {
+    const osc2 = ctx.createOscillator(); osc2.type = 'sine';
+    const f2 = 400 + Math.random()*400;
+    osc2.frequency.setValueAtTime(f2, t0 + 1.2);
+    const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(0.0001, t0 + 1.2);
+    g2.gain.exponentialRampToValueAtTime(0.05, t0 + 1.4);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.4);
+    osc2.connect(g2); g2.connect(AudioEngine.sfxGain);
+    osc2.start(t0 + 1.2); osc2.stop(t0 + 2.5);
   }
 }
 
@@ -5606,20 +5993,54 @@ function mobUnderCursor(maxDist) {
   return best;
 }
 
-// поспать в кровати: только ночью — промотать время к утру
-function sleepInBed() {
+// поспать в кровати: только ночью — плавно промотать время к утру + spawn у кровати
+// bx,by,bz — координаты блока кровати (для точки возрождения)
+let sleepTransition = null; // {from, to, t, dur, spawnX, spawnY, spawnZ}
+function sleepInBed(bx, by, bz) {
   if (World.dim !== 'overworld') { showToast('Здесь нельзя спать'); return; }
   const dl = daylight();
   if (dl > 0.3) { showToast('Можно спать только ночью'); return; }
-  // промотать к рассвету (time -> 0.0, где daylight начинает расти)
-  DAY.time = 0.0;
-  DAY.skyLevel = 15; DAY._lastStep = 15;
-  for (const c of World.chunks.values()) c.dirty = true;
-  // обновить точку возрождения
-  PLAYER.spawnPoint = { x: PLAYER.pos.x, y: PLAYER.pos.y, z: PLAYER.pos.z };
-  showToast('Доброе утро! Точка возрождения установлена');
+  if (sleepTransition) return; // уже спим
+  // точка возрождения — над кроватью
+  const sx = (bx !== undefined ? bx + 0.5 : PLAYER.pos.x);
+  const sz = (bz !== undefined ? bz + 0.5 : PLAYER.pos.z);
+  const sy = (by !== undefined ? by + 1 : PLAYER.pos.y);
+  // плавная промотка времени к рассвету (0.0) за ~2.5 секунды
+  // считаем кратчайший путь по кругу к 0.0
+  let from = DAY.time;
+  // ночь: time в районе 0.6..1.0 или 0.0..0.2; цель 0.0
+  // если from > 0, идём вперёд до 1.0 (== 0.0)
+  sleepTransition = {
+    from: from, to: 1.0, t: 0, dur: 2.5,
+    sx, sy, sz,
+  };
+  showToast('Спокойной ночи…');
   playSound('pickup');
   if (typeof requestSave === 'function') requestSave();
+}
+// тикер плавной промотки времени (вызывается из главного цикла)
+function updateSleepTransition(dt) {
+  if (!sleepTransition) return;
+  sleepTransition.t += dt;
+  const k = Math.min(1, sleepTransition.t / sleepTransition.dur);
+  // плавный заход от from к to (вперёд по кругу)
+  const span = (sleepTransition.to - sleepTransition.from + 1) % 1;
+  DAY.time = (sleepTransition.from + span * k) % 1;
+  const dl = daylight();
+  DAY.skyLevel = Math.round(4 + dl * 11);
+  if (DAY.skyLevel !== DAY._lastStep) {
+    DAY._lastStep = DAY.skyLevel;
+    for (const c of World.chunks.values()) c.dirty = true;
+  }
+  if (k >= 1) {
+    DAY.time = 0.0;
+    DAY.skyLevel = 15; DAY._lastStep = 15;
+    for (const c of World.chunks.values()) c.dirty = true;
+    PLAYER.spawnPoint = { x: sleepTransition.sx, y: sleepTransition.sy, z: sleepTransition.sz };
+    showToast('Доброе утро! Точка возрождения установлена');
+    sleepTransition = null;
+    if (typeof requestSave === 'function') requestSave();
+  }
 }
 
 function tryAttackMob() {
@@ -5783,12 +6204,17 @@ function finishBreak(t) {
 
   // что выпадает
   let dropId = broken;
+  let dropCount = 1;
   const held = activeItem();
   const tier = held ? pickaxeTier(held.id) : 0;
   const havePick = tier >= 1;
+  const haveShears = held && held.id === ITEM.SHEARS;
 
   if (broken === BLOCK.GRASS) dropId = BLOCK.DIRT;
-  else if (broken === BLOCK.LEAVES) dropId = null;       // из листвы ничего
+  else if (broken === BLOCK.LEAVES) {
+    // листва: только ножницы дают дроп листвы; иначе — ничего (как в Minecraft)
+    dropId = haveShears ? BLOCK.LEAVES : null;
+  }
   else if (broken === BLOCK.GLASS) dropId = null;        // стекло разбивается
   else if (broken === BLOCK.STONE) dropId = havePick ? BLOCK.COBBLESTONE : null; // камень -> булыжник только киркой
   else if (broken === BLOCK.COBBLESTONE) dropId = havePick ? BLOCK.COBBLESTONE : null;
@@ -5804,11 +6230,29 @@ function finishBreak(t) {
   else if (broken === BLOCK.DEEPSLATE) dropId = havePick ? BLOCK.COBBLESTONE : null; // глубинный камень -> булыжник
   else if (broken === BLOCK.WOOL) dropId = BLOCK.WOOL;   // шерсть выпадает как есть
   else if (broken === BLOCK.TORCH) dropId = BLOCK.TORCH; // факел подбирается
+  else if (broken === BLOCK.REDSTONE_ORE) {
+    // редстоуновая руда: 4-5 пыли, только железной киркой+
+    dropId = (tier >= 2) ? ITEM.REDSTONE : null;
+    dropCount = (tier >= 2) ? (4 + (Math.random()*2|0)) : 1;
+  }
+  else if (broken === BLOCK.REDSTONE_DUST) dropId = ITEM.REDSTONE; // пыль подбирается
+  else if (broken === BLOCK.REDSTONE_TORCH) dropId = BLOCK.REDSTONE_TORCH;
+  else if (broken === BLOCK.LEVER) dropId = BLOCK.LEVER;
 
   if (dropId !== null) {
-    spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
+    for (let i = 0; i < dropCount; i++) spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
     onObtain(dropId); // отметить как открытый ресурс (для справочника)
   }
+
+  // при ломании редстоун-блоков — пересчитать сеть
+  if (broken === BLOCK.REDSTONE_ORE || broken === BLOCK.REDSTONE_DUST ||
+      broken === BLOCK.REDSTONE_TORCH || broken === BLOCK.LEVER) {
+    if (broken === BLOCK.REDSTONE_TORCH) World.facing.delete(World.ekey(t.x, t.y, t.z));
+    if (broken === BLOCK.LEVER) { leverStates.delete(ekeyOf(t.x, t.y, t.z)); World.facing.delete(World.ekey(t.x, t.y, t.z)); }
+    markRedstoneDirty(t.x, t.y, t.z);
+  }
+  // свечение руды при ломании (визуальный эффект перед удалением)
+  if (broken === BLOCK.REDSTONE_ORE) glowRedstoneOre(t.x, t.y, t.z);
 
   addExhaustion(0.05); // ломание блоков тратит голод
   rebuildAround(t.x, t.z);
@@ -6064,22 +6508,47 @@ function placeBlock() {
     toggleDoor(t.x, t.y, t.z);
     return;
   }
+  // ПКМ по рычагу — переключить (вкл/выкл сигнал)
+  if (t.block === BLOCK.LEVER) {
+    const st = leverState(t.x, t.y, t.z);
+    st.on = !st.on;
+    setLeverState(t.x, t.y, t.z, st);
+    rebuildAround(t.x, t.z);
+    playSound('click');
+    markRedstoneDirty(t.x, t.y, t.z);
+    return;
+  }
+  // ЛКМ-эффект на редстоуновой руде: свечение (здесь — по ПКМ для теста; основной триггер — наступание/ломание)
+  if (t.block === BLOCK.REDSTONE_ORE) {
+    glowRedstoneOre(t.x, t.y, t.z);
+  }
   // ПКМ по кровати — поспать (промотать к утру), если ночь
   if (isBed(t.block)) {
-    sleepInBed();
+    sleepInBed(t.x, t.y, t.z);
     return;
   }
 
-  // ПКМ по овце — состричь шерсть (если есть и не острижена)
+  // ПКМ по овце — состричь шерсть (нужны Ножницы; иначе просто «погладить»)
   {
     const m = mobUnderCursor(4.0);
     if (m && m.type === 'sheep' && !m.sheared) {
-      m.sheared = true;
-      const n = 1 + (Math.random()*2|0);
-      for (let k = 0; k < n; k++) spawnDrop(BLOCK.WOOL, m.pos.x+(Math.random()-0.5)*0.4, m.pos.y+0.6, m.pos.z+(Math.random()-0.5)*0.4);
-      if (m.mesh.userData.wool) m.mesh.userData.wool.scale.set(0.8, 0.7, 0.85); // визуально «голая»
-      playSound('break', BLOCK.WOOL);
-      return;
+      const slot0 = activeItem();
+      const haveShears = slot0 && slot0.id === ITEM.SHEARS;
+      if (haveShears) {
+        m.sheared = true;
+        const n = 1 + (Math.random()*2|0);
+        for (let k = 0; k < n; k++) spawnDrop(BLOCK.WOOL, m.pos.x+(Math.random()-0.5)*0.4, m.pos.y+0.6, m.pos.z+(Math.random()-0.5)*0.4);
+        if (m.mesh.userData.wool) m.mesh.userData.wool.scale.set(0.8, 0.7, 0.85); // визуально «голая»
+        playSound('shear');
+        // ножницы теряют прочность
+        if (typeof slot0.dur !== 'number') slot0.dur = MAX_DURABILITY[ITEM.SHEARS];
+        slot0.dur--;
+        if (slot0.dur <= 0) { slots[activeSlot] = null; playSound('break', BLOCK.IRON_ORE); }
+        refreshUI();
+        return;
+      } else {
+        showToast('Нужны ножницы, чтобы состричь овцу');
+      }
     }
   }
 
@@ -6095,8 +6564,8 @@ function placeBlock() {
   if (isArmor(slot.id)) { equipArmor(slot); return; }
   // еда — съедаем по ПКМ
   if (isFood(slot.id)) { tryEat(); return; }
-  // палка/кирка не ставятся
-  if (!isBlock(slot.id) && slot.id !== ITEM.DOOR) return;
+  // палка/кирка не ставятся (дверь и редстоун-пыль — предметы, ставящиеся как блоки)
+  if (!isBlock(slot.id) && slot.id !== ITEM.DOOR && slot.id !== ITEM.REDSTONE) return;
 
   const nx = t.x + t.face[0];
   const ny = t.y + t.face[1];
@@ -6221,6 +6690,64 @@ function placeBlock() {
     World.facing.set(World.ekey(hx, ny, hz), footFront);
     rebuildAround(nx, nz); rebuildAround(hx, hz);
     playSound('place', BLOCK.PLANKS);
+    return;
+  }
+
+  // ---- Редстоуновая пыль: ставится только на твёрдую верхнюю грань ----
+  if (slot.id === ITEM.REDSTONE) {
+    if (t.face[1] !== 1) return; // только на верхнюю грань
+    const support = World.getBlock(t.x, t.y, t.z);
+    if (isTransparent(support) || isLiquid(support)) return;
+    if (target !== BLOCK.AIR && !isLiquid(target)) return;
+    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    refreshUI();
+    World.setBlock(nx, ny, nz, BLOCK.REDSTONE_DUST);
+    rebuildAround(nx, nz);
+    playSound('place', BLOCK.STONE);
+    markRedstoneDirty(nx, ny, nz);
+    return;
+  }
+
+  // ---- Редстоуновый факел: на пол/стену (как обычный факел) ----
+  if (slot.id === BLOCK.REDSTONE_TORCH) {
+    const fb = t.face;
+    let okSupport = false, facing;
+    if (fb[1] === 1) { okSupport = !isTransparent(World.getBlock(nx, ny - 1, nz)); facing = undefined; }
+    else if (fb[1] === 0) {
+      okSupport = !isTransparent(t.block);
+      if (fb[0] === 1) facing = FACE_PX; else if (fb[0] === -1) facing = FACE_NX;
+      else if (fb[2] === 1) facing = FACE_PZ; else facing = FACE_NZ;
+    }
+    if (!okSupport) return;
+    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    refreshUI();
+    World.setBlock(nx, ny, nz, BLOCK.REDSTONE_TORCH);
+    if (facing !== undefined) World.facing.set(World.ekey(nx, ny, nz), facing);
+    rebuildAround(nx, nz);
+    playSound('place', BLOCK.WOOD);
+    markRedstoneDirty(nx, ny, nz);
+    return;
+  }
+
+  // ---- Рычаг: на пол/стену ----
+  if (slot.id === BLOCK.LEVER) {
+    const fb = t.face;
+    let okSupport = false, facing;
+    if (fb[1] === 1) { okSupport = !isTransparent(World.getBlock(nx, ny - 1, nz)); facing = FACE_PY; }
+    else if (fb[1] === 0) {
+      okSupport = !isTransparent(t.block);
+      if (fb[0] === 1) facing = FACE_PX; else if (fb[0] === -1) facing = FACE_NX;
+      else if (fb[2] === 1) facing = FACE_PZ; else facing = FACE_NZ;
+    }
+    if (!okSupport) return;
+    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    refreshUI();
+    World.setBlock(nx, ny, nz, BLOCK.LEVER);
+    if (facing !== undefined) World.facing.set(World.ekey(nx, ny, nz), facing);
+    setLeverState(nx, ny, nz, { on: false, facing });
+    rebuildAround(nx, nz);
+    playSound('place', BLOCK.STONE);
+    markRedstoneDirty(nx, ny, nz);
     return;
   }
 
@@ -6418,6 +6945,227 @@ function updateFurnaces(dt) {
   }
 }
 
+// ============================================================
+//  Система редстоуна (базовая проводка)
+//  - Редстоуновая руда: светится при клике/наступании (визуально, на 3 сек)
+//  - Редстоуновая пыль: передаёт сигнал 0..15 по цепочке (до 15 блоков)
+//  - Редстоуновый факел: источник сигнала 15 (гаснет, если сам запитан)
+//  - Рычаг: источник 15 (вкл/выкл по клику)
+//  - Дверь открывается, когда соседняя пыль/факел/рычаг дают сигнал
+// ============================================================
+
+// карта «x,y,z» -> уровень мощности (0..15). 0 = нет сигнала (запись отсутствует).
+let redstonePower = new Map();      // активная размерность
+let leverStates = new Map();        // «x,y,z» -> {on:bool, facing}
+let glowingOre = new Map();         // «x,y,z» -> время до истечения свечения (сек)
+
+// сброс состояния редстоуна при смене измерения
+function resetRedstoneState() {
+  redstonePower = new Map();
+  leverStates = new Map();
+  glowingOre = new Map();
+}
+
+function ekeyOf(x, y, z) { return x + ',' + y + ',' + z; }
+
+// состояние рычага (on по умолчанию false)
+function leverState(x, y, z) {
+  return leverStates.get(ekeyOf(x, y, z)) || { on: false, facing: FACE_PZ };
+}
+function setLeverState(x, y, z, st) { leverStates.set(ekeyOf(x, y, z), st); }
+
+// уровень мощности в точке
+function redstonePowerAt(x, y, z) {
+  return redstonePower.get(ekeyOf(x, y, z)) || 0;
+}
+function setRedstonePower(x, y, z, p) {
+  if (p > 0) redstonePower.set(ekeyOf(x, y, z), p);
+  else redstonePower.delete(ekeyOf(x, y, z));
+}
+
+// редстоуновый факел «выключен» (тусклый), если блок под ним/за ним запитан
+function redstoneTorchPowered(x, y, z) {
+  // простой вариант: факел гаснет, если блок, на котором стоит, запитан
+  const fr = World.facing.get(ekeyOf(x, y, z));
+  let sx = x, sy = y - 1, sz = z;
+  if (fr === FACE_PX) { sx = x - 1; sy = y; sz = z; }
+  else if (fr === FACE_NX) { sx = x + 1; sy = y; sz = z; }
+  else if (fr === FACE_PZ) { sx = x; sy = y; sz = z - 1; }
+  else if (fr === FACE_NZ) { sx = x; sy = y; sz = z + 1; }
+  return redstonePowerAt(sx, sy, sz) > 0;
+}
+
+// является ли блок источником сигнала (факел/рычаг)
+function isRedstoneSource(b) {
+  return b === BLOCK.REDSTONE_TORCH || b === BLOCK.LEVER;
+}
+// проводник сигнала
+function isRedstoneConductor(b) {
+  return b === BLOCK.REDSTONE_DUST;
+}
+
+// источник: какая мощность исходит из блока в данной точке
+function sourcePowerAt(x, y, z) {
+  const b = World.getBlock(x, y, z);
+  if (b === BLOCK.LEVER) return leverState(x, y, z).on ? 15 : 0;
+  if (b === BLOCK.REDSTONE_TORCH) return redstoneTorchPowered(x, y, z) ? 0 : 15;
+  return 0;
+}
+
+// пересчёт редстоун-сети в радиусе вокруг точки (x,y,z).
+// Простой BFS: источники дают 15, пыль передаёт мощность-1 соседям-пыли, не ниже 0.
+let redstoneDirty = false;
+let redstoneDirtyCenter = null;
+function markRedstoneDirty(x, y, z) {
+  redstoneDirty = true;
+  redstoneDirtyCenter = redstoneDirtyCenter || { x, y, z };
+}
+
+const RS_RADIUS = 24; // радиус пересчёта вокруг эпицентра (блоков)
+function updateRedstone() {
+  if (!redstoneDirty) return;
+  redstoneDirty = false;
+  const cx = redstoneDirtyCenter ? redstoneDirtyCenter.x : PLAYER.pos.x;
+  const cy = redstoneDirtyCenter ? redstoneDirtyCenter.y : PLAYER.pos.y;
+  const cz = redstoneDirtyCenter ? redstoneDirtyCenter.z : PLAYER.pos.z;
+  redstoneDirtyCenter = null;
+
+  const minX = Math.floor(cx - RS_RADIUS), maxX = Math.floor(cx + RS_RADIUS);
+  const minY = Math.max(0, Math.floor(cy - RS_RADIUS)), maxY = Math.min(WORLD_HEIGHT - 1, Math.floor(cy + RS_RADIUS));
+  const minZ = Math.floor(cz - RS_RADIUS), maxZ = Math.floor(cz + RS_RADIUS);
+
+  // новая карта мощностей в области
+  const newPower = new Map();
+  const get = (x,y,z) => newPower.get(ekeyOf(x,y,z)) || 0;
+  const setP = (x,y,z,p) => { if (p > 0) newPower.set(ekeyOf(x,y,z), p); };
+
+  // 1) источники
+  const queue = []; // {x,y,z,p}
+  for (let x = minX; x <= maxX; x++)
+    for (let y = minY; y <= maxY; y++)
+      for (let z = minZ; z <= maxZ; z++) {
+        const b = World.getBlock(x, y, z);
+        if (b === BLOCK.LEVER && leverState(x,y,z).on) { setP(x,y,z,15); queue.push({x,y,z,p:15}); }
+        else if (b === BLOCK.REDSTONE_TORCH && !redstoneTorchPowered(x,y,z)) { setP(x,y,z,15); queue.push({x,y,z,p:15}); }
+      }
+  // 2) распространение по пыли (BFS)
+  let head = 0;
+  while (head < queue.length) {
+    const cur = queue[head++];
+    if (cur.p <= 1) continue;
+    const np = cur.p - 1;
+    const neigh = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+    for (const d of neigh) {
+      const nx = cur.x+d[0], ny = cur.y+d[1], nz = cur.z+d[2];
+      if (nx<minX||nx>maxX||ny<minY||ny>maxY||nz<minZ||nz>maxZ) continue;
+      if (World.getBlock(nx,ny,nz) !== BLOCK.REDSTONE_DUST) continue;
+      if (get(nx,ny,nz) < np) { setP(nx,ny,nz,np); queue.push({x:nx,y:ny,z:nz,p:np}); }
+    }
+  }
+  // 3) сравнить с прежней картой в этой области — собрать изменившиеся чанки
+  const changed = new Set();
+  const mark = (x,z) => { const c=World.key(Math.floor(x/CHUNK_SIZE),Math.floor(z/CHUNK_SIZE)); changed.add(c); };
+  // проверить все точки новой карты
+  for (const [k, p] of newPower) {
+    if ((redstonePower.get(k) || 0) !== p) {
+      const [x,,z] = k.split(',').map(Number); mark(x,z);
+    }
+  }
+  // проверить исчезнувшие
+  for (const [k, p] of redstonePower) {
+    const [x,y,z] = k.split(',').map(Number);
+    if (x<minX||x>maxX||y<minY||y>maxY||z<minZ||z>maxZ) continue;
+    if ((newPower.get(k) || 0) !== p) mark(x,z);
+  }
+  // заменить карту: удалить старые записи в области, добавить новые
+  for (const [k] of redstonePower) {
+    const [x,y,z] = k.split(',').map(Number);
+    if (x>=minX&&x<=maxX&&y>=minY&&y<=maxY&&z>=minZ&&z<=maxZ) redstonePower.delete(k);
+  }
+  for (const [k, p] of newPower) redstonePower.set(k, p);
+
+  // 4) синхронизировать двери: открыть, если рядом есть сигнал
+  syncDoorsWithRedstone(minX,maxX,minY,maxY,minZ,maxZ);
+
+  // 5) перестроить изменившиеся чанки
+  for (const k of changed) {
+    const [cx2, cz2] = k.split(',').map(Number);
+    for (let dx=-1;dx<=1;dx++) for (let dz=-1;dz<=1;dz++) World.markDirty(cx2+dx, cz2+dz);
+  }
+}
+
+// открыть/закрыть двери в зависимости от редстоуна поблизости
+function syncDoorsWithRedstone(minX,maxX,minY,maxY,minZ,maxZ) {
+  for (const [k, st] of World.doorState) {
+    const [x,y,z] = k.split(',').map(Number);
+    if (x<minX-1||x>maxX+1||y<minY-1||y>maxY+1||z<minZ-1||z>maxZ+1) continue;
+    // сигнал от соседних 4 блоков на уровне нижней половины и верхней
+    let powered = false;
+    const checks = [[x+1,y,z],[x-1,y,z],[x,y,z+1],[x,y,z-1],
+                    [x+1,y+1,z],[x-1,y+1,z],[x,y+1,z+1],[x,y+1,z-1],
+                    [x,y-1,z]];
+    for (const [cx,cy,cz] of checks) {
+      const b = World.getBlock(cx,cy,cz);
+      if (b === BLOCK.LEVER && leverState(cx,cy,cz).on) { powered = true; break; }
+      if (b === BLOCK.REDSTONE_TORCH && !redstoneTorchPowered(cx,cy,cz)) { powered = true; break; }
+      if (redstonePowerAt(cx,cy,cz) > 0) { powered = true; break; }
+    }
+    if (powered !== st.open) {
+      st.open = powered;
+      // не играем звук, чтобы не спамить при пересчётах
+      for (let dx=-1;dx<=1;dx++) for (let dz=-1;dz<=1;dz++) World.markDirty(Math.floor(x/CHUNK_SIZE)+dx, Math.floor(z/CHUNK_SIZE)+dz);
+    }
+  }
+}
+
+// включить свечение руды (при клике/наступании) на 3 сек
+function glowRedstoneOre(x, y, z) {
+  glowingOre.set(ekeyOf(x, y, z), 3.0);
+  rebuildAround(x, z);
+}
+// тикер свечения руды
+function updateGlowingOre(dt) {
+  if (glowingOre.size === 0) return;
+  const expired = [];
+  for (const [k, t] of glowingOre) {
+    const nt = t - dt;
+    if (nt <= 0) expired.push(k);
+    else glowingOre.set(k, nt);
+  }
+  for (const k of expired) {
+    glowingOre.delete(k);
+    const [x,,z] = k.split(',').map(Number);
+    rebuildAround(x, z);
+  }
+}
+
+// ============================================================
+//  Динамические звуки окружения
+//  - пещерный эмбиент: под землёй при низком освещении — редкие жуткие звуки
+// ============================================================
+let caveAmbientTimer = 8 + Math.random() * 12;
+function updateAmbientSounds(dt) {
+  if (!AudioEngine.ctx || !AudioEngine.enabled) return;
+  // только в обычном мире (в Аду своя атмосфера)
+  if (World.dim !== 'overworld') return;
+  // игрок под землёй? (есть твердый блок над головой)
+  const hx = Math.floor(PLAYER.pos.x), hy = Math.floor(PLAYER.pos.y + 2), hz = Math.floor(PLAYER.pos.z);
+  let overhead = 0;
+  for (let y = hy; y < Math.min(WORLD_HEIGHT, hy + 8); y++) {
+    const b = World.getBlock(hx, y, hz);
+    if (b !== BLOCK.AIR && !isLiquid(b) && b !== BLOCK.LEAVES) { overhead++; }
+  }
+  if (overhead < 3) return; // не достаточно глубоко
+  // уровень освещения у игрока (грубо: небесного света нет, если над головой блок)
+  const lowLight = overhead >= 3;
+  if (!lowLight) return;
+  caveAmbientTimer -= dt;
+  if (caveAmbientTimer <= 0) {
+    playSound('cave');
+    caveAmbientTimer = 14 + Math.random() * 22; // редкие интервалы (14..36 сек)
+  }
+}
+
 // открыть/закрыть дверь (упрощённо: убираем/возвращаем коллизию делая её проходимой)
 function toggleDoor(x, y, z) {
   // найти нижнюю половину
@@ -6518,6 +7266,9 @@ function isSolidForPlayer(x, y, z) {
   if (bb === BLOCK.NETHER_PORTAL) return false; // сквозь портал можно пройти
   if (bb === BLOCK.TORCH) return false;         // факел не мешает движению
   if (isDoor(bb)) return false; // двери обрабатываются отдельно (тонкая AABB)
+  if (isBed(bb)) return false;  // кровать низкая — отдельная коллизия (как плита)
+  if (bb === BLOCK.REDSTONE_DUST) return false; // пыль плоская, не мешает
+  if (bb === BLOCK.LEVER) return false;         // рычаг тонкий
   return true;
 }
 
@@ -6785,10 +7536,13 @@ function updatePlayer(dt) {
     const interval = PLAYER.crouching ? 0.5 : 0.36;
     if (PLAYER.stepTimer >= interval) {
       PLAYER.stepTimer = 0;
-      const groundBlock = World.getBlock(
-        Math.floor(PLAYER.pos.x), Math.floor(PLAYER.pos.y - 0.1), Math.floor(PLAYER.pos.z)
-      );
+      const gx = Math.floor(PLAYER.pos.x), gy = Math.floor(PLAYER.pos.y - 0.1), gz = Math.floor(PLAYER.pos.z);
+      const groundBlock = World.getBlock(gx, gy, gz);
       playSound('step', groundBlock || BLOCK.DIRT);
+      // наступание на редстоуновую руду — свечение
+      if (groundBlock === BLOCK.REDSTONE_ORE) glowRedstoneOre(gx, gy, gz);
+      // шаг по пыли — шуршание
+      if (groundBlock === BLOCK.WATER || groundBlock === BLOCK.WATER_FLOW) playSound('splash');
       addExhaustion(keys['ControlLeft'] ? 0.06 : 0.03); // ходьба/бег тратят голод
     }
   }
@@ -7056,6 +7810,8 @@ function teleportDimension(target) {
 
   // переключить измерение
   World.setDimension(target);
+  // сбросить состояние редстоуна/свечения для нового измерения
+  resetRedstoneState();
   // восстановить сущности нового измерения (если были)
   restoreDimEntities();
 
@@ -7340,6 +8096,10 @@ function loop(now) {
   updateAnimatedTextures(dt);
   updateClouds(dt);
   updateDayNight(dt);
+  updateSleepTransition(dt);
+  updateGlowingOre(dt);
+  updateRedstone();
+  updateAmbientSounds(dt);
   if (!PLAYER.dead && overlay.classList.contains('hidden')) updateBoats(dt);
   if (!invOpen && overlay.classList.contains('hidden')) updateMobs(dt);
   updateChunks();
