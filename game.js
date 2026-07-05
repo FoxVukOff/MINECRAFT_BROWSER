@@ -46,6 +46,9 @@ const BLOCK = {
   REDSTONE_DUST: 36, // редстоуновая пыль (плоский блок, передаёт сигнал)
   REDSTONE_TORCH:37, // редстоуновый факел (источник сигнала 15)
   LEVER:      38, // рычаг (источник/выключатель сигнала)
+  BUTTON:     39, // кнопка (временный источник сигнала, авто-выкл)
+  PISTON:     40, // поршень (толкает блок при сигнале)
+  PISTON_HEAD:41, // голова поршня (выдвигается)
 };
 
 // Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
@@ -170,6 +173,9 @@ const BLOCK_NAMES = {
   [BLOCK.REDSTONE_DUST]: 'Редстоуновая пыль',
   [BLOCK.REDSTONE_TORCH]: 'Редстоуновый факел',
   [BLOCK.LEVER]: 'Рычаг',
+  [BLOCK.BUTTON]: 'Кнопка',
+  [BLOCK.PISTON]: 'Поршень',
+  [BLOCK.PISTON_HEAD]: 'Поршень',
   [ITEM.STICK]:    'Палки',
   [ITEM.WOODEN_PICKAXE]: 'Деревянная кирка',
   [ITEM.STONE_PICKAXE]: 'Каменная кирка',
@@ -267,8 +273,16 @@ function isTransparent(b) {
          b === BLOCK.LEAVES || b === BLOCK.GLASS || isDoor(b) ||
          b === BLOCK.LAVA || b === BLOCK.LAVA_FLOW || b === BLOCK.FIRE ||
          b === BLOCK.NETHER_PORTAL || b === BLOCK.TORCH ||
-         b === BLOCK.REDSTONE_DUST || b === BLOCK.REDSTONE_TORCH || b === BLOCK.LEVER;
+         b === BLOCK.REDSTONE_DUST || b === BLOCK.REDSTONE_TORCH || b === BLOCK.LEVER ||
+         b === BLOCK.BUTTON || b === BLOCK.PISTON_HEAD;
 }
+// Быстрый lookup-массив: OPAQUE[b] = 1 если блок НЕ прозрачен (для face culling).
+// Заполняется один раз после определения всех BLOCK-констант.
+const OPAQUE = new Uint8Array(256);
+function rebuildOpaqueTable() {
+  for (let i = 0; i < 256; i++) OPAQUE[i] = isTransparent(i) ? 0 : 1;
+}
+rebuildOpaqueTable();
 // Кровать (две половинки)
 function isBed(b) { return b === BLOCK.BED_FOOT || b === BLOCK.BED_HEAD; }
 // Жидкости (не твёрдые для коллизий)
@@ -292,7 +306,8 @@ const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND, BLOCK.GRAVE
                    BLOCK.COBBLESTONE, BLOCK.GLASS, BLOCK.FURNACE, BLOCK.CHEST, ITEM.DOOR,
                    BLOCK.IRON_ORE, BLOCK.COPPER_ORE, BLOCK.DIAMOND_ORE, BLOCK.OBSIDIAN,
                    BLOCK.TORCH, BLOCK.WOOL, BLOCK.BED_FOOT,
-                   BLOCK.REDSTONE_ORE, ITEM.REDSTONE, BLOCK.REDSTONE_TORCH, BLOCK.LEVER];
+                   BLOCK.REDSTONE_ORE, ITEM.REDSTONE, BLOCK.REDSTONE_TORCH, BLOCK.LEVER,
+                   BLOCK.BUTTON, BLOCK.PISTON];
 
 // Инструменты-кирки (ускоряют добычу камня и позволяют получить булыжник)
 function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.COPPER_PICKAXE || id === ITEM.IRON_PICKAXE || id === ITEM.DIAMOND_PICKAXE; }
@@ -388,7 +403,7 @@ function axeBlock(b) { return b === BLOCK.WOOD || b === BLOCK.PLANKS || b === BL
 function shovelBlock(b) { return b === BLOCK.DIRT || b === BLOCK.GRASS || b === BLOCK.SAND || b === BLOCK.GRAVEL; }
 
 // Блоки, для добычи которых нужна кирка (иначе ломается, но ничего не выпадает)
-function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE || b === BLOCK.DIAMOND_ORE || b === BLOCK.OBSIDIAN || b === BLOCK.NETHERRACK || b === BLOCK.GLOWSTONE || b === BLOCK.DEEPSLATE || b === BLOCK.REDSTONE_ORE; }
+function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE || b === BLOCK.DIAMOND_ORE || b === BLOCK.OBSIDIAN || b === BLOCK.NETHERRACK || b === BLOCK.GLOWSTONE || b === BLOCK.DEEPSLATE || b === BLOCK.REDSTONE_ORE || b === BLOCK.PISTON; }
 // Минимальный уровень кирки для добычи блока:
 //  руды железа/меди — каменная(2)+; алмаз — железная(4)+; обсидиан — алмазная(5).
 function minePickTier(b) {
@@ -432,6 +447,9 @@ const BREAK_TIME = {
   [BLOCK.REDSTONE_DUST]: 0.1,  // пыль ломается мгновенно
   [BLOCK.REDSTONE_TORCH]: 0.1,
   [BLOCK.LEVER]: 0.1,
+  [BLOCK.BUTTON]: 0.1,
+  [BLOCK.PISTON]: 1.5,
+  [BLOCK.PISTON_HEAD]: 0.5,
   [BLOCK.BEDROCK]: Infinity, // неразрушим
   [BLOCK.WATER]:   Infinity, // воду нельзя сломать
   [BLOCK.WATER_FLOW]: Infinity,
@@ -944,6 +962,55 @@ function buildTextures() {
     ctx.fillStyle = '#8a6a3f'; ctx.fillRect(6,2,4,3);
     ctx.fillStyle = '#5a3d1d'; ctx.fillRect(6,4,4,1);
   });
+  // кнопка: каменное основание + выступающая круглая кнопка (нажата/отпущена)
+  TEX.button = makeTex(ctx => {
+    ctx.clearRect(0,0,16,16);
+    // основание (камень)
+    ctx.fillStyle = '#7a7a7a'; ctx.fillRect(3,3,10,10);
+    ctx.fillStyle = '#5a5a5a'; ctx.fillRect(3,12,10,1); ctx.fillRect(12,3,1,10);
+    ctx.fillStyle = '#9a9a9a'; ctx.fillRect(3,3,10,1); ctx.fillRect(3,3,1,10);
+    // кнопка (выступающий круг)
+    ctx.fillStyle = '#3a3a3e'; ctx.fillRect(5,5,6,6);
+    ctx.fillStyle = '#56565c'; ctx.fillRect(6,6,4,4);
+    ctx.fillStyle = '#7a7a80'; ctx.fillRect(6,6,2,2); // блик
+  });
+  TEX.button_pressed = makeTex(ctx => {
+    ctx.clearRect(0,0,16,16);
+    ctx.fillStyle = '#7a7a7a'; ctx.fillRect(3,3,10,10);
+    ctx.fillStyle = '#5a5a5a'; ctx.fillRect(3,12,10,1); ctx.fillRect(12,3,1,10);
+    ctx.fillStyle = '#9a9a9a'; ctx.fillRect(3,3,10,1); ctx.fillRect(3,3,1,10);
+    // кнопка вдавлена
+    ctx.fillStyle = '#2a2a2e'; ctx.fillRect(5,5,6,6);
+    ctx.fillStyle = '#3a3a3e'; ctx.fillRect(6,6,4,4);
+  });
+  // поршень: корпус + лицевая панель
+  TEX.piston_side = makeTex(ctx => {
+    pixelFill(ctx, ['#8a7a5a','#7a6a4a','#9a8a6a','#6a5a3a'], [5,4,3,2], 4040);
+    // болты по углам
+    ctx.fillStyle = '#3a3a3e'; ctx.fillRect(2,2,2,2); ctx.fillRect(12,2,2,2); ctx.fillRect(2,12,2,2); ctx.fillRect(12,12,2,2);
+    ctx.fillStyle = '#56565c'; ctx.fillRect(2,2,1,1); ctx.fillRect(12,2,1,1); ctx.fillRect(2,12,1,1); ctx.fillRect(12,12,1,1);
+  });
+  TEX.piston_top = makeTex(ctx => {
+    pixelFill(ctx, ['#8a7a5a','#7a6a4a','#9a8a6a','#6a5a3a'], [5,4,3,2], 4041);
+  });
+  TEX.piston_face = makeTex(ctx => {
+    // серая металлическая лицевая панель
+    pixelFill(ctx, ['#6a6a6e','#5a5a5e','#7a7a7e','#4a4a4e'], [5,4,3,2], 4042);
+    // центральная втулка (куда выходит шток)
+    ctx.fillStyle = '#3a3a3e'; ctx.fillRect(5,5,6,6);
+    ctx.fillStyle = '#5a5a5e'; ctx.fillRect(6,6,4,4);
+  });
+  // голова поршня (выдвинутая) — деревянная plank-плита на штоке
+  TEX.piston_head_face = makeTex(ctx => {
+    pixelFill(ctx, ['#b98e4d','#a87e3d','#c99e5d','#976e2d'], [5,4,3,2], 4043);
+  });
+  TEX.piston_head_side = makeTex(ctx => {
+    // шток (каменный стержень) + деревянная голова сверху
+    ctx.fillStyle = '#7a7a7e'; ctx.fillRect(6,0,4,8);  // шток
+    ctx.fillStyle = '#5a5a5e'; ctx.fillRect(6,0,1,8); ctx.fillStyle = '#9a9a9e'; ctx.fillRect(9,0,1,8);
+    ctx.fillStyle = '#b98e4d'; ctx.fillRect(2,8,12,8); // голова-плита
+    ctx.fillStyle = '#a87e3d'; ctx.fillRect(2,14,12,2);
+  });
 }
 
 buildTextures();
@@ -1174,6 +1241,30 @@ function buildMaterials() {
     return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true });
   })();
   MATERIALS[BLOCK.LEVER] = [mLever, mLever, mLever, mLever, mLever, mLever];
+
+  // Кнопка — билборд на стене (как рычаг), есть нажатое состояние
+  const mButton = (() => {
+    const t = new THREE.CanvasTexture(TEX.button);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true });
+  })();
+  const mButtonPressed = (() => {
+    const t = new THREE.CanvasTexture(TEX.button_pressed);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
+    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true });
+  })();
+  MATERIALS[BLOCK.BUTTON] = [mButton, mButton, mButton, mButton, mButton, mButton];
+  MATERIALS.BUTTON_PRESSED = [mButtonPressed, mButtonPressed, mButtonPressed, mButtonPressed, mButtonPressed, mButtonPressed];
+
+  // Поршень: корпус (бока/верх) + лицевая панель по направлению (facing)
+  const mPistonSide = texToMaterial(TEX.piston_side);
+  const mPistonTop  = texToMaterial(TEX.piston_top);
+  const mPistonFace = texToMaterial(TEX.piston_face);
+  MATERIALS[BLOCK.PISTON] = [mPistonSide, mPistonSide, mPistonTop, mPistonTop, mPistonFace, mPistonSide];
+  // голова поршня: лицевая плита + бока со штоком
+  const mPistonHeadFace = texToMaterial(TEX.piston_head_face);
+  const mPistonHeadSide = texToMaterial(TEX.piston_head_side);
+  MATERIALS[BLOCK.PISTON_HEAD] = [mPistonHeadSide, mPistonHeadSide, mPistonHeadFace, mPistonHeadFace, mPistonHeadFace, mPistonHeadSide];
 }
 buildMaterials();
 
@@ -1367,6 +1458,9 @@ function makeDimStore() {
     entMobs: [],             // снимок мобов измерения (когда оно не активно/при сохранении)
     entDrops: [],            // снимок выпавших предметов
     portals: [],             // [{x,y,z}] — координаты активных порталов (для связывания/мультипорталов)
+    levers: new Map(),       // "x,y,z" -> {on:bool, facing} — состояние рычагов
+    buttons: new Map(),      // "x,y,z" -> {pressed:bool, timer:sec, facing}
+    pistons: new Set(),      // "x,y,z" выдвинутых поршней
   };
 }
 
@@ -2228,7 +2322,7 @@ const CAN_ORIENT = {};
  BLOCK.COBBLESTONE, BLOCK.GLASS, BLOCK.LEAVES, BLOCK.COAL_ORE,
  BLOCK.IRON_ORE, BLOCK.COPPER_ORE,
  BLOCK.BED_FOOT, BLOCK.BED_HEAD, BLOCK.REDSTONE_TORCH, BLOCK.LEVER,
- BLOCK.REDSTONE_DUST].forEach(b => CAN_ORIENT[b] = true);
+ BLOCK.REDSTONE_DUST, BLOCK.BUTTON, BLOCK.PISTON, BLOCK.PISTON_HEAD].forEach(b => CAN_ORIENT[b] = true);
 
 // ============================================================
 //  Цикл день/ночь
@@ -2271,7 +2365,8 @@ function lightPasses(b) {
          b === BLOCK.LEAVES || b === BLOCK.GLASS || isDoor(b) ||
          b === BLOCK.LAVA || b === BLOCK.LAVA_FLOW || b === BLOCK.FIRE ||
          b === BLOCK.NETHER_PORTAL || b === BLOCK.TORCH ||
-         b === BLOCK.REDSTONE_DUST || b === BLOCK.REDSTONE_TORCH || b === BLOCK.LEVER;
+         b === BLOCK.REDSTONE_DUST || b === BLOCK.REDSTONE_TORCH || b === BLOCK.LEVER ||
+         b === BLOCK.BUTTON || b === BLOCK.PISTON_HEAD;
 }
 // сколько света излучает блок (0..15)
 function lightEmission(b) {
@@ -2580,6 +2675,103 @@ function buildChunkMesh(c) {
           continue;
         }
 
+        // ---- Кнопка: каменная плита-основание + нажимная кнопка (билборд по facing) ----
+        if (b === BLOCK.BUTTON) {
+          const st = buttonState(wx, y, wz); // {pressed, facing}
+          const mat = st.pressed ? MATERIALS.BUTTON_PRESSED[0] : MATERIALS[BLOCK.BUTTON][0];
+          const mi = getMatIndex(mat);
+          let buf = byMat.get(mi);
+          if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
+          const bl = faceBrightness(c, lx, y, lz);
+          const addQuad = (p, nrm) => {
+            const base = buf.positions.length/3;
+            for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(bl,bl,bl); }
+            buf.uvs.push(0,0,1,0,1,1,0,1);
+            buf.indices.push(base,base+1,base+2,base,base+2,base+3);
+          };
+          // ориентация: на полу — FACE_PY, на стене — боковая
+          const fr = st.facing;
+          // билборд-кнопка: плоская панель, смещённая к «лицу»
+          let cx=0.5, cy=0.5, cz=0.5, ax='z', dir=1;
+          if (fr === FACE_PY) { cy = 0.0; ax='y'; dir=1; }
+          else if (fr === FACE_PX) { cx = 0.15; ax='x'; dir=1; }
+          else if (fr === FACE_NX) { cx = 0.85; ax='x'; dir=-1; }
+          else if (fr === FACE_PZ) { cz = 0.15; ax='z'; dir=1; }
+          else if (fr === FACE_NZ) { cz = 0.85; ax='z'; dir=-1; }
+          const press = st.pressed ? 0.02 : 0.06; // толщина кнопки
+          const sz = 0.18; // половина размера
+          // рисуем плоскую панель перпендикулярно оси
+          if (ax === 'z') {
+            const z0 = cz;
+            addQuad([[cx-sz,cy-sz,z0],[cx+sz,cy-sz,z0],[cx+sz,cy+sz,z0],[cx-sz,cy+sz,z0]],[0,0,dir]);
+          } else if (ax === 'x') {
+            const x0 = cx;
+            addQuad([[x0,cy-sz,cz-sz],[x0,cy-sz,cz+sz],[x0,cy+sz,cz+sz],[x0,cy+sz,cz-sz]],[dir,0,0]);
+          } else { // y — на полу, кнопка сверху
+            const y0 = cy + 0.0;
+            addQuad([[cx-sz,y0,cz-sz],[cx+sz,y0,cz-sz],[cx+sz,y0,cz+sz],[cx-sz,y0,cz+sz]],[0,dir,0]);
+          }
+          continue;
+        }
+
+        // ---- Поршень: корпус + лицевая панель по facing ----
+        if (b === BLOCK.PISTON) {
+          const extended = pistonExtended(wx, y, wz);
+          const mats = MATERIALS[BLOCK.PISTON];
+          // Переставляем грани так, чтобы лицевая панель (по умолчанию +Z) смотрела по facing
+          const fr = (hasFacing) ? World.facing.get(wx + ',' + y + ',' + wz) : undefined;
+          const blockMats = (fr !== undefined) ? orientedMaterialsFrom(mats, fr, false) : mats;
+          const bl = faceBrightness(c, lx, y, lz);
+          const blSide = bl * 0.82, blBot = bl * 0.6;
+          // корпус — полный куб (упрощённо), но если выдвинут — лицевая грань «утоплена»
+          for (const f of FACES) {
+            const nb = World.getBlock(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
+            if (!isTransparent(nb) && !(nb === BLOCK.PISTON_HEAD)) continue;
+            const material = blockMats[f.mat];
+            const mi = getMatIndex(material);
+            let buf = byMat.get(mi);
+            if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
+            let brt = f.dir[1] === 1 ? bl : (f.dir[1] === -1 ? blBot : blSide);
+            const base = buf.positions.length / 3;
+            for (const cv of f.corners) {
+              buf.positions.push(lx + cv[0], y + cv[1], lz + cv[2]);
+              buf.normals.push(f.dir[0], f.dir[1], f.dir[2]);
+              buf.colors.push(brt, brt, brt);
+            }
+            buf.uvs.push(0,0, 1,0, 1,1, 0,1);
+            buf.indices.push(base,base+1,base+2, base,base+2,base+3);
+          }
+          continue;
+        }
+
+        // ---- Голова поршня (выдвинутая): тонкая плита по facing ----
+        if (b === BLOCK.PISTON_HEAD) {
+          const mats = MATERIALS[BLOCK.PISTON_HEAD];
+          const fr = (hasFacing) ? World.facing.get(wx + ',' + y + ',' + wz) : undefined;
+          const blockMats = (fr !== undefined) ? orientedMaterialsFrom(mats, fr, false) : mats;
+          const bl = faceBrightness(c, lx, y, lz);
+          const blSide = bl * 0.82, blBot = bl * 0.6;
+          // плита толщиной 0.4, смещённая к «лицу» (упрощённо — полный куб)
+          for (const f of FACES) {
+            const nb = World.getBlock(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
+            if (!isTransparent(nb) && nb !== BLOCK.PISTON) continue;
+            const material = blockMats[f.mat];
+            const mi = getMatIndex(material);
+            let buf = byMat.get(mi);
+            if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
+            let brt = f.dir[1] === 1 ? bl : (f.dir[1] === -1 ? blBot : blSide);
+            const base = buf.positions.length / 3;
+            for (const cv of f.corners) {
+              buf.positions.push(lx + cv[0], y + cv[1], lz + cv[2]);
+              buf.normals.push(f.dir[0], f.dir[1], f.dir[2]);
+              buf.colors.push(brt, brt, brt);
+            }
+            buf.uvs.push(0,0, 1,0, 1,1, 0,1);
+            buf.indices.push(base,base+1,base+2, base,base+2,base+3);
+          }
+          continue;
+        }
+
         // ---- Редстоуновая пыль: плоский «ковёр» на верхней грани блока снизу ----
         if (b === BLOCK.REDSTONE_DUST) {
           const pwr = redstonePowerAt(wx, y, wz);
@@ -2646,6 +2838,30 @@ function buildChunkMesh(c) {
 
         const liquid = isLiquid(b);
         const lava = isLavaLiquid(b);
+
+        // ОПТИМИЗАЦИЯ FACE CULLING: если это обычный твёрдый блок и ВСЕ 6 соседей
+        // непрозрачны — ни одна грань не видна, пропускаем блок целиком.
+        // Это убирает миллионы невидимых полигонов в глубине камня/земли.
+        if (!liquid) {
+          const nbP = World.getBlock(wx+1, y, wz);
+          if (OPAQUE[nbP]) {
+            const nbN = World.getBlock(wx-1, y, wz);
+            if (OPAQUE[nbN]) {
+              const nbUp = World.getBlock(wx, y+1, wz);
+              if (OPAQUE[nbUp]) {
+                const nbDn = World.getBlock(wx, y-1, wz);
+                if (OPAQUE[nbDn]) {
+                  const nbZP = World.getBlock(wx, y, wz+1);
+                  if (OPAQUE[nbZP]) {
+                    const nbZN = World.getBlock(wx, y, wz-1);
+                    if (OPAQUE[nbZN]) continue; // полностью погребён — пропускаем
+                  }
+                }
+              }
+            }
+          }
+        }
+
         // материалы с учётом ориентации блока.
         // ОПТИМИЗАЦИЯ: строковый ключ facing считаем только для ориентируемых блоков
         // и только если в мире вообще есть записи facing — иначе пропускаем аллокацию строк.
@@ -2717,7 +2933,8 @@ function buildChunkMesh(c) {
             }
           } else {
             // твёрдый блок: грань видна, если сосед прозрачный (воздух/вода/листва)
-            if (!isTransparent(nb)) continue;
+            // используем быстрый OPAQUE-lookup вместо вызова функции isTransparent
+            if (OPAQUE[nb]) continue;
             // между двумя блоками листвы грань не рисуем (избегаем двойных граней)
             if (b === BLOCK.LEAVES && nb === BLOCK.LEAVES) continue;
             if (b === BLOCK.NETHER_PORTAL && nb === BLOCK.NETHER_PORTAL) continue;
@@ -2840,7 +3057,7 @@ function makeCloudTexture() {
   const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
   return t;
 }
-const CLOUD_Y = 60, CLOUD_AREA = 260;
+const CLOUD_Y = 135, CLOUD_AREA = 260;
 function buildClouds() {
   for (const cl of clouds) cloudGroup.remove(cl.mesh);
   clouds.length = 0;
@@ -3093,6 +3310,9 @@ const WorldManager = {
       mobs: (s.entMobs || []).map(m => ({ t: m.type, x: m.x, y: m.y, z: m.z, yaw: m.yaw, hp: m.hp, sh: m.sheared?1:0 })),
       drops: (s.entDrops || []).map(d => ({ id: d.id, x: d.x, y: d.y, z: d.z })),
       portals: (s.portals || []).map(p => p.x + ',' + p.y + ',' + p.z),
+      levers: Array.from((s.levers || new Map()).entries()).map(([k, v]) => k + ':' + (v.on ? 1 : 0) + ':' + (v.facing === undefined ? -1 : v.facing)),
+      buttons: Array.from((s.buttons || new Map()).entries()).map(([k, v]) => k + ':' + (v.facing === undefined ? -1 : v.facing)),
+      pistons: Array.from(s.pistons || []),
     };
   },
   // восстановить состояние измерения из объекта
@@ -3107,6 +3327,12 @@ const WorldManager = {
     s.entMobs = (d.mobs || []).map(m => ({ type: m.t, x: m.x, y: m.y, z: m.z, yaw: m.yaw||0, hp: m.hp, sheared: !!m.sh }));
     s.entDrops = (d.drops || []).map(dr => ({ id: dr.id, x: dr.x, y: dr.y, z: dr.z }));
     s.portals = (d.portals || []).map(e => { const [x,y,z] = e.split(',').map(Number); return { x, y, z }; });
+    // редстоун-состояние
+    s.levers = new Map();
+    for (const e of (d.levers || [])) { const p = e.split(':'); const on = p[1]==='1'; const facing = parseInt(p[2],10); s.levers.set(p[0], { on, facing: facing<0 ? undefined : facing }); }
+    s.buttons = new Map();
+    for (const e of (d.buttons || [])) { const p = e.split(':'); const facing = parseInt(p[1],10); s.buttons.set(p[0], { pressed: false, timer: 0, facing: facing<0 ? undefined : facing }); }
+    s.pistons = new Set(d.pistons || []);
   },
 
   save() {
@@ -3236,6 +3462,10 @@ function captureDimEntities() {
     yaw: m.yaw, hp: m.hp, sheared: !!m.sheared,
   }));
   s.entDrops = drops.map(d => ({ id: d.id, x: d.pos.x, y: d.pos.y, z: d.pos.z }));
+  // сохранить состояние редстоуна (рычаги/кнопки/поршни) в стор измерения
+  s.levers = leverStates;
+  s.buttons = buttonStates;
+  s.pistons = pistonExtendedSet;
 }
 // Восстановить сущности активного измерения из стора (и очистить снимок).
 function restoreDimEntities() {
@@ -3257,6 +3487,10 @@ function restoreDimEntities() {
     if (d) { d.vel.set(0,0,0); d.pickDelay = 0; } // не подпрыгивать заново
   }
   s.entMobs = []; s.entDrops = [];
+  // восстановить состояние редстоуна из стора в глобальные переменные
+  leverStates = s.levers || new Map();
+  buttonStates = s.buttons || new Map();
+  pistonExtendedSet = s.pistons || new Set();
 }
 
 // ============================================================
@@ -3958,6 +4192,9 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.REDSTONE_DUST) { ctx.fillStyle = '#3a3a3e'; ctx.fillRect(0,0,size,size); tex = TEX.redstone_dust; }
   else if (id === BLOCK.REDSTONE_TORCH) tex = TEX.redstone_torch;
   else if (id === BLOCK.LEVER) tex = TEX.lever;
+  else if (id === BLOCK.BUTTON) tex = TEX.button;
+  else if (id === BLOCK.PISTON) tex = TEX.piston_face;
+  else if (id === BLOCK.PISTON_HEAD) tex = TEX.piston_head_face;
   else if (id === BLOCK.WOOL) tex = TEX.wool;
   else if (id === BLOCK.GLASS) tex = TEX.glass;
   else if (id === BLOCK.FURNACE) tex = TEX.furnace_front;
@@ -4160,6 +4397,13 @@ const RECIPES = [
   // редстоуновый факел: редстоун над палкой -> 1 факел
   { shaped: true, w: 1, h: 2,
     cells: [ITEM.REDSTONE, S], result: { id: BLOCK.REDSTONE_TORCH, count: 1 } },
+  // кнопка: 1 булыжник (одиночный блок) -> 1 кнопка
+  { shaped: true, w: 1, h: 1, cells: [C], result: { id: BLOCK.BUTTON, count: 1 } },
+  // поршень: 3 доски сверху + 4 булыжника + железо + редстоун (3x3)
+  { shaped: true, w: 3, h: 3, need3x3: true,
+    cells: [P,P,P,
+            C,I,C,
+            C,ITEM.REDSTONE,C], result: { id: BLOCK.PISTON, count: 1 } },
 ];
 
 // нормализовать содержимое сетки крафта к компактной матрице (обрезать пустые края)
@@ -4796,39 +5040,103 @@ function playSound(kind, block) {
     // стрижка — шуршащий «вжик»
     noiseBurst(0.22, 3200, 0.28, 'highpass');
   } else if (kind === 'cave') {
-    // жуткий пещерный эмбиент — низкий гул + далёкий звук
+    // жуткий пещерный эмбиент — выбираем случайный вариант из набора
     playCaveAmbient();
+  } else if (kind === 'piston') {
+    // поршень — механический «вжик» с лёгким стуком
+    tone(180, 0.08, 0.3, 'square');
+    noiseBurst(0.12, 1200, 0.2, 'lowpass');
+    setTimeout(() => tone(140, 0.06, 0.18, 'square'), 70);
   }
 }
 
 // пещерный эмбиент: случайные жуткие звуки под землём при низком освещении
+// пещерный эмбиент: набор из 4 вариантов жутких звуков (выбирается случайно)
 function playCaveAmbient() {
   if (!AudioEngine.ctx) return;
+  const variant = Math.floor(Math.random() * 4);
+  if (variant === 0) {
+    // низкий гул + далёкий звон (классика)
+    playCaveDrone(70, 0.12, 3.0, true);
+  } else if (variant === 1) {
+    // ветреный вой — отфильтрованный шум
+    playCaveWind();
+  } else if (variant === 2) {
+    // капли воды — редкие высокие «плонки»
+    playCaveDrips();
+  } else {
+    // далёкий рёв — низкий медленный разворот
+    playCaveDrone(55, 0.18, 4.0, false);
+  }
+}
+
+// базовый пещерный гул
+function playCaveDrone(baseFreq, gainVal, dur, withOvertone) {
   const ctx = AudioEngine.ctx;
   const t0 = ctx.currentTime;
-  // низкий гул
   const osc = ctx.createOscillator(); osc.type = 'sine';
-  osc.frequency.setValueAtTime(70 + Math.random()*30, t0);
-  osc.frequency.linearRampToValueAtTime(55, t0 + 2.5);
+  osc.frequency.setValueAtTime(baseFreq + Math.random()*20, t0);
+  osc.frequency.linearRampToValueAtTime(baseFreq * 0.8, t0 + dur);
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.8);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 3.0);
+  g.gain.exponentialRampToValueAtTime(gainVal, t0 + dur*0.3);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
   const filt = ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 220;
   osc.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
-  osc.start(t0); osc.stop(t0 + 3.2);
-  // далёкий «звенящий» обертон (как капля/эхо)
-  if (Math.random() < 0.6) {
+  osc.start(t0); osc.stop(t0 + dur + 0.2);
+  if (withOvertone) {
     const osc2 = ctx.createOscillator(); osc2.type = 'sine';
     const f2 = 400 + Math.random()*400;
-    osc2.frequency.setValueAtTime(f2, t0 + 1.2);
+    osc2.frequency.setValueAtTime(f2, t0 + dur*0.4);
     const g2 = ctx.createGain();
-    g2.gain.setValueAtTime(0.0001, t0 + 1.2);
-    g2.gain.exponentialRampToValueAtTime(0.05, t0 + 1.4);
-    g2.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.4);
+    g2.gain.setValueAtTime(0.0001, t0 + dur*0.4);
+    g2.gain.exponentialRampToValueAtTime(0.05, t0 + dur*0.5);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t0 + dur*0.8);
     osc2.connect(g2); g2.connect(AudioEngine.sfxGain);
-    osc2.start(t0 + 1.2); osc2.stop(t0 + 2.5);
+    osc2.start(t0 + dur*0.4); osc2.stop(t0 + dur);
   }
+}
+
+// ветреный вой в пещере
+function playCaveWind() {
+  const ctx = AudioEngine.ctx;
+  const t0 = ctx.currentTime;
+  const len = Math.floor(ctx.sampleRate * 2.5);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    const env = Math.sin(i / len * Math.PI);
+    data[i] = (Math.random()*2 - 1) * env * 0.5;
+  }
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  const filt = ctx.createBiquadFilter(); filt.type = 'bandpass'; filt.Q.value = 1.5;
+  filt.frequency.setValueAtTime(400, t0);
+  filt.frequency.linearRampToValueAtTime(900, t0 + 2.0);
+  filt.frequency.linearRampToValueAtTime(500, t0 + 2.5);
+  const g = ctx.createGain(); g.gain.value = 0.15;
+  src.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
+  src.start(t0); src.stop(t0 + 2.5);
+}
+
+// капли воды
+function playCaveDrips() {
+  const ctx = AudioEngine.ctx;
+  const t0 = ctx.currentTime;
+  const drop = (start, freq) => {
+    const osc = ctx.createOscillator(); osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, t0 + start);
+    osc.frequency.exponentialRampToValueAtTime(freq * 0.5, t0 + start + 0.15);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0 + start);
+    g.gain.exponentialRampToValueAtTime(0.18, t0 + start + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + start + 0.2);
+    osc.connect(g); g.connect(AudioEngine.sfxGain);
+    osc.start(t0 + start); osc.stop(t0 + start + 0.25);
+  };
+  drop(0.0, 1200);
+  drop(0.7, 900);
+  drop(1.5, 1400);
+  drop(2.1, 800);
 }
 
 // клохтание курицы — пара коротких высоких чирков
@@ -4973,15 +5281,19 @@ function startMusic() {
 // ============================================================
 //  Raycast по вокселям (DDA)
 // ============================================================
+// Пул-переменные для raycast (getTargetBlock вызывается каждый кадр)
+const _tmpRayDir = new THREE.Vector3();
+const _tmpRayOrigin = new THREE.Vector3();
+
 function getTargetBlock(maxDist = 6, includeLiquid = false) {
-  const dir = new THREE.Vector3(
+  const dir = _tmpRayDir.set(
     -Math.sin(PLAYER.yaw) * Math.cos(PLAYER.pitch),
     Math.sin(PLAYER.pitch),
     -Math.cos(PLAYER.yaw) * Math.cos(PLAYER.pitch)
   ).normalize();
 
   const eyeY = PLAYER.pos.y + (PLAYER.crouching ? PLAYER.crouchEye : PLAYER.eye);
-  const origin = new THREE.Vector3(PLAYER.pos.x, eyeY, PLAYER.pos.z);
+  const origin = _tmpRayOrigin.set(PLAYER.pos.x, eyeY, PLAYER.pos.z);
 
   let x = Math.floor(origin.x), y = Math.floor(origin.y), z = Math.floor(origin.z);
   const stepX = Math.sign(dir.x), stepY = Math.sign(dir.y), stepZ = Math.sign(dir.z);
@@ -6011,10 +6323,13 @@ function sleepInBed(bx, by, bz) {
   // ночь: time в районе 0.6..1.0 или 0.0..0.2; цель 0.0
   // если from > 0, идём вперёд до 1.0 (== 0.0)
   sleepTransition = {
-    from: from, to: 1.0, t: 0, dur: 2.5,
+    from: from, to: 1.3, t: 0, dur: 2.5,
     sx, sy, sz,
   };
   showToast('Спокойной ночи…');
+  // включить оверлей сна
+  const so = document.getElementById('sleepOverlay');
+  if (so) so.classList.add('on');
   playSound('pickup');
   if (typeof requestSave === 'function') requestSave();
 }
@@ -6033,11 +6348,14 @@ function updateSleepTransition(dt) {
     for (const c of World.chunks.values()) c.dirty = true;
   }
   if (k >= 1) {
-    DAY.time = 0.0;
+    DAY.time = 0.3; // утро (daylight ~0.5+)
     DAY.skyLevel = 15; DAY._lastStep = 15;
     for (const c of World.chunks.values()) c.dirty = true;
     PLAYER.spawnPoint = { x: sleepTransition.sx, y: sleepTransition.sy, z: sleepTransition.sz };
     showToast('Доброе утро! Точка возрождения установлена');
+    // выключить оверлей сна
+    const so = document.getElementById('sleepOverlay');
+    if (so) so.classList.remove('on');
     sleepTransition = null;
     if (typeof requestSave === 'function') requestSave();
   }
@@ -6238,6 +6556,9 @@ function finishBreak(t) {
   else if (broken === BLOCK.REDSTONE_DUST) dropId = ITEM.REDSTONE; // пыль подбирается
   else if (broken === BLOCK.REDSTONE_TORCH) dropId = BLOCK.REDSTONE_TORCH;
   else if (broken === BLOCK.LEVER) dropId = BLOCK.LEVER;
+  else if (broken === BLOCK.BUTTON) dropId = BLOCK.BUTTON;
+  else if (broken === BLOCK.PISTON) dropId = havePick ? BLOCK.PISTON : null;
+  else if (broken === BLOCK.PISTON_HEAD) dropId = null; // голова не выпадает
 
   if (dropId !== null) {
     for (let i = 0; i < dropCount; i++) spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
@@ -6246,9 +6567,12 @@ function finishBreak(t) {
 
   // при ломании редстоун-блоков — пересчитать сеть
   if (broken === BLOCK.REDSTONE_ORE || broken === BLOCK.REDSTONE_DUST ||
-      broken === BLOCK.REDSTONE_TORCH || broken === BLOCK.LEVER) {
+      broken === BLOCK.REDSTONE_TORCH || broken === BLOCK.LEVER ||
+      broken === BLOCK.BUTTON || broken === BLOCK.PISTON) {
     if (broken === BLOCK.REDSTONE_TORCH) World.facing.delete(World.ekey(t.x, t.y, t.z));
     if (broken === BLOCK.LEVER) { leverStates.delete(ekeyOf(t.x, t.y, t.z)); World.facing.delete(World.ekey(t.x, t.y, t.z)); }
+    if (broken === BLOCK.BUTTON) { buttonStates.delete(ekeyOf(t.x, t.y, t.z)); World.facing.delete(World.ekey(t.x, t.y, t.z)); }
+    if (broken === BLOCK.PISTON) { pistonExtendedSet.delete(ekeyOf(t.x, t.y, t.z)); World.facing.delete(World.ekey(t.x, t.y, t.z)); }
     markRedstoneDirty(t.x, t.y, t.z);
   }
   // свечение руды при ломании (визуальный эффект перед удалением)
@@ -6518,6 +6842,11 @@ function placeBlock() {
     markRedstoneDirty(t.x, t.y, t.z);
     return;
   }
+  // ПКМ по кнопке — нажать (кратковременный сигнал ~1.5 сек)
+  if (t.block === BLOCK.BUTTON) {
+    pressButton(t.x, t.y, t.z);
+    return;
+  }
   // ЛКМ-эффект на редстоуновой руде: свечение (здесь — по ПКМ для теста; основной триггер — наступание/ломание)
   if (t.block === BLOCK.REDSTONE_ORE) {
     glowRedstoneOre(t.x, t.y, t.z);
@@ -6751,6 +7080,49 @@ function placeBlock() {
     return;
   }
 
+  // ---- Кнопка: на пол/стену (как рычаг, но с авто-выключением) ----
+  if (slot.id === BLOCK.BUTTON) {
+    const fb = t.face;
+    let okSupport = false, facing;
+    if (fb[1] === 1) { okSupport = !isTransparent(World.getBlock(nx, ny - 1, nz)); facing = FACE_PY; }
+    else if (fb[1] === 0) {
+      okSupport = !isTransparent(t.block);
+      if (fb[0] === 1) facing = FACE_PX; else if (fb[0] === -1) facing = FACE_NX;
+      else if (fb[2] === 1) facing = FACE_PZ; else facing = FACE_NZ;
+    }
+    if (!okSupport) return;
+    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    refreshUI();
+    World.setBlock(nx, ny, nz, BLOCK.BUTTON);
+    if (facing !== undefined) World.facing.set(World.ekey(nx, ny, nz), facing);
+    setButtonState(nx, ny, nz, { pressed: false, timer: 0, facing });
+    rebuildAround(nx, nz);
+    playSound('place', BLOCK.STONE);
+    return;
+  }
+
+  // ---- Поршень: на пол/стену, лицо смотрит от опоры ----
+  if (slot.id === BLOCK.PISTON) {
+    const fb = t.face;
+    let okSupport = false, facing;
+    if (fb[1] === 1) { okSupport = !isTransparent(World.getBlock(nx, ny - 1, nz)); facing = FACE_PY; }
+    else if (fb[1] === -1) { okSupport = !isTransparent(World.getBlock(nx, ny + 1, nz)); facing = FACE_NY; }
+    else if (fb[1] === 0) {
+      okSupport = !isTransparent(t.block);
+      if (fb[0] === 1) facing = FACE_PX; else if (fb[0] === -1) facing = FACE_NX;
+      else if (fb[2] === 1) facing = FACE_PZ; else facing = FACE_NZ;
+    }
+    if (!okSupport) return;
+    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    refreshUI();
+    World.setBlock(nx, ny, nz, BLOCK.PISTON);
+    if (facing !== undefined) World.facing.set(World.ekey(nx, ny, nz), facing);
+    rebuildAround(nx, nz);
+    playSound('place', BLOCK.STONE);
+    markRedstoneDirty(nx, ny, nz);
+    return;
+  }
+
   // не ставить блок внутрь игрока
   if (intersectsPlayer(nx, ny, nz)) return;
 
@@ -6957,13 +7329,19 @@ function updateFurnaces(dt) {
 // карта «x,y,z» -> уровень мощности (0..15). 0 = нет сигнала (запись отсутствует).
 let redstonePower = new Map();      // активная размерность
 let leverStates = new Map();        // «x,y,z» -> {on:bool, facing}
+let buttonStates = new Map();       // «x,y,z» -> {pressed:bool, timer:sec, facing}
+let pistonExtendedSet = new Set();  // набор ekey выдвинутых поршней
 let glowingOre = new Map();         // «x,y,z» -> время до истечения свечения (сек)
+let particles = [];                 // визуальные частицы (редстоун-руда, поршень)
 
 // сброс состояния редстоуна при смене измерения
 function resetRedstoneState() {
   redstonePower = new Map();
   leverStates = new Map();
+  buttonStates = new Map();
+  pistonExtendedSet = new Set();
   glowingOre = new Map();
+  particles = [];
 }
 
 function ekeyOf(x, y, z) { return x + ',' + y + ',' + z; }
@@ -6973,6 +7351,137 @@ function leverState(x, y, z) {
   return leverStates.get(ekeyOf(x, y, z)) || { on: false, facing: FACE_PZ };
 }
 function setLeverState(x, y, z, st) { leverStates.set(ekeyOf(x, y, z), st); }
+
+// состояние кнопки: pressed + таймер до отпускания
+function buttonState(x, y, z) {
+  return buttonStates.get(ekeyOf(x, y, z)) || { pressed: false, timer: 0, facing: FACE_PZ };
+}
+function setButtonState(x, y, z, st) { buttonStates.set(ekeyOf(x, y, z), st); }
+// нажать кнопку (включить сигнал на ~1.5 сек)
+function pressButton(x, y, z) {
+  const old = buttonState(x, y, z);
+  setButtonState(x, y, z, { pressed: true, timer: 1.5, facing: old.facing });
+  rebuildAround(x, z);
+  playSound('click');
+  markRedstoneDirty(x, y, z);
+}
+// тикер кнопок: уменьшать таймер, отпускать
+function updateButtons(dt) {
+  if (buttonStates.size === 0) return;
+  const expired = [];
+  let changed = false;
+  for (const [k, st] of buttonStates) {
+    if (!st.pressed) continue;
+    st.timer -= dt;
+    if (st.timer <= 0) { expired.push(k); changed = true; }
+  }
+  for (const k of expired) {
+    const st = buttonStates.get(k);
+    buttonStates.set(k, { pressed: false, timer: 0, facing: st.facing });
+    const [x,y,z] = k.split(',').map(Number);
+    rebuildAround(x, z);
+    markRedstoneDirty(x, y, z);
+  }
+}
+
+// поршень: выдвинут ли он
+function pistonExtended(x, y, z) {
+  return pistonExtendedSet.has(ekeyOf(x, y, z));
+}
+// направление «лица» поршня (куда толкает)
+function pistonFrontDir(x, y, z) {
+  const fr = World.facing.get(ekeyOf(x, y, z));
+  if (fr === FACE_PX) return [1,0,0];
+  if (fr === FACE_NX) return [-1,0,0];
+  if (fr === FACE_PY) return [0,1,0];
+  if (fr === FACE_NY) return [0,-1,0];
+  if (fr === FACE_PZ) return [0,0,1];
+  return [0,0,-1]; // FACE_NZ
+}
+// можно ли толкнуть блок (не бедрок, не воздух, не разрушаемый)
+function isPistonPushable(b) {
+  if (b === BLOCK.AIR || b === BLOCK.BEDROCK) return false;
+  if (isLiquid(b)) return false;
+  if (b === BLOCK.PISTON || b === BLOCK.PISTON_HEAD) return false;
+  if (b === BLOCK.OBSIDIAN) return false; // обсидиан не двигается
+  return true;
+}
+// активировать поршень: если не выдвинут и спереди толкаемый блок — выдвинуть + толкнуть
+function updatePistons() {
+  // собираем все поршни в радиусе пересчёта (берём из dirty center)
+  // простой проход по всем блокам PISTON в загруженных чанках
+  const checked = new Set();
+  for (const c of World.chunks.values()) {
+    const x0 = c.cx * CHUNK_SIZE, z0 = c.cz * CHUNK_SIZE;
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) for (let lz = 0; lz < CHUNK_SIZE; lz++) for (let y = 0; y < WORLD_HEIGHT; y++) {
+      const b = c.blocks[idx(lx, y, lz)];
+      if (b !== BLOCK.PISTON) continue;
+      const wx = x0 + lx, wz = z0 + lz;
+      const k = ekeyOf(wx, y, wz);
+      if (checked.has(k)) continue;
+      checked.add(k);
+      const [dx,dy,dz] = pistonFrontDir(wx, y, wz);
+      // поршень питается от соседних блоков с сигналом (пыль/факел/рычаг/кнопка рядом)
+      let powered = redstonePowerAt(wx, y, wz) > 0 || sourcePowerAt(wx, y, wz) > 0;
+      if (!powered) {
+        const neigh = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+        for (const d of neigh) {
+          const nx=wx+d[0], ny2=y+d[1], nz=wz+d[2];
+          if (redstonePowerAt(nx, ny2, nz) > 0 || sourcePowerAt(nx, ny2, nz) > 0) { powered = true; break; }
+        }
+      }
+      const extended = pistonExtendedSet.has(k);
+      if (powered && !extended) {
+        // выдвинуть: проверить, что спереди можно толкнуть (или воздух)
+        const tx = wx+dx, ty = y+dy, tz = wz+dz;
+        const tb = World.getBlock(tx, ty, tz);
+        if (tb === BLOCK.AIR || isLiquid(tb)) {
+          // просто выдвинуть голову, ничего не толкая
+          pistonExtendedSet.add(k);
+          rebuildAround(wx, wz); rebuildAround(tx, tz);
+          playSound('piston');
+          // частицы пыли
+          spawnParticles(tx + 0.5, ty + 0.5, tz + 0.5, 6, '#9a9a9a');
+        } else if (isPistonPushable(tb)) {
+          // посчитать цепочку толкаемых блоков (до 12, как в MC)
+          const chain = [];
+          let cx2 = tx, cy2 = ty, cz2 = tz;
+          let ok = true;
+          for (let i = 0; i < 12; i++) {
+            const cb = World.getBlock(cx2, cy2, cz2);
+            if (cb === BLOCK.AIR || isLiquid(cb)) break;
+            if (!isPistonPushable(cb)) { ok = false; break; }
+            chain.push({x:cx2, y:cy2, z:cz2, b:cb});
+            cx2 += dx; cy2 += dy; cz2 += dz;
+          }
+          if (ok) {
+            // место после последнего блока цепочки
+            const last = chain.length ? chain[chain.length-1] : null;
+            const beyond = last ? {x:last.x+dx, y:last.y+dy, z:last.z+dz} : {x:tx, y:ty, z:tz};
+            const bb = World.getBlock(beyond.x, beyond.y, beyond.z);
+            if (bb === BLOCK.AIR || isLiquid(bb)) {
+              // сдвинуть цепочку на 1 (с конца)
+              for (let i = chain.length-1; i >= 0; i--) {
+                const it = chain[i];
+                World.setBlock(it.x, it.y, it.z, BLOCK.AIR, true);
+                World.setBlock(it.x+dx, it.y+dy, it.z+dz, it.b, true);
+              }
+              pistonExtendedSet.add(k);
+              rebuildAround(wx, wz); rebuildAround(tx, tz); rebuildAround(beyond.x, beyond.z);
+              playSound('piston');
+              spawnParticles(tx + 0.5, ty + 0.5, tz + 0.5, 8, '#9a9a9a');
+            }
+          }
+        }
+      } else if (!powered && extended) {
+        // задвинуть
+        pistonExtendedSet.delete(k);
+        rebuildAround(wx, wz); rebuildAround(wx+dx, wz+dz);
+        playSound('piston');
+      }
+    }
+  }
+}
 
 // уровень мощности в точке
 function redstonePowerAt(x, y, z) {
@@ -6995,9 +7504,9 @@ function redstoneTorchPowered(x, y, z) {
   return redstonePowerAt(sx, sy, sz) > 0;
 }
 
-// является ли блок источником сигнала (факел/рычаг)
+// является ли блок источником сигнала (факел/рычаг/кнопка)
 function isRedstoneSource(b) {
-  return b === BLOCK.REDSTONE_TORCH || b === BLOCK.LEVER;
+  return b === BLOCK.REDSTONE_TORCH || b === BLOCK.LEVER || b === BLOCK.BUTTON;
 }
 // проводник сигнала
 function isRedstoneConductor(b) {
@@ -7008,6 +7517,7 @@ function isRedstoneConductor(b) {
 function sourcePowerAt(x, y, z) {
   const b = World.getBlock(x, y, z);
   if (b === BLOCK.LEVER) return leverState(x, y, z).on ? 15 : 0;
+  if (b === BLOCK.BUTTON) return buttonState(x, y, z).pressed ? 15 : 0;
   if (b === BLOCK.REDSTONE_TORCH) return redstoneTorchPowered(x, y, z) ? 0 : 15;
   return 0;
 }
@@ -7046,6 +7556,7 @@ function updateRedstone() {
       for (let z = minZ; z <= maxZ; z++) {
         const b = World.getBlock(x, y, z);
         if (b === BLOCK.LEVER && leverState(x,y,z).on) { setP(x,y,z,15); queue.push({x,y,z,p:15}); }
+        else if (b === BLOCK.BUTTON && buttonState(x,y,z).pressed) { setP(x,y,z,15); queue.push({x,y,z,p:15}); }
         else if (b === BLOCK.REDSTONE_TORCH && !redstoneTorchPowered(x,y,z)) { setP(x,y,z,15); queue.push({x,y,z,p:15}); }
       }
   // 2) распространение по пыли (BFS)
@@ -7087,7 +7598,10 @@ function updateRedstone() {
   // 4) синхронизировать двери: открыть, если рядом есть сигнал
   syncDoorsWithRedstone(minX,maxX,minY,maxY,minZ,maxZ);
 
-  // 5) перестроить изменившиеся чанки
+  // 5) активировать поршни (толкают/задвигают по изменению сигнала)
+  updatePistons();
+
+  // 6) перестроить изменившиеся чанки
   for (const k of changed) {
     const [cx2, cz2] = k.split(',').map(Number);
     for (let dx=-1;dx<=1;dx++) for (let dz=-1;dz<=1;dz++) World.markDirty(cx2+dx, cz2+dz);
@@ -7107,6 +7621,7 @@ function syncDoorsWithRedstone(minX,maxX,minY,maxY,minZ,maxZ) {
     for (const [cx,cy,cz] of checks) {
       const b = World.getBlock(cx,cy,cz);
       if (b === BLOCK.LEVER && leverState(cx,cy,cz).on) { powered = true; break; }
+      if (b === BLOCK.BUTTON && buttonState(cx,cy,cz).pressed) { powered = true; break; }
       if (b === BLOCK.REDSTONE_TORCH && !redstoneTorchPowered(cx,cy,cz)) { powered = true; break; }
       if (redstonePowerAt(cx,cy,cz) > 0) { powered = true; break; }
     }
@@ -7122,6 +7637,8 @@ function syncDoorsWithRedstone(minX,maxX,minY,maxY,minZ,maxZ) {
 function glowRedstoneOre(x, y, z) {
   glowingOre.set(ekeyOf(x, y, z), 3.0);
   rebuildAround(x, z);
+  // частицы активации (красные искры)
+  spawnParticles(x + 0.5, y + 0.5, z + 0.5, 10, '#ff4030');
 }
 // тикер свечения руды
 function updateGlowingOre(dt) {
@@ -7136,6 +7653,52 @@ function updateGlowingOre(dt) {
     glowingOre.delete(k);
     const [x,,z] = k.split(',').map(Number);
     rebuildAround(x, z);
+  }
+}
+
+// ============================================================
+//  Система частиц (визуальные эффекты: руда, поршень, шаги)
+// ============================================================
+let particleGroup = null;
+function initParticles() {
+  if (particleGroup) return;
+  particleGroup = new THREE.Group();
+  scene.add(particleGroup);
+}
+function spawnParticles(x, y, z, count, color) {
+  if (!particleGroup) initParticles();
+  for (let i = 0; i < count; i++) {
+    const geo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 });
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x + (Math.random()-0.5)*0.4, y + (Math.random()-0.5)*0.4, z + (Math.random()-0.5)*0.4);
+    particleGroup.add(m);
+    particles.push({
+      mesh: m,
+      vel: new THREE.Vector3((Math.random()-0.5)*2.5, 1.5 + Math.random()*1.5, (Math.random()-0.5)*2.5),
+      life: 0.6 + Math.random()*0.4,
+      maxLife: 1.0,
+    });
+  }
+}
+function updateParticles(dt) {
+  if (particles.length === 0) return;
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt;
+    if (p.life <= 0) {
+      if (particleGroup) particleGroup.remove(p.mesh);
+      p.mesh.geometry.dispose();
+      p.mesh.material.dispose();
+      particles.splice(i, 1);
+      continue;
+    }
+    p.vel.y -= 6 * dt; // гравитация частиц
+    p.mesh.position.x += p.vel.x * dt;
+    p.mesh.position.y += p.vel.y * dt;
+    p.mesh.position.z += p.vel.z * dt;
+    p.mesh.material.opacity = Math.max(0, p.life / p.maxLife);
+    p.mesh.scale.setScalar(Math.max(0.1, p.life / p.maxLife));
   }
 }
 
@@ -7382,6 +7945,11 @@ function antiSuffocate(dt) {
   PLAYER.onGround = false;
 }
 
+// Пул-переменные для устранения per-frame аллокаций (GC-оптимизация)
+const _tmpFwd = new THREE.Vector3();
+const _tmpRight = new THREE.Vector3();
+const _tmpMove = new THREE.Vector3();
+
 function updatePlayer(dt) {
   PLAYER.crouching = !!keys['ShiftLeft'];
 
@@ -7399,10 +7967,11 @@ function updatePlayer(dt) {
   }
 
   // направление ввода (относительно взгляда по горизонтали)
-  const forward = new THREE.Vector3(-Math.sin(PLAYER.yaw), 0, -Math.cos(PLAYER.yaw));
-  const right = new THREE.Vector3(Math.cos(PLAYER.yaw), 0, -Math.sin(PLAYER.yaw));
+  // используем пул-переменные вместо new THREE.Vector3 каждый кадр
+  const forward = _tmpFwd.set(-Math.sin(PLAYER.yaw), 0, -Math.cos(PLAYER.yaw));
+  const right = _tmpRight.set(Math.cos(PLAYER.yaw), 0, -Math.sin(PLAYER.yaw));
 
-  const move = new THREE.Vector3();
+  const move = _tmpMove.set(0, 0, 0);
   if (keys['KeyW']) move.add(forward);
   if (keys['KeyS']) move.sub(forward);
   if (keys['KeyD']) move.add(right);
@@ -8062,6 +8631,35 @@ function updateHUD(t) {
     `Чанков: ${loadedMeshes.size} · FPS: ${fps}<br>` +
     `${PLAYER.inWater ? 'В воде' : (PLAYER.crouching ? 'Присел' : 'Выживание')}<br>` +
     `Цель: ${targetName}`;
+  // всплывающая подсказка с названием блока под прицелом
+  const tip = document.getElementById('blockTooltip');
+  if (tip) {
+    if (t && t.block !== BLOCK.AIR) {
+      const held = activeItem();
+      let txt = BLOCK_NAMES[t.block] || '';
+      if (held && held.id && BLOCK_NAMES[held.id]) {
+        txt += '  ·  ' + BLOCK_NAMES[held.id];
+      }
+      tip.textContent = txt;
+      tip.classList.add('on');
+    } else {
+      tip.classList.remove('on');
+    }
+  }
+  // индикатор времени суток
+  const ti = document.getElementById('timeIcon');
+  const tl = document.getElementById('timeLabel');
+  if (ti && tl) {
+    const dl = daylight();
+    let icon, label;
+    if (World.dim === 'nether') { icon = '🔥'; label = 'Ад'; }
+    else if (dl > 0.7) { icon = '☀'; label = 'День'; }
+    else if (dl > 0.3) { icon = '🌤'; label = dl > 0.5 ? 'День' : 'Сумерки'; }
+    else if (dl > 0.05) { icon = '🌆'; label = 'Закат'; }
+    else { icon = '🌙'; label = 'Ночь'; }
+    if (sleepTransition) { icon = '💤'; label = 'Спим…'; }
+    ti.textContent = icon; tl.textContent = label;
+  }
 }
 
 // ============================================================
@@ -8098,6 +8696,8 @@ function loop(now) {
   updateDayNight(dt);
   updateSleepTransition(dt);
   updateGlowingOre(dt);
+  updateButtons(dt);
+  updateParticles(dt);
   updateRedstone();
   updateAmbientSounds(dt);
   if (!PLAYER.dead && overlay.classList.contains('hidden')) updateBoats(dt);
@@ -8341,13 +8941,213 @@ function showSaveToast() {
 // клавиши: O — сохранить, Esc — меню (когда не открыт инвентарь)
 document.addEventListener('keydown', (e) => {
   if (!gameStarted) return;
+  // чат: T или / открывают окно ввода
+  if (!chatOpen && !invOpen && (e.code === 'KeyT' || (e.key === '/' && e.code !== 'NumpadDivide'))) {
+    e.preventDefault();
+    openChat(e.key === '/');
+    return;
+  }
   if (e.code === 'KeyO') {
     if (WorldManager.save()) showSaveToast();
   }
   if (e.code === 'Escape') {
+    if (chatOpen) { closeChat(); return; }
     if (invOpen) toggleInventory();   // открыт инвентарь -> закрыть его
     else openMenu();                  // иначе -> меню/пауза
   }
+});
+
+// ============================================================
+//  Чат (T / /) — окно ввода + лог сообщений
+// ============================================================
+const chatBoxEl = document.getElementById('chatBox');
+const chatLogEl = document.getElementById('chatLog');
+const chatInputEl = document.getElementById('chatInput');
+const chatMiniEl = document.getElementById('chatMini');
+let chatOpen = false;
+let chatHistory = []; // последние сообщения {text, cls}
+const CHAT_HISTORY_MAX = 8;
+
+function addChatMessage(text, cls) {
+  cls = cls || '';
+  chatHistory.push({ text, cls });
+  if (chatHistory.length > CHAT_HISTORY_MAX) chatHistory.shift();
+  // добавить в полный лог
+  const line = document.createElement('div');
+  line.className = 'chat-line ' + cls;
+  line.textContent = text;
+  chatLogEl.appendChild(line);
+  chatLogEl.scrollTop = chatLogEl.scrollHeight;
+  // обновить мини-лог
+  renderChatMini();
+}
+function renderChatMini() {
+  chatMiniEl.innerHTML = '';
+  for (const m of chatHistory) {
+    const line = document.createElement('div');
+    line.className = 'chat-line ' + (m.cls || '');
+    line.textContent = m.text;
+    chatMiniEl.appendChild(line);
+  }
+}
+function openChat(withSlash) {
+  if (chatOpen) return;
+  chatOpen = true;
+  chatBoxEl.classList.add('open');
+  chatMiniEl.style.display = 'none';
+  chatInputEl.value = withSlash ? '/' : '';
+  chatInputEl.focus();
+  // снять захват указателя, чтобы можно было печатать
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+function closeChat() {
+  chatOpen = false;
+  chatBoxEl.classList.remove('open');
+  chatInputEl.blur();
+  chatMiniEl.style.display = '';
+  // вернуть захват указателя при клике на канвас
+}
+chatInputEl.addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.code === 'Escape') { e.preventDefault(); closeChat(); return; }
+  if (e.code === 'Enter') {
+    e.preventDefault();
+    const msg = chatInputEl.value.trim();
+    chatInputEl.value = '';
+    if (!msg) { closeChat(); return; }
+    // обработка команд
+    if (msg.startsWith('/')) {
+      const cmd = msg.slice(1).toLowerCase().split(/\s+/)[0];
+      if (cmd === 'help' || cmd === '?') {
+        addChatMessage('Команд нету пока-что, они на стадии разработки. И в этом мире их нельзя будет использовать, так как тут они изначально не включены', 'chat-sys');
+      } else {
+        addChatMessage('Неизвестная команда: /' + cmd + '. Введите /help', 'chat-sys');
+      }
+    } else {
+      // обычное сообщение от игрока
+      const nick = (getPlayerNick() || 'Игрок');
+      addChatMessage('<' + nick + '> ' + msg, 'chat-me');
+    }
+    closeChat();
+  }
+});
+// блокировать игровые клавиши пока чат открыт
+chatInputEl.addEventListener('keyup', (e) => { e.stopPropagation(); });
+
+// ============================================================
+//  Профиль игрока — никнейм в localStorage
+// ============================================================
+const NICK_LS = 'minicraft_nick';
+const playerNickEl = document.getElementById('playerNick');
+function getPlayerNick() {
+  return (localStorage.getItem(NICK_LS) || '').trim();
+}
+function setPlayerNick(nick) {
+  localStorage.setItem(NICK_LS, nick);
+}
+// загрузить сохранённый ник в поле ввода
+playerNickEl.value = getPlayerNick();
+playerNickEl.addEventListener('change', () => {
+  const v = playerNickEl.value.trim().slice(0, 20);
+  playerNickEl.value = v;
+  setPlayerNick(v);
+});
+playerNickEl.addEventListener('input', () => {
+  // автосохранение при вводе
+  setPlayerNick(playerNickEl.value.trim().slice(0, 20));
+});
+
+// ============================================================
+//  Экспорт / Импорт миров
+// ============================================================
+// Экспорт: собрать данные текущего (или выбранного) мира в JSON и скачать файлом
+function exportWorld(name) {
+  name = name || WorldManager.current;
+  if (!name) { alert('Сначала выберите или создайте мир для экспорта'); return; }
+  let data;
+  try { data = JSON.parse(localStorage.getItem(WorldManager.LS_PREFIX + name)); }
+  catch (e) { data = null; }
+  if (!data) { alert('Мир «' + name + '» не найден'); return; }
+  // если это текущий активный мир — сначала сохранить свежее состояние
+  if (WorldManager.current === name) {
+    WorldManager.save();
+    try { data = JSON.parse(localStorage.getItem(WorldManager.LS_PREFIX + name)); } catch (e) {}
+  }
+  const payload = {
+    format: 'minicraft-world',
+    version: 1,
+    name: name,
+    exportedAt: new Date().toISOString(),
+    data: data,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  // безопасное имя файла
+  const safe = name.replace(/[^\wа-яА-ЯёЁ0-9 \-_]/g, '_').slice(0, 40) || 'world';
+  a.download = safe + '.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// Импорт: считать JSON-файл и записать в базу сохранений
+function importWorld(file) {
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const payload = JSON.parse(ev.target.result);
+      let data, name;
+      if (payload && payload.format === 'minicraft-world' && payload.data) {
+        data = payload.data;
+        name = payload.name || ('Импорт ' + new Date().toLocaleString());
+      } else {
+        // совместимость: считаем что файл — это сам data-объект
+        data = payload;
+        name = 'Импорт ' + new Date().toLocaleString();
+      }
+      // уникальное имя, чтобы не перезаписать существующий мир
+      let finalName = name;
+      const existing = WorldManager.list();
+      let n = 1;
+      while (existing.some(w => w.name === finalName)) {
+        finalName = name + ' (' + n + ')';
+        n++;
+      }
+      localStorage.setItem(WorldManager.LS_PREFIX + finalName, JSON.stringify(data));
+      const arr = WorldManager.list();
+      arr.push({ name: finalName, seed: data.seed | 0, updated: Date.now() });
+      WorldManager.saveIndex(arr);
+      renderWorldList();
+      alert('Мир «' + finalName + '» успешно импортирован!');
+    } catch (err) {
+      alert('Не удалось импортировать мир: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// кнопки экспорта/импорта в меню
+document.getElementById('exportWorldBtn').addEventListener('click', () => {
+  // если есть текущий мир — экспортируем его; иначе просим выбрать
+  if (WorldManager.current) {
+    exportWorld(WorldManager.current);
+  } else {
+    const worlds = WorldManager.list().sort((a,b) => b.updated - a.updated);
+    if (worlds.length === 0) { alert('Нет миров для экспорта'); return; }
+    // экспортируем самый свежий
+    exportWorld(worlds[0].name);
+  }
+});
+document.getElementById('importWorldBtn').addEventListener('click', () => {
+  document.getElementById('importFileInput').click();
+});
+document.getElementById('importFileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) importWorld(file);
+  e.target.value = ''; // сбросить, чтобы можно было выбрать тот же файл снова
 });
 
 renderHotbar();
