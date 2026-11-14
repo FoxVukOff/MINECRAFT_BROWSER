@@ -106,6 +106,8 @@ const ITEM = {
   // Рыба (ловится/выпадает) и прожарка
   FISH_RAW:       144,
   FISH_COOKED:    145,
+  // Гнилая плоть (выпадает с зомби, как в MC)
+  ROTTEN_FLESH:   146,
   // Кожа (из коров) и броня
   LEATHER:        200,
   // Кожаная броня
@@ -206,6 +208,7 @@ const BLOCK_NAMES = {
   [ITEM.MUTTON_COOKED]:  'Жареная баранина',
   [ITEM.FISH_RAW]:       'Сырая рыба',
   [ITEM.FISH_COOKED]:    'Жареная рыба',
+  [ITEM.ROTTEN_FLESH]:   'Гнилая плоть',
   [ITEM.WOODEN_SWORD]: 'Деревянный меч',
   [ITEM.STONE_SWORD]:  'Каменный меч',
   [ITEM.COPPER_SWORD]: 'Медный меч',
@@ -255,6 +258,7 @@ const FOOD = {
   [ITEM.MUTTON_COOKED]:  6,
   [ITEM.FISH_RAW]:       2,
   [ITEM.FISH_COOKED]:    5,
+  [ITEM.ROTTEN_FLESH]:   4, // как в MC: 4 единицы, но высок шанс отравления
 };
 function isFood(id) { return FOOD[id] !== undefined; }
 
@@ -2715,6 +2719,10 @@ function cornerLight(c, px, py, pz, t1x, t1y, t1z, t2x, t2y, t2z, out) {
   out[0] = blk / 60; out[1] = sky / 60; out[2] = AO_LEVELS[ao];
 }
 
+// Кеш id 6 соседей текущего блока (переиспользуется между итерациями мешера,
+// порядок соответствует FACES: +X -X +Y -Y +Z -Z; -1 = значение ещё не читали)
+const _nbCache = [-1, -1, -1, -1, -1, -1];
+
 function buildChunkMesh(c) {
   // запечь свет перед построением геометрии
   computeChunkLight(c);
@@ -3101,22 +3109,24 @@ function buildChunkMesh(c) {
         const liquid = isLiquid(b);
         const lava = isLavaLiquid(b);
 
-        // ОПТИМИЗАЦИЯ FACE CULLING: если это обычный твёрдый блок и ВСЕ 6 соседей
-        // непрозрачны — ни одна грань не видна, пропускаем блок целиком.
-        // Это убирает миллионы невидимых полигонов в глубине камня/земли.
+        // ОПТИМИЗАЦИЯ FACE CULLING + КЕШ СОСЕДЕЙ: id всех 6 соседей берём ОДИН раз
+        // (порядок как в FACES: +X -X +Y -Y +Z -Z; -1 = «ещё не читали»). Полностью
+        // погребённые блоки (все соседи непрозрачны) пропускаем целиком, а видимые
+        // грани переиспользуют кеш вместо повторного World.getBlock на каждую грань.
+        _nbCache[0] = _nbCache[1] = _nbCache[2] = _nbCache[3] = _nbCache[4] = _nbCache[5] = -1;
         if (!liquid) {
-          const nbP = World.getBlock(wx+1, y, wz);
-          if (OPAQUE[nbP]) {
-            const nbN = World.getBlock(wx-1, y, wz);
-            if (OPAQUE[nbN]) {
-              const nbUp = World.getBlock(wx, y+1, wz);
-              if (OPAQUE[nbUp]) {
-                const nbDn = World.getBlock(wx, y-1, wz);
-                if (OPAQUE[nbDn]) {
-                  const nbZP = World.getBlock(wx, y, wz+1);
-                  if (OPAQUE[nbZP]) {
-                    const nbZN = World.getBlock(wx, y, wz-1);
-                    if (OPAQUE[nbZN]) continue; // полностью погребён — пропускаем
+          _nbCache[0] = World.getBlock(wx+1, y, wz);
+          if (OPAQUE[_nbCache[0]]) {
+            _nbCache[1] = World.getBlock(wx-1, y, wz);
+            if (OPAQUE[_nbCache[1]]) {
+              _nbCache[2] = World.getBlock(wx, y+1, wz);
+              if (OPAQUE[_nbCache[2]]) {
+                _nbCache[3] = World.getBlock(wx, y-1, wz);
+                if (OPAQUE[_nbCache[3]]) {
+                  _nbCache[4] = World.getBlock(wx, y, wz+1);
+                  if (OPAQUE[_nbCache[4]]) {
+                    _nbCache[5] = World.getBlock(wx, y, wz-1);
+                    if (OPAQUE[_nbCache[5]]) continue; // полностью погребён — пропускаем
                   }
                 }
               }
@@ -3172,8 +3182,10 @@ function buildChunkMesh(c) {
           }
         }
 
-        for (const f of FACES) {
-          const nb = World.getBlock(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
+        for (let fi = 0; fi < 6; fi++) {
+          const f = FACES[fi];
+          // сосед из кешa face-culling проверки (для жидкостей/недочитанных — читаем напрямую)
+          const nb = _nbCache[fi] >= 0 ? _nbCache[fi] : World.getBlock(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
           if (liquid) {
             const sameLiquid = lava ? isLavaLiquid(nb) : isWaterLiquid(nb);
             // верхняя грань: рисуем, если сверху не та же жидкость
@@ -4019,6 +4031,12 @@ document.addEventListener('keydown', (e) => {
 
   keys[e.code] = true;
   if (!gameStarted) return;
+  // F3 — отладочный экран (только координаты и FPS), как в MC
+  if (e.code === 'F3') {
+    e.preventDefault();
+    debugOpen = !debugOpen;
+    hudEl.classList.toggle('on', debugOpen);
+  }
   if (e.code === 'KeyE') { toggleInventory(); }
   if (e.code === 'KeyJ') { toggleInventory('guide'); } // справочник рецептов
   // Q — выбросить 1 предмет; Ctrl+Q — выбросить весь стак (работает и в инвентаре с курсора)
@@ -4071,11 +4089,12 @@ function resetMining() {
   breakOverlay.visible = false;
 }
 
-// Вызывается каждый кадр при удержании ЛКМ
-function updateMining(dt) {
+// Вызывается каждый кадр при удержании ЛКМ.
+// preTarget — уже вычисленный лучом кадра блок (экономит повторный raycast)
+function updateMining(dt, preTarget) {
   if (!leftHeld || invOpen) { if (mining.active) resetMining(); return; }
 
-  const t = getTargetBlock();
+  const t = (preTarget !== undefined && preTarget !== null) ? preTarget : getTargetBlock();
   if (!t || t.block === BLOCK.BEDROCK || t.y <= 0) { resetMining(); return; }
 
   // если смотрим на другой блок — начать заново
@@ -4481,6 +4500,18 @@ function iconCanvas(id, size) {
     ctx.fillStyle = edge; ctx.fillRect(7*u,4*u,1*u,1*u);
     return c;
   }
+  // гнилая плоть — зеленовато-бурый кусок с «плесенью»
+  if (id === ITEM.ROTTEN_FLESH) {
+    const u = size/16;
+    ctx.fillStyle = '#8a5a3c'; ctx.fillRect(3*u,4*u,10*u,9*u);        // основа — тухлое мясо
+    ctx.fillStyle = '#a8744c'; ctx.fillRect(4*u,5*u,8*u,3*u);         // светлая мякоть
+    ctx.fillStyle = '#5a7a3a';                                        // зелёные пятна гнили
+    ctx.fillRect(5*u,8*u,3*u,2*u); ctx.fillRect(10*u,6*u,2*u,2*u); ctx.fillRect(8*u,10*u,3*u,2*u);
+    ctx.fillStyle = '#3a5a24'; ctx.fillRect(6*u,11*u,2*u,1*u);        // тёмная гниль
+    ctx.fillStyle = '#c8d8b0'; ctx.fillRect(4*u,9*u,1*u,1*u); ctx.fillRect(11*u,9*u,1*u,1*u); // «личинки»-блики
+    ctx.strokeStyle = '#4a3220'; ctx.lineWidth=1; ctx.strokeRect(3*u,4*u,10*u,9*u);
+    return c;
+  }
   // факел — палка с пламенем
   if (id === BLOCK.TORCH) {
     const u = size/16;
@@ -4773,6 +4804,23 @@ const RECIPES = [
             C,I,C,
             C,ITEM.REDSTONE,C], result: { id: BLOCK.PISTON, count: 1 } },
 ];
+
+// Категории для справочника (J): раскладываем рецепты по группам.
+// Явный rec.cat важнее; остальное выводим из результата.
+const RECIPE_CATS = [
+  { id: 'basics',  title: 'Основное' },
+  { id: 'tools',   title: 'Инструменты' },
+  { id: 'combat',  title: 'Оружие и броня' },
+  { id: 'redstone', title: 'Механизмы (редстоун)' },
+];
+for (const rec of RECIPES) {
+  if (rec.cat !== undefined) continue;
+  const id = rec.result.id;
+  if (isSword(id) || isArmor(id)) rec.cat = 'combat';
+  else if (isPickaxe(id) || isAxe(id) || isShovel(id)) rec.cat = 'tools';
+  else if (id === BLOCK.LEVER || id === BLOCK.BUTTON || id === BLOCK.REDSTONE_TORCH || id === BLOCK.PISTON) rec.cat = 'redstone';
+  else rec.cat = 'basics';
+}
 
 // нормализовать содержимое сетки крафта к компактной матрице (обрезать пустые края)
 function craftMatrix(size) {
@@ -5114,34 +5162,47 @@ function renderGuide() {
                       '. Добывайте новые ресурсы, чтобы открыть больше.';
   wrap.appendChild(intro);
 
-  // --- Крафт-рецепты ---
-  for (const rec of RECIPES) {
-    const row = document.createElement('div');
-    row.className = 'guide-row';
-    const un = recipeUnlocked(rec);
-    if (!un) {
-      row.classList.add('locked');
-      const q = document.createElement('div'); q.className = 'guide-locked';
-      q.textContent = '??? — добудьте: ' +
-        recipeIngredients(rec).map(id => BLOCK_NAMES[id] || '?').join(', ');
-      row.appendChild(q);
-      wrap.appendChild(row);
-      continue;
-    }
-    const g = recipeGridCells(rec);
+  // строка рецепта (сетка -> стрелка -> результат)
+  const appendRecipeRow = (row, cells, w, h, resultId, resultCount) => {
     const grid = document.createElement('div'); grid.className = 'guide-grid';
-    grid.style.gridTemplateColumns = `repeat(${g.w}, 24px)`;
-    for (let i = 0; i < g.w * g.h; i++) grid.appendChild(recipeIconEl(g.cells[i] || 0, 20));
+    grid.style.gridTemplateColumns = `repeat(${w}, 24px)`;
+    for (let i = 0; i < w * h; i++) grid.appendChild(recipeIconEl(cells[i] || 0, 20));
     row.appendChild(grid);
     const arr = document.createElement('div'); arr.className = 'guide-arrow'; arr.appendChild(makeArrowIcon());
     row.appendChild(arr);
-    const res = recipeIconEl(rec.result.id, 24); res.classList.add('guide-result');
-    if (rec.result.count > 1) { const c=document.createElement('span'); c.className='guide-count'; c.textContent='×'+rec.result.count; res.appendChild(c); }
+    const res = recipeIconEl(resultId, 24); res.classList.add('guide-result');
+    if (resultCount > 1) { const c=document.createElement('span'); c.className='guide-count'; c.textContent='×'+resultCount; res.appendChild(c); }
     row.appendChild(res);
     const nm = document.createElement('div'); nm.className = 'guide-name';
-    nm.textContent = BLOCK_NAMES[rec.result.id] || '';
+    nm.textContent = BLOCK_NAMES[resultId] || '';
     row.appendChild(nm);
-    wrap.appendChild(row);
+  };
+
+  // --- Крафт-рецепты по категориям ---
+  for (const cat of RECIPE_CATS) {
+    const recs = RECIPES.filter(r => r.cat === cat.id);
+    if (!recs.length) continue;
+    const hdr = document.createElement('div'); hdr.className = 'guide-intro';
+    hdr.style.marginTop = '8px';
+    hdr.textContent = cat.title + ':';
+    wrap.appendChild(hdr);
+    for (const rec of recs) {
+      const row = document.createElement('div');
+      row.className = 'guide-row';
+      const un = recipeUnlocked(rec);
+      if (!un) {
+        row.classList.add('locked');
+        const q = document.createElement('div'); q.className = 'guide-locked';
+        q.textContent = '??? — добудьте: ' +
+          recipeIngredients(rec).map(id => BLOCK_NAMES[id] || '?').join(', ');
+        row.appendChild(q);
+        wrap.appendChild(row);
+        continue;
+      }
+      const g = recipeGridCells(rec);
+      appendRecipeRow(row, g.cells, g.w, g.h, rec.result.id, rec.result.count);
+      wrap.appendChild(row);
+    }
   }
 
   // --- Плавка (печь) ---
@@ -5465,6 +5526,10 @@ function playSound(kind, block) {
     chickenCluck(false);
   } else if (kind === 'cluck_hurt') {
     chickenCluck(true);
+  } else if (kind === 'zombie') {
+    zombieGroan(false);
+  } else if (kind === 'zombie_hurt') {
+    zombieGroan(true);
   } else if (kind === 'hurt') {
     playerHurt();
   } else if (kind === 'burp') {
@@ -5574,6 +5639,31 @@ function playCaveDrips() {
   drop(0.7, 900);
   drop(1.5, 1400);
   drop(2.1, 800);
+}
+
+// стон зомби — низкий «раскисший» рык с вибрато (hurt — короткий вскрик-рык)
+function zombieGroan(hurt) {
+  if (!AudioEngine.ctx) return;
+  const ctx = AudioEngine.ctx;
+  const t0 = ctx.currentTime;
+  const dur = hurt ? 0.28 : 0.85;
+  const base = (hurt ? 150 : 95) + Math.random() * 30;
+  const osc = ctx.createOscillator(); osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(base, t0);
+  // нисходящий стон с лёгким вибрато
+  osc.frequency.linearRampToValueAtTime(base * 0.7, t0 + dur);
+  const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = hurt ? 9 : 5;
+  const lfoG = ctx.createGain(); lfoG.gain.value = base * 0.08;
+  lfo.connect(lfoG); lfoG.connect(osc.frequency);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(hurt ? 0.3 : 0.2, t0 + dur * 0.25);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  // «гнилой» тембр — срезаем верха
+  const filt = ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 480; filt.Q.value = 2;
+  osc.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
+  osc.start(t0); osc.stop(t0 + dur + 0.05);
+  lfo.start(t0); lfo.stop(t0 + dur + 0.05);
 }
 
 // клохтание курицы — пара коротких высоких чирков
@@ -6318,6 +6408,17 @@ function buildMobMaterials() {
     ctx.fillStyle = '#9bbccf'; ctx.fillRect(0,6,16,4);     // светлое брюшко-полоса
     ctx.fillStyle = '#4f7286'; for (let i=0;i<5;i++) ctx.fillRect((Math.random()*14)|0,(Math.random()*6)|0,2,1);
   }));
+  // --- Зомби ---
+  MOB_MAT.zombie_skin = mobTex(makeTex(ctx => {            // гниловато-зелёная кожа
+    noiseFill(ctx, 0x5a8a4a, 9);
+    ctx.fillStyle = '#446a38'; for (let i=0;i<7;i++) ctx.fillRect((Math.random()*14)|0,(Math.random()*14)|0,2,2);
+    ctx.fillStyle = '#6fa05c'; ctx.fillRect(2,2,3,2); ctx.fillRect(10,9,3,2);
+  }));
+  MOB_MAT.zombie_cloth = mobTex(makeTex(ctx => {           // ветхая синяя роба (рубаха+штаны как в MC)
+    noiseFill(ctx, 0x3a5a8a, 7);
+    ctx.fillStyle = '#2c4468'; for (let i=0;i<5;i++) ctx.fillRect((Math.random()*14)|0,(Math.random()*14)|0,2,2);
+    ctx.fillStyle = '#486aa0'; ctx.fillRect(3,3,4,3); ctx.fillRect(9,10,4,3);
+  }));
 }
 
 const EYE_MAT = () => new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
@@ -6418,6 +6519,8 @@ const MOB_TYPES = {
     idleSound: 'oink', hurtSound: 'oink_hurt',
     hostile: true,      // может атаковать игрока (после агра)
     pack: true,         // вся стая агрится при ударе по одному
+    name: 'зомби-пиглин',
+    dmg: 3,
     build() {
       const g = new THREE.Group();
       const box = (w,h,d,mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat||MOB_MAT.piglin_skin); if (SHADOWS_ON) m.castShadow=true; return m; };
@@ -6463,6 +6566,42 @@ const MOB_TYPES = {
     },
     width: 0.5, height: 0.4, hp: 3,
   },
+  zombie: {
+    drop: ITEM.ROTTEN_FLESH, dropCount: () => (Math.random()*3|0), // 0-2 гнилой плоти (как в MC)
+    idleSound: 'zombie', hurtSound: 'zombie_hurt',
+    hostile: true,        // враждебен: преследует и атакует игрока
+    burnsInSun: true,     // горит на солнце (MC-парити)
+    name: 'зомби',        // имя для сообщения о смерти
+    dmg: 3,               // урон по игроку (ваниль normal)
+    chaseSpeed: 2.7,      // медленнее игрока — можно убежать (MC-парити)
+    build() {
+      const g = new THREE.Group();
+      const box = (w,h,d,mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat||MOB_MAT.zombie_skin); if (SHADOWS_ON) m.castShadow=true; return m; };
+      // ноги (в синих штанах)
+      const legs = []; const lp = [[-0.13,0],[0.13,0]];
+      for (const [lx,lz] of lp) { const leg = box(0.24,0.75,0.24, MOB_MAT.zombie_cloth); leg.geometry.translate(0,-0.375,0); leg.position.set(lx,0.75,lz); g.add(leg); legs.push(leg); }
+      g.userData.legs = legs;
+      // тело (синяя рубаха)
+      const body = box(0.55, 0.7, 0.3, MOB_MAT.zombie_cloth); body.position.set(0, 1.1, 0); g.add(body);
+      // РУКИ ВПЕРЁД — классическая поза зомби (не качаются с ногами)
+      const arms = [];
+      for (const side of [-1, 1]) {
+        const arm = box(0.2,0.65,0.2); arm.geometry.translate(0,-0.325,0);
+        arm.position.set(side*0.38, 1.38, 0.1);
+        arm.rotation.x = -Math.PI/2;          // вытянуты вперёд
+        g.add(arm); arms.push(arm);
+      }
+      g.userData.arms = arms;
+      // голова (зелёная, пустые чёрные глаза)
+      const head = new THREE.Group();
+      head.add(box(0.5,0.5,0.5));
+      const eL = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.08,0.02), EYE_MAT()); eL.position.set(-0.13,0.05,0.26); head.add(eL);
+      const eR = eL.clone(); eR.position.x = 0.13; head.add(eR);
+      head.position.set(0, 1.7, 0); g.add(head); g.userData.head = head;
+      return g;
+    },
+    width: 0.6, height: 1.9, hp: 20,
+  },
 };
 
 function spawnMob(type, x, y, z) {
@@ -6485,16 +6624,48 @@ function spawnMob(type, x, y, z) {
 
 // спавн мобов рядом с игроком на траве
 let mobSpawnTimer = 4;
+const MAX_ZOMBIES = 2; // зомби куда меньше, чем в MC (там их десятки за ночь)
+function zombieCount() { let n = 0; for (const m of mobs) if (m.type === 'zombie') n++; return n; }
+// мирные животные/пиглины — без зомби (у нежити СВОЙ кап, как в MC)
+function passiveCount() { return mobs.length - zombieCount(); }
 function trySpawnMobs(dt) {
   mobSpawnTimer -= dt;
   if (mobSpawnTimer > 0) return;
   mobSpawnTimer = 10 + Math.random()*10;
-  if (mobs.length >= MAX_MOBS) return;
+
+  // --- Зомби: только ночью в обычном мире, РЕДКО (гораздо меньше, чем в MC) ---
+  // Попытка — примерно раз в минуту ночи; кап отдельный (MAX_ZOMBIES), общий
+  // лимит животных зомби не занимает (в MC у монстров свой счётчик спавна).
+  if (World.dim === 'overworld' && daylight() < 0.25 && zombieCount() < MAX_ZOMBIES && Math.random() < 0.22) {
+    for (let tries = 0; tries < 10; tries++) {
+      const ang = Math.random()*Math.PI*2;
+      const dist = 16 + Math.random()*10; // не вплотную к игроку
+      const px = Math.floor(PLAYER.pos.x + Math.cos(ang)*dist);
+      const pz = Math.floor(PLAYER.pos.z + Math.sin(ang)*dist);
+      // ищем верхнюю поверхность колонки (сверху вниз): твёрдая опора + 3 воздуха над ней
+      for (let y = WORLD_HEIGHT-3; y > 1; y--) {
+        const h1 = World.getBlock(px, y, pz);
+        if (h1 === BLOCK.AIR) {
+          const below = World.getBlock(px, y-1, pz);
+          if (below !== BLOCK.AIR && below !== BLOCK.LEAVES && !isLiquid(below) &&
+              h1 === BLOCK.AIR && World.getBlock(px, y+1, pz) === BLOCK.AIR && World.getBlock(px, y+2, pz) === BLOCK.AIR) {
+            spawnMob('zombie', px + 0.5, y, pz + 0.5);
+            return;
+          }
+        }
+      }
+    }
+    return; // эта попытка ушла на зомби (даже если не вышло — животных в этот тик не спавним)
+  }
+
   // в Аду спавнятся зомбифицированные пиглины, в обычном мире — мирные животные
   let type;
   if (World.dim === 'nether') {
+    if (passiveCount() >= MAX_MOBS) return; // пиглины — под тем же капом, что животные
     type = 'piglin';
   } else {
+    // кап животных/пиглинов (зомби не считаем — у них свой лимит)
+    if (passiveCount() >= MAX_MOBS) return;
     const r = Math.random();
     // pig / chicken / cow / sheep / fish
     if (r < 0.28) type = 'pig';
@@ -6528,7 +6699,7 @@ function trySpawnMobs(dt) {
         // пачка 1-3 особей (как в MC — животные спавнятся группами)
         const pack = 1 + (Math.random()*3|0);
         spawnMob(type, px + 0.5, y, pz + 0.5);
-        for (let pk = 1; pk < pack && mobs.length < MAX_MOBS; pk++) {
+        for (let pk = 1; pk < pack && passiveCount() < MAX_MOBS; pk++) {
           const ox = px + ((Math.random()*5|0) - 2), oz = pz + ((Math.random()*5|0) - 2);
           const oh = World.getBlock(ox, y, oz), ob = World.getBlock(ox, y - 1, oz), oa = World.getBlock(ox, y + 1, oz);
           if (ob === MOB_TYPES[type].spawnOn && oh === BLOCK.AIR && oa === BLOCK.AIR) spawnMob(type, ox + 0.5, y, oz + 0.5);
@@ -6642,6 +6813,10 @@ function updateMobs(dt) {
 
     let moving = false;
     let chasing = false;
+    // Зомби: самостоятельно замечают игрока в радиусе 24 блоков (MC-парити)
+    if (p.type === 'zombie' && (p.aggro || 0) <= 0 && !PLAYER.dead) {
+      if (dist2ToPlayer(p) < 24*24) p.aggro = 12;
+    }
     if ((p.aggro || 0) > 0) {
       // --- Агрессия: преследуем игрока и атакуем вблизи ---
       p.aggro -= dt;
@@ -6654,7 +6829,7 @@ function updateMobs(dt) {
         // атака при контакте
         if (d2 < 2.0*2.0 && p.attackCd <= 0 && !PLAYER.dead) {
           p.attackCd = 1.0;
-          damagePlayer(3, 'Вас убил зомби-пиглин');
+          damagePlayer(p.def.dmg || 3, 'Вас убил ' + (p.def.name || 'моб'));
           // отбросить игрока
           const len = Math.hypot(ax, az) || 1;
           PLAYER.vel.x += (ax/len)*3; PLAYER.vel.z += (az/len)*3; PLAYER.vel.y = 4;
@@ -6677,15 +6852,16 @@ function updateMobs(dt) {
       }
     }
 
-    const speed = chasing ? 3.6 : (p.flee > 0 ? 3.2 : 1.4);
+    // зомби заметно медленнее игрока (2.7), пиглин шустрее (3.6) — от зомби можно убежать
+    const speed = chasing ? (p.def.chaseSpeed || 3.6) : (p.flee > 0 ? 3.2 : 1.4);
     if (moving) {
       const dirx = Math.sin(p.yaw), dirz = Math.cos(p.yaw);
       // избегать захода в воду: если впереди вода — развернуться (мобы реже сидят в воде)
       const ahx = Math.floor(p.pos.x + dirx*0.8), ahz = Math.floor(p.pos.z + dirz*0.8);
       const ahy = Math.floor(p.pos.y);
       const aheadWater = isWaterLiquid(World.getBlock(ahx, ahy, ahz)) || isWaterLiquid(World.getBlock(ahx, ahy-1, ahz));
-      // не убегая в панике от воды разворачиваемся; при бегстве — продолжаем
-      if (aheadWater && p.flee <= 0) {
+      // не убегая в панике от воды разворачиваемся; при бегстве или ПОГОНЕ (зомби/пиглин лезут в воду) — продолжаем
+      if (aheadWater && p.flee <= 0 && !chasing) {
         p.yaw += Math.PI * (0.5 + Math.random()*0.5);
         p.vel.x = 0; p.vel.z = 0;
         p.stateT = Math.min(p.stateT, 0.3);
@@ -6714,6 +6890,23 @@ function updateMobs(dt) {
       // курица медленно падает, размахивая крыльями (без урона от падения, как в MC)
       if (p.type === 'chicken' && p.vel.y < -2.5) p.vel.y = -2.5;
       if (p.vel.y < -55) p.vel.y = -55;
+    }
+
+    // СОЛНЦЕ: нежить (зомби) горит под открытым небом днём (MC-парити).
+    // Проверку колонки до неба делаем не чаще 2 раз/с на моба — экономия.
+    if (p.def.burnsInSun && World.dim === 'overworld' && daylight() > 0.4) {
+      p.sunCheckT = (p.sunCheckT || 0) + dt;
+      if (p.sunCheckT >= 0.5) {
+        p.sunCheckT = 0;
+        p.sunExposed = true;
+        const hx = Math.floor(p.pos.x), hz = Math.floor(p.pos.z);
+        for (let sy = Math.floor(p.pos.y + p.height); sy < WORLD_HEIGHT; sy++) {
+          if (OPAQUE[World.getBlock(hx, sy, hz)]) { p.sunExposed = false; break; } // крыша над головой
+        }
+      }
+      if (p.sunExposed) p.burnTimer = Math.max(p.burnTimer || 0, 1.0);
+    } else {
+      p.sunCheckT = 0; // ночь/Ад — проверка не нужна
     }
 
     // ЛАВА/ОГОНЬ: мобы горят и получают урон (как и игрок)
@@ -6837,6 +7030,18 @@ function sleepInBed(bx, by, bz) {
   const dl = daylight();
   if (dl > 0.3) { showToast('Можно спать только ночью'); return; }
   if (sleepTransition) return; // уже спим
+  // Монстры рядом не дают уснуть (как в MC): враждебный моб в радиусе 8 блоков
+  {
+    let monster = null;
+    for (const m of mobs) {
+      if (!m.def.hostile) continue;
+      const dx = m.pos.x - (bx !== undefined ? bx + 0.5 : PLAYER.pos.x);
+      const dy = m.pos.y - (by !== undefined ? by : PLAYER.pos.y);
+      const dz = m.pos.z - (bz !== undefined ? bz + 0.5 : PLAYER.pos.z);
+      if (dx*dx + dy*dy + dz*dz < 8*8) { monster = m; break; }
+    }
+    if (monster) { showToast('Вам не даёт спать ' + (monster.def.name || 'монстр') + ' поблизости'); return; }
+  }
   // точка возрождения ставится СРАЗУ при засыпании (как в MC), а не после промотки
   if (bx !== undefined) {
     // ищем свободную клетку рядом с кроватью
@@ -8507,6 +8712,8 @@ const loadedMeshes = new Map(); // key -> group
 
 const MAX_REBUILDS_PER_FRAME = 2; // бюджет перестроений за кадр — против лагов
 let _evictTimer = 0; // троттлинг эвикции чанков (раз в ~5 с)
+let _chunkScanAcc = 0;               // троттлинг полного скана области прорисовки
+let _lastScanPcx = 1e9, _lastScanPcz = 1e9; // чанк игрока на момент прошлого скана
 
 function updateChunks(dt) {
   const pcx = Math.floor(PLAYER.pos.x / CHUNK_SIZE);
@@ -8515,6 +8722,15 @@ function updateChunks(dt) {
   // эвикция дальних чанков из памяти (не чаще раза в 5 с — защита от утечки памяти)
   _evictTimer += dt || 0;
   if (_evictTimer > 5) { _evictTimer = 0; World.evictFarChunks(pcx, pcz); }
+
+  // ОПТИМИЗАЦИЯ: полный скан области прорисовки (строковые ключи + Map.get на каждый
+  // чанк — при RD=6 это 169 итераций) раньше шёл КАЖДЫЙ кадр. Теперь — только когда
+  // игрок перешёл границу чанка либо раз в ~0.12 с. Правки блоков помечают чанки
+  // dirty, они подхватятся ближайшим сканом — задержка незаметна.
+  _chunkScanAcc += dt || 0;
+  if (_chunkScanAcc < 0.12 && pcx === _lastScanPcx && pcz === _lastScanPcz) return;
+  _chunkScanAcc = 0;
+  _lastScanPcx = pcx; _lastScanPcz = pcz;
 
   // собрать кандидатов на (пере)строение, отсортировать по близости к игроку
   const todo = [];
@@ -8534,7 +8750,9 @@ function updateChunks(dt) {
 
   // при первичной загрузке (много новых чанков) строим быстрее
   const newCount = todo.reduce((n, t) => n + (t.isNew ? 1 : 0), 0);
-  let budget = newCount > 4 ? 5 : MAX_REBUILDS_PER_FRAME;
+  // скан теперь редкий (~8/с вместо 60/с), поэтому бюджет на СКАН выше —
+  // иначе поток построения новых чанков при беге/полёте заметно бы просел
+  let budget = newCount > 4 ? 8 : 4;
   for (const item of todo) {
     if (budget <= 0) break;
     const old = loadedMeshes.get(item.k);
@@ -8889,6 +9107,11 @@ function updatePlayer(dt) {
 // ---- Кислород / утопление ----
 // ---- Голод, регенерация, урон ----
 function updateSurvival(dt) {
+  // «Голод» после гнилой плоти: 30 с голод тает заметно быстрее (парити MC)
+  if ((PLAYER.foodPoisonT || 0) > 0) {
+    PLAYER.foodPoisonT -= dt;
+    PLAYER.exhaustion += dt * 0.9; // ~13 единиц истощения за 30 с = ~3 голода
+  }
   // истощение -> расход голода (4 единицы истощения = 1 голод)
   if (PLAYER.exhaustion >= 4) {
     PLAYER.exhaustion -= 4;
@@ -9052,6 +9275,11 @@ function tryEat() {
   if (PLAYER.hunger >= PLAYER.maxHunger) return false; // сыт
   PLAYER.hunger = Math.min(PLAYER.maxHunger, PLAYER.hunger + FOOD[slot.id]);
   slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+  // Гнилая плоть: 80% шанс «Голода» (как в MC) — голод тает быстрее 30 секунд
+  if (slot.id === ITEM.ROTTEN_FLESH && Math.random() < 0.8) {
+    PLAYER.foodPoisonT = 30;
+    showToast('Вы отравились гнилой плотью…');
+  }
   refreshUI();
   playSound('eat');
   // отрыжка после поедания (как в майнкрафте — звук насыщения)
@@ -9227,6 +9455,7 @@ function teleportDimension(target) {
   for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++)
     for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++)
       World.getChunk(pcx+dx, pcz+dz);
+  _lastScanPcx = 1e9; // форсировать полный скан (троттлинг мог бы пропустить этот вызов)
   updateChunks(0);
   _teleporting = false;
   // синхронизировать редстоун в новом измерении (поршни/пыль/двери)
@@ -9437,15 +9666,15 @@ function updateWaterUI() {
 }
 
 let fpsTime = 0, fpsCount = 0, fps = 0;
+let debugOpen = false; // F3-экран выключен по умолчанию (как в MC)
 function updateHUD(t) {
-  const targetName = t ? (BLOCK_NAMES[t.block] || '—') : '—';
-  hudEl.innerHTML =
-    `MiniCraft<br>` +
-    `Мир: ${WorldManager.current || '—'} · Сид: ${WORLD_SEED}<br>` +
-    `XYZ: ${PLAYER.pos.x.toFixed(1)}, ${PLAYER.pos.y.toFixed(1)}, ${PLAYER.pos.z.toFixed(1)}<br>` +
-    `Чанков: ${loadedMeshes.size} · FPS: ${fps}<br>` +
-    `${PLAYER.inWater ? 'В воде' : (PLAYER.crouching ? 'Присел' : 'Выживание')}<br>` +
-    `Цель: ${targetName}`;
+  // F3-экран: ТОЛЬКО координаты и FPS (остальное убрано из игрового HUD).
+  // Когда закрыт — innerHTML не трогаем вовсе (экономия DOM-обновлений).
+  if (debugOpen) {
+    hudEl.textContent =
+      `XYZ: ${PLAYER.pos.x.toFixed(2)} / ${PLAYER.pos.y.toFixed(2)} / ${PLAYER.pos.z.toFixed(2)}\n` +
+      `FPS: ${fps}`;
+  }
   // всплывающая подсказка с названием блока под прицелом
   const tip = document.getElementById('blockTooltip');
   if (tip) {
@@ -9470,6 +9699,11 @@ function updateHUD(t) {
 let last = performance.now();
 let _sunFollowX = 1e9, _sunFollowY = 1e9, _sunFollowZ = 1e9;
 let _shadowAcc = 0;
+// ОПТИМИЗАЦИЯ: переиспользуемые векторы/цвета главного цикла — раньше каждый кадр
+// аллоцировалось до 5 объектов THREE (Vector3/Color), зря дёргая GC
+const _camDir = new THREE.Vector3(), _camTarget = new THREE.Vector3();
+const _skyDay = new THREE.Color(0x87ceeb), _skyNight = new THREE.Color(0x0a1026);
+const _skyDusk = new THREE.Color(0xd9763c), _skyTmp = new THREE.Color();
 function loop(now) {
   let dt = (now - last) / 1000;
   last = now;
@@ -9478,6 +9712,7 @@ function loop(now) {
   // пока мир не выбран — ничего не симулируем и не рисуем
   if (!gameStarted) { requestAnimationFrame(loop); return; }
 
+  let t = null, tComputed = false; // цель под прицелом — ОДИН raycast на кадр
   if (!PLAYER.dead && overlay.classList.contains('hidden') && !invOpen && !chatOpen) {
     if (sleepTransition) {
       // игрок спит: не ходит и не копает (как в MC — лежит в кровати)
@@ -9490,7 +9725,8 @@ function loop(now) {
       updateOxygen(dt);
       updateSurvival(dt);
       updateDrops(dt);
-      updateMining(dt);
+      t = getTargetBlock(); tComputed = true;
+      updateMining(dt, t); // переиспользуем тот же луч (раньше — второй raycast)
     }
   } else if (mining.active) {
     resetMining();
@@ -9557,15 +9793,15 @@ function loop(now) {
   // камера
   const eyeY = PLAYER.pos.y + (PLAYER.crouching ? PLAYER.crouchEye : PLAYER.eye);
   camera.position.set(PLAYER.pos.x, eyeY, PLAYER.pos.z);
-  const dir = new THREE.Vector3(
+  _camDir.set(
     -Math.sin(PLAYER.yaw) * Math.cos(PLAYER.pitch),
     Math.sin(PLAYER.pitch),
     -Math.cos(PLAYER.yaw) * Math.cos(PLAYER.pitch)
   );
-  camera.lookAt(camera.position.clone().add(dir));
+  camera.lookAt(_camTarget.copy(camera.position).add(_camDir));
 
-  // подсветка цели (один raycast на кадр, переиспользуется в HUD)
-  const t = getTargetBlock();
+  // подсветка цели (в активной игре t уже вычислен; в паузе/меню — луч от стоячей камеры)
+  if (!tComputed) t = getTargetBlock();
   if (t) {
     highlight.visible = true;
     highlight.position.set(t.x + 0.5, t.y + 0.5, t.z + 0.5);
@@ -9587,17 +9823,14 @@ function loop(now) {
     scene.fog.near = 4; scene.fog.far = RENDER_DISTANCE * CHUNK_SIZE * 0.85;
     scene.background.setHex(0x330808);
   } else {
-    // цвет неба плавно меняется день->закат->ночь
-    const day = new THREE.Color(0x87ceeb);
-    const night = new THREE.Color(0x0a1026);
-    const dusk = new THREE.Color(0xd9763c);
+    // цвет неба плавно меняется день->закат->ночь (цвета — предсозданные константы)
     let skyCol;
     if (dl > 0.35) {
-      skyCol = night.clone().lerp(day, Math.min(1, (dl - 0.35) / 0.45));
+      skyCol = _skyTmp.copy(_skyNight).lerp(_skyDay, Math.min(1, (dl - 0.35) / 0.45));
     } else {
       // сумерки: подмешиваем оранжевый у горизонта
       const k = dl / 0.35;
-      skyCol = night.clone().lerp(dusk, k * 0.6);
+      skyCol = _skyTmp.copy(_skyNight).lerp(_skyDusk, k * 0.6);
     }
     scene.fog.color.copy(skyCol);
     scene.fog.near = RENDER_DISTANCE * CHUNK_SIZE * 0.6;
@@ -9886,6 +10119,7 @@ const GIVE_ALIASES = {
   diamond_helmet: ITEM.DIAMOND_HELMET, diamond_chestplate: ITEM.DIAMOND_CHESTPLATE, diamond_leggings: ITEM.DIAMOND_LEGGINGS, diamond_boots: ITEM.DIAMOND_BOOTS,
   porkchop: ITEM.PORK_RAW, cooked_porkchop: ITEM.PORK_COOKED, beef: ITEM.BEEF_RAW, cooked_beef: ITEM.BEEF_COOKED,
   chicken: ITEM.CHICKEN_RAW, cooked_chicken: ITEM.CHICKEN_COOKED,
+  rotten_flesh: ITEM.ROTTEN_FLESH, zombie_flesh: ITEM.ROTTEN_FLESH,
 };
 
 function resolveGiveId(nameOrId) {
@@ -9923,7 +10157,10 @@ function handleChatCommand(msg) {
     // /time set day|night|noon|midnight|<число 0..1>
     const sub = (args[0] || '').toLowerCase();
     const val = (args[1] || '').toLowerCase();
-    const map = { day: 0.25, noon: 0.5, night: 0.75, midnight: 0.75, sunrise: 0.25, sunset: 0.70 };
+    // ВАЖНО: настоящая полночь (daylight=0) — это time 0.0, а 0.75 — только миг заката.
+    // Раньше night ставил 0.75: «ночь» оставалась светлой (daylight 0.5) — не работали
+    // ни сон, ни спавн зомби. Теперь night/midnight — реальная темнота.
+    const map = { day: 0.25, noon: 0.5, night: 0.0, midnight: 0.0, sunrise: 0.25, sunset: 0.75 };
     let t = null;
     if (sub === 'set') {
       if (map[val] !== undefined) t = map[val];
