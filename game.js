@@ -404,6 +404,10 @@ function hasDurability(id) { return MAX_DURABILITY[id] !== undefined; }
 // израсходовать 1 заряд прочности у предмета в слоте; вернуть true если предмет сломался
 function useDurability(slot) {
   if (!slot || !hasDurability(slot.id)) return false;
+  // ПРАВИЛО МИРА «Legacy-прочность»: включается только при создании мира,
+  // после — неизменно. Предметы никогда не изнашиваются (старое поведение).
+  // Читом не считается — это просто «как раньше».
+  if (WorldManager.rules && WorldManager.rules.legacyDurability) return false;
   if (slot.dur === undefined) slot.dur = MAX_DURABILITY[slot.id];
   slot.dur--;
   if (slot.dur <= 0) {
@@ -1100,22 +1104,53 @@ function buildCrackTextures() {
 }
 buildCrackTextures();
 
+// ------------------------------------------------------------
+//  Двухканальное запечённое освещение.
+//  В цвете вершин храним ТРИ канала: color.r = свет от источников
+//  (факелы/лава, 0..1), color.g = небесный свет (0..1), color.b =
+//  затенение грани/AO (направление + ambient occlusion).
+//  Итоговую яркость миксует шейдер: max(sky * uDayFactor, block) —
+//  поэтому смена времени суток меняет один юниформ на GPU и НЕ требует
+//  перестройки чанков (раньше каждое «щелчковое» изменение уровня неба
+//  перестраивало ВСЕ чанки — постоянные фризы на рассвете/закате).
+// ------------------------------------------------------------
+// Фактор неба: 1.0 = полдень, ~0.27 = ночь (соответствует старому 4..15)
+const DAY_LIGHT_UNIFORM = { value: 1.0 };
+function applyDayMixShader(mat) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uDayFactor = DAY_LIGHT_UNIFORM;
+    shader.vertexShader = 'uniform float uDayFactor;\n' + shader.vertexShader.replace(
+      '#include <color_vertex>',
+      [
+        '#include <color_vertex>',
+        '#ifdef USE_COLOR',
+        '  float _mcl = max(color.g * uDayFactor, color.r);',
+        '  vColor = vec3((0.05 + pow(_mcl, 1.35) * 0.95) * color.b);',
+        '#endif',
+      ].join('\n')
+    );
+  };
+  // общий суффикс программного кеша для всех запатченных материалов
+  mat.customProgramCacheKey = () => 'minicraft-daymix';
+  return mat;
+}
+
 function texToMaterial(canvas) {
   const t = new THREE.CanvasTexture(canvas);
   t.magFilter = THREE.NearestFilter;
   t.minFilter = THREE.NearestFilter;
   // vertexColors — для запечённого освещения (skylight + факелы)
-  return new THREE.MeshLambertMaterial({ map: t, vertexColors: true });
+  return applyDayMixShader(new THREE.MeshLambertMaterial({ map: t, vertexColors: true }));
 }
 
 function waterMaterial(canvas) {
   const t = new THREE.CanvasTexture(canvas);
   t.magFilter = THREE.NearestFilter;
   t.minFilter = THREE.NearestFilter;
-  return new THREE.MeshLambertMaterial({
+  return applyDayMixShader(new THREE.MeshLambertMaterial({
     map: t, transparent: true, opacity: 0.72,
     depthWrite: false, side: THREE.DoubleSide, vertexColors: true,
-  });
+  }));
 }
 
 // Материалы по граням: [px, nx, py, ny, pz, nz] (Three.js BoxGeometry порядок)
@@ -1169,19 +1204,19 @@ function buildMaterials() {
   const mLeaves = (() => {
     const t = new THREE.CanvasTexture(TEX.leaves);
     t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
-    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true });
+    return applyDayMixShader(new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true }));
   })();
   // стекло: прозрачное
   const mGlass = (() => {
     const t = new THREE.CanvasTexture(TEX.glass);
     t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
-    return new THREE.MeshLambertMaterial({ map: t, transparent: true, opacity: 0.55, side: THREE.DoubleSide, vertexColors: true });
+    return applyDayMixShader(new THREE.MeshLambertMaterial({ map: t, transparent: true, opacity: 0.55, side: THREE.DoubleSide, vertexColors: true }));
   })();
   // дверь: тонкая, с прозрачностью у окошка
   const mDoorTopT = (() => {
     const t = new THREE.CanvasTexture(TEX.door_top);
     t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
-    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide, vertexColors: true });
+    return applyDayMixShader(new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.1, side: THREE.DoubleSide, vertexColors: true }));
   })();
 
   MATERIALS[BLOCK.GRASS]   = [mGrassSide, mGrassSide, mGrassTop, mDirt, mGrassSide, mGrassSide];
@@ -1265,7 +1300,7 @@ function buildMaterials() {
   const mDustOff = (() => {
     const t = new THREE.CanvasTexture(TEX.redstone_dust);
     t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
-    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.2, side: THREE.DoubleSide, vertexColors: true });
+    return applyDayMixShader(new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.2, side: THREE.DoubleSide, vertexColors: true }));
   })();
   const mDustOn = (() => {
     const t = new THREE.CanvasTexture(TEX.redstone_dust_on);
@@ -1285,7 +1320,7 @@ function buildMaterials() {
   const mLever = (() => {
     const t = new THREE.CanvasTexture(TEX.lever);
     t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
-    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true });
+    return applyDayMixShader(new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true }));
   })();
   MATERIALS[BLOCK.LEVER] = [mLever, mLever, mLever, mLever, mLever, mLever];
 
@@ -1293,12 +1328,12 @@ function buildMaterials() {
   const mButton = (() => {
     const t = new THREE.CanvasTexture(TEX.button);
     t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
-    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true });
+    return applyDayMixShader(new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true }));
   })();
   const mButtonPressed = (() => {
     const t = new THREE.CanvasTexture(TEX.button_pressed);
     t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter;
-    return new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true });
+    return applyDayMixShader(new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, vertexColors: true }));
   })();
   MATERIALS[BLOCK.BUTTON] = [mButton, mButton, mButton, mButton, mButton, mButton];
   MATERIALS.BUTTON_PRESSED = [mButtonPressed, mButtonPressed, mButtonPressed, mButtonPressed, mButtonPressed, mButtonPressed];
@@ -1561,6 +1596,10 @@ function makeDimStore() {
     levers: new Map(),       // "x,y,z" -> {on:bool, facing} — состояние рычагов
     buttons: new Map(),      // "x,y,z" -> {pressed:bool, timer:sec, facing}
     pistons: new Set(),      // "x,y,z" выдвинутых поршней
+    // индекс ИСТОЧНИКОВ света (факелы и пр.): "x,y,z" -> уровень 0..15.
+    // Нужен, чтобы свет факела из соседнего чанка заходил в наш чанк
+    // дальше, чем 2-блочный бордюр световой сетки.
+    lightEmitters: new Map(),
   };
 }
 
@@ -1568,6 +1607,7 @@ const World = {
   // активные ссылки (переключаются вместе с измерением)
   chunks: null, edits: null, waterLevel: null, doorState: null,
   furnaces: null, chests: null, doubleChests: null, facing: null, portals: null,
+  lightEmitters: null,               // индекс источников света активного измерения
   dim: 'overworld',                 // текущее измерение
   dims: { overworld: makeDimStore(), nether: makeDimStore() },
 
@@ -1579,7 +1619,7 @@ const World = {
     this.chunks = s.chunks; this.edits = s.edits; this.waterLevel = s.waterLevel;
     this.doorState = s.doorState; this.furnaces = s.furnaces; this.chests = s.chests;
     this.doubleChests = s.doubleChests; this.facing = s.facing;
-    this.portals = s.portals;
+    this.portals = s.portals; this.lightEmitters = s.lightEmitters;
   },
 
   key(cx, cz) { return cx + ',' + cz; },
@@ -1805,6 +1845,13 @@ const World = {
     const lz = wz - cz * CHUNK_SIZE;
     c.blocks[idx(lx, wy, lz)] = id;
     c.dirty = true;
+    // индекс источников света: добавляем/убираем эмиттер при установке блока
+    {
+      const ek = this.ekey(wx, wy, wz);
+      const em = lightEmission(id);
+      if (em > 0) this.lightEmitters.set(ek, em);
+      else if (this.lightEmitters.has(ek)) this.lightEmitters.delete(ek);
+    }
     if (!transient) { this.edits.set(this.ekey(wx, wy, wz), id); if (typeof requestSave === 'function') requestSave(); }
     // уровень храним только для течения (вода/лава); иначе чистим
     if (id !== BLOCK.WATER_FLOW && id !== BLOCK.LAVA_FLOW) this.clearLevel(wx, wy, wz);
@@ -2348,6 +2395,20 @@ const FACES = [
   { dir: [ 0, 0,-1], mat: 5, // -Z
     corners: [[1,0,0],[0,0,0],[0,1,0],[1,1,0]] },
 ];
+// Тангенс-смещения к каждому углу грани (для сглаженного освещения):
+// по двум осям, касательным грани, в сторону данного угла (±1).
+// SMOOTH_T[faceIndex][cornerIndex] = [t1x,t1y,t1z, t2x,t2y,t2z]
+const SMOOTH_T = FACES.map(f => {
+  const ax = [];
+  for (let a = 0; a < 3; a++) if (f.dir[a] === 0) ax.push(a);
+  return f.corners.map(cv => {
+    const t1 = [0, 0, 0], t2 = [0, 0, 0];
+    t1[ax[0]] = cv[ax[0]] === 1 ? 1 : -1;
+    t2[ax[1]] = cv[ax[1]] === 1 ? 1 : -1;
+    return [t1[0], t1[1], t1[2], t2[0], t2[1], t2[2]];
+  });
+});
+const _cornerOut = [0, 0, 0]; // переиспользуемый буфер углового света
 
 // ============================================================
 //  Ориентация блоков (facing)
@@ -2467,8 +2528,6 @@ const CAN_ORIENT = {};
 const DAY = {
   time: 0.30,          // 0..1 по кругу суток (0.25 = рассвет, 0.5 = полдень... условно)
   length: 600,         // секунд на полные сутки (10 минут)
-  skyLevel: 15,        // текущий максимум небесного света (15 день, ~4 ночь)
-  _lastStep: 15,
 };
 // солнечная освещённость 0..1 по времени суток (плавный day/night)
 function daylight() {
@@ -2476,25 +2535,24 @@ function daylight() {
   const a = Math.sin(DAY.time * Math.PI * 2 - Math.PI / 2) * 0.5 + 0.5; // 0..1
   return a;
 }
+// фактор небесного света 0..1 (ночь ~0.27 = уровень 4/15, день 1 = 15/15)
+function skyFactor() {
+  return Math.min(1, (4 + daylight() * 11) / 15);
+}
 function updateDayNight(dt) {
-  if (World.dim !== 'overworld') return; // в Аду суток нет
-  DAY.time = (DAY.time + dt / DAY.length) % 1;
-  const dl = daylight();
-  // небесный свет: днём 15, ночью ~4
-  DAY.skyLevel = Math.round(4 + dl * 11);
-  // если уровень небесного света сменился — перепечь освещение в загруженных чанках
-  if (DAY.skyLevel !== DAY._lastStep) {
-    DAY._lastStep = DAY.skyLevel;
-    for (const c of World.chunks.values()) c.dirty = true;
-  }
+  if (World.dim === 'overworld') DAY.time = (DAY.time + dt / DAY.length) % 1; // в Аду суток нет
+  // День/ночь теперь меняет ОДИН юниформ на GPU — чанки перестраивать не нужно.
+  // (Раньше каждый «щелчок» уровня неба перестраивал ВСЕ чанки — постоянные лаги
+  // на рассвете/закате + ступенчатое затемнение.)
+  DAY_LIGHT_UNIFORM.value = skyFactor();
 }
 
 // ============================================================
 //  Освещение: запечённый свет в вершины (skylight + свет от факелов/светопыли/лавы)
 //  Исправляет «свет под землёй»: в пещерах нет неба -> темно. Дневной цикл — глобально.
 // ============================================================
-const LIGHT_PAD = 1;                       // 1 блок бордюра, чтобы свет соседей попадал на граничные грани
-const LIGHT_W = CHUNK_SIZE + LIGHT_PAD * 2; // 18
+const LIGHT_PAD = 2;                       // бордюр: 1 блок для граничных граней + 1 для AO-углов
+const LIGHT_W = CHUNK_SIZE + LIGHT_PAD * 2; // 20
 function lgIdx(x, y, z) { return (y * LIGHT_W + (z + LIGHT_PAD)) * LIGHT_W + (x + LIGHT_PAD); }
 // пропускает ли блок свет
 function lightPasses(b) {
@@ -2520,8 +2578,17 @@ function netherAmbientLight() { return World.dim === 'nether' ? 6 : 0; }
 
 function computeChunkLight(c) {
   const x0 = c.cx * CHUNK_SIZE, z0 = c.cz * CHUNK_SIZE;
-  const sky = new Uint8Array(LIGHT_W * WORLD_HEIGHT * LIGHT_W);
-  const blk = new Uint8Array(LIGHT_W * WORLD_HEIGHT * LIGHT_W);
+  // ОПТИМИЗАЦИЯ: буферы сеток переиспользуются между ребилдами чанка —
+  // раньше каждый ребилд аллоцировал 3 массива по ~41КБ (мусор для GC).
+  const N = LIGHT_W * WORLD_HEIGHT * LIGHT_W;
+  if (!c._lightSky || c._lightSky.length !== N) {
+    c._lightSky = new Uint8Array(N);
+    c._lightBlk = new Uint8Array(N);
+    c._lightPass = new Uint8Array(N);
+  } else {
+    c._lightSky.fill(0); c._lightBlk.fill(0); c._lightPass.fill(0);
+  }
+  const sky = c._lightSky, blk = c._lightBlk, pass = c._lightPass;
   const baseAmb = netherAmbientLight();
   const overworld = World.dim === 'overworld';
   const getB = (x, y, z) => {
@@ -2538,18 +2605,52 @@ function computeChunkLight(c) {
       for (let y = WORLD_HEIGHT - 1; y >= 0; y--) {
         const b = getB(x, y, z);
         const li = lgIdx(x, y, z);
-        if (openSky && lightPasses(b)) {
+        const ps = lightPasses(b) ? 1 : 0;
+        pass[li] = ps;
+        if (openSky && ps) {
           sky[li] = 15; skyQueue.push(x, y, z);
         } else {
           openSky = false;
         }
-        if (baseAmb && lightPasses(b) && blk[li] < baseAmb) { blk[li] = baseAmb; blkQueue.push(x, y, z); }
+        if (baseAmb && ps && blk[li] < baseAmb) { blk[li] = baseAmb; blkQueue.push(x, y, z); }
         const em = lightEmission(b);
         if (em > 0 && em > blk[li]) { blk[li] = em; blkQueue.push(x, y, z); }
       }
     }
   }
-  // --- BFS распространение ---
+  // --- эмиттеры из СОСЕДНИХ чанков (факелы игрока за границей бордюра) ---
+  // Свет факела радиуса 14 раньше «обрывался» на границе чанка. Теперь вводим
+  // дальние эмиттеры через край сетки с затуханием по расстоянию, а дальше
+  // BFS корректно обходит стены уже внутри сетки.
+  if (World.lightEmitters && World.lightEmitters.size) {
+    const R = LIGHT_PAD + 13;
+    const inGrid = (x, z) => x >= -LIGHT_PAD && x < CHUNK_SIZE + LIGHT_PAD && z >= -LIGHT_PAD && z < CHUNK_SIZE + LIGHT_PAD;
+    for (const [k, em] of World.lightEmitters) {
+      const p = k.split(',');
+      const lx = (+p[0]) - x0, ly = +p[1], lz = (+p[2]) - z0;
+      if (inGrid(lx, lz)) continue; // внутри бордюра — уже засеяно выше
+      if (lx < -R || lx >= CHUNK_SIZE + R || lz < -R || lz >= CHUNK_SIZE + R) continue; // далеко
+      // ближайшая к эмиттеру клетка сетки (по краю бордюра)
+      const gx = Math.max(-LIGHT_PAD, Math.min(CHUNK_SIZE + LIGHT_PAD - 1, lx));
+      const gz = Math.max(-LIGHT_PAD, Math.min(CHUNK_SIZE + LIGHT_PAD - 1, lz));
+      const gy = Math.max(0, Math.min(WORLD_HEIGHT - 1, ly));
+      const d = Math.abs(lx - gx) + Math.abs(lz - gz) + Math.abs(ly - gy);
+      const lvl = em - d;
+      if (lvl <= 1) continue;
+      // пробуем саму клетку и её соседей внутрь чанка (край может быть стеной)
+      const tries = [[gx, gy, gz, lvl]];
+      tries.push([gx + (lx < 0 ? 1 : lx >= CHUNK_SIZE ? -1 : 0), gy, gz, lvl - 1]);
+      tries.push([gx, gy, gz + (lz < 0 ? 1 : lz >= CHUNK_SIZE ? -1 : 0), lvl - 1]);
+      for (const [tx, ty, tz, tl] of tries) {
+        if (tx < -LIGHT_PAD || tx >= CHUNK_SIZE + LIGHT_PAD || tz < -LIGHT_PAD || tz >= CHUNK_SIZE + LIGHT_PAD) continue;
+        if (ty < 0 || ty >= WORLD_HEIGHT) continue;
+        const li = lgIdx(tx, ty, tz);
+        if (!pass[li]) continue; // в стену не вводим
+        if (tl > blk[li]) { blk[li] = tl; blkQueue.push(tx, ty, tz); }
+      }
+    }
+  }
+  // --- BFS распространение (по сетке pass — без getBlock на каждом шаге) ---
   const NB = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
   const inRange = (x, z) => x >= -LIGHT_PAD && x < CHUNK_SIZE + LIGHT_PAD && z >= -LIGHT_PAD && z < CHUNK_SIZE + LIGHT_PAD;
   function bfs(grid, queue, isSky) {
@@ -2561,11 +2662,11 @@ function computeChunkLight(c) {
       for (const [dx, dy, dz] of NB) {
         const nx = x + dx, ny = y + dy, nz = z + dz;
         if (ny < 0 || ny >= WORLD_HEIGHT || !inRange(nx, nz)) continue;
-        const nb = getB(nx, ny, nz);
-        if (!lightPasses(nb)) continue;
+        const ni = lgIdx(nx, ny, nz);
+        if (!pass[ni]) continue; // непрозрачная клетка — свет не проходит
         const nl = (isSky && dy === -1 && lvl === 15) ? 15 : lvl - 1; // солнце вниз без потерь
-        if (nl > grid[lgIdx(nx, ny, nz)]) {
-          grid[lgIdx(nx, ny, nz)] = nl;
+        if (nl > grid[ni]) {
+          grid[ni] = nl;
           queue.push(nx, ny, nz);
         }
       }
@@ -2573,25 +2674,45 @@ function computeChunkLight(c) {
   }
   bfs(sky, skyQueue, true);
   bfs(blk, blkQueue, false);
-  // объединить с учётом текущего уровня небесного света (день/ночь)
-  const skyLvl = DAY.skyLevel;
-  const combined = new Uint8Array(sky.length);
-  for (let i = 0; i < sky.length; i++) {
-    const s = Math.min(sky[i], skyLvl);       // ночью небо тускнеет; факелы (blk) не зависят
-    combined[i] = Math.max(s, blk[i]);
-  }
-  c._light = combined;
-  c._lightSkyStep = skyLvl;
   return c;
 }
-// Яркость грани (0..1) по соседней (воздушной) ячейке.
-function faceBrightness(c, x, y, z) {
-  if (!c._light) return 1;
-  if (y < 0 || y >= WORLD_HEIGHT) return 1;
-  if (x < -LIGHT_PAD || x >= CHUNK_SIZE + LIGHT_PAD || z < -LIGHT_PAD || z >= CHUNK_SIZE + LIGHT_PAD) return 0.5;
-  const lvl = c._light[lgIdx(x, y, z)];
-  const t = lvl / 15;
-  return 0.05 + Math.pow(t, 1.35) * 0.95;
+
+// ============================================================
+//  Выборка света в мешере: два канала + AO
+// ============================================================
+// свет ячейки в каналах [sky, blk] (0..15). Вне мира: сверху — открытое небо,
+// снизу и «неизвестность» — темно/нейтрально.
+const _slTmp = [0, 0];
+function sampleLight(c, x, y, z, out) {
+  if (y >= WORLD_HEIGHT) { out[0] = 15; out[1] = 0; return; } // над миром — полное небо
+  if (y < 0) { out[0] = 0; out[1] = 0; return; }              // под миром — тьма
+  if (x < -LIGHT_PAD || x >= CHUNK_SIZE + LIGHT_PAD || z < -LIGHT_PAD || z >= CHUNK_SIZE + LIGHT_PAD) { out[0] = 15; out[1] = 0; return; }
+  const li = lgIdx(x, y, z);
+  out[0] = c._lightSky[li]; out[1] = c._lightBlk[li];
+}
+// затемняет ли ячейка свет (для AO-углов) — 1 = непрозрачная
+function cellBlocksLight(c, x, y, z) {
+  if (y < 0 || y >= WORLD_HEIGHT) return 0;
+  if (x < -LIGHT_PAD || x >= CHUNK_SIZE + LIGHT_PAD || z < -LIGHT_PAD || z >= CHUNK_SIZE + LIGHT_PAD) return 0;
+  return c._lightPass[lgIdx(x, y, z)] ? 0 : 1;
+}
+// Кривая яркости (как раньше: 0.05 + t^1.35 * 0.95) — теперь в шейдере.
+// Здесь — только НАСЫЩЕННОСТЬ каналов: 1.0 = уровень 15.
+// Сглаженный свет угла вершины (smooth lighting + AO, как в MC):
+// усредняем 4 ячейки, смежные с углом, и добавляем ambient occlusion.
+const AO_LEVELS = [0.55, 0.72, 0.86, 1.0]; // оба соседа-стены / один+угол / угол / чисто
+const _clTmp = [0, 0];
+function cornerLight(c, px, py, pz, t1x, t1y, t1z, t2x, t2y, t2z, out) {
+  const o1 = cellBlocksLight(c, px + t1x, py + t1y, pz + t1z);
+  const o2 = cellBlocksLight(c, px + t2x, py + t2y, pz + t2z);
+  const oc = cellBlocksLight(c, px + t1x + t2x, py + t1y + t2y, pz + t1z + t2z);
+  const ao = (o1 && o2) ? 0 : 3 - (o1 + o2 + oc);
+  let sky = 0, blk = 0;
+  sampleLight(c, px, py, pz, _clTmp); sky += _clTmp[0]; blk += _clTmp[1];
+  sampleLight(c, px + t1x, py + t1y, pz + t1z, _clTmp); sky += _clTmp[0]; blk += _clTmp[1];
+  sampleLight(c, px + t2x, py + t2y, pz + t2z, _clTmp); sky += _clTmp[0]; blk += _clTmp[1];
+  sampleLight(c, px + t1x + t2x, py + t1y + t2y, pz + t1z + t2z, _clTmp); sky += _clTmp[0]; blk += _clTmp[1];
+  out[0] = blk / 60; out[1] = sky / 60; out[2] = AO_LEVELS[ao];
 }
 
 function buildChunkMesh(c) {
@@ -2639,10 +2760,11 @@ function buildChunkMesh(c) {
           if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
           const ab = doorAABB(wx, y, wz);
           const x1=ab.x1, x2=ab.x2, z1=ab.z1, z2=ab.z2;
-          const bl = faceBrightness(c, lx, y, lz);
+          sampleLight(c, lx, y, lz, _slTmp); // дверь прозрачна для света
+          const blB = _slTmp[1] / 15, blS = _slTmp[0] / 15;
           const addQuad = (p, nrm) => {
             const base = buf.positions.length/3;
-            for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(bl,bl,bl); }
+            for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(blB, blS, 1); }
             buf.uvs.push(0,0,1,0,1,1,0,1);
             buf.indices.push(base,base+1,base+2,base,base+2,base+3);
           };
@@ -2663,29 +2785,27 @@ function buildChunkMesh(c) {
           const mSide = mats[0]; // бок матраса
           const mEnd  = mats[4]; // торец матраса
           const mLeg  = mats[3]; // ножки (дерево)
-          // свет: берём освещённость верхней грани блока (y+1) — матрас приподнят,
-          // и гарантируем минимум 0.45, чтобы кровать не выглядела чёрной в тени.
-          const bl = Math.max(0.45, faceBrightness(c, lx, y + 1, lz));
-          const blTop  = Math.min(1, bl);
-          const blSide = Math.max(0.4, bl * 0.82);
-          const blBot  = Math.max(0.35, bl * 0.6);
-          function qB(mat, bright, pts, nrm) {
+          // свет: берём освещённость над кроватью (y+1) — матрас приподнят,
+          // и гарантируем минимум ~уровень 8, чтобы кровать не выглядела чёрной в тени.
+          sampleLight(c, lx, y + 1, lz, _slTmp);
+          const blB = Math.max(_slTmp[1], 8) / 15, blS = _slTmp[0] / 15;
+          function qB(mat, shade, pts, nrm) {
             const mi = getMatIndex(mat);
             let buf = byMat.get(mi);
             if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
             const base = buf.positions.length / 3;
-            for (const v of pts) { buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(bright,bright,bright); }
+            for (const v of pts) { buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(blB, blS, shade); }
             buf.uvs.push(0,0, 1,0, 1,1, 0,1);
             buf.indices.push(base,base+1,base+2, base,base+2,base+3);
           }
           // параллелепипед (x1..x2, y1..y2, z1..z2) с материалами по 6 граням
           function boxB(x1,y1,z1,x2,y2,z2, mPx,mNx,mPy,mNy,mPz,mNz) {
-            qB(mPx, blSide, [[x2,y1,z1],[x2,y1,z2],[x2,y2,z2],[x2,y2,z1]], [1,0,0]);
-            qB(mNx, blSide, [[x1,y1,z2],[x1,y1,z1],[x1,y2,z1],[x1,y2,z2]], [-1,0,0]);
-            qB(mPy, blTop,  [[x1,y2,z2],[x2,y2,z2],[x2,y2,z1],[x1,y2,z1]], [0,1,0]);
-            qB(mNy, blBot,  [[x1,y1,z1],[x2,y1,z1],[x2,y1,z2],[x1,y1,z2]], [0,-1,0]);
-            qB(mPz, blSide, [[x1,y1,z2],[x2,y1,z2],[x2,y2,z2],[x1,y2,z2]], [0,0,1]);
-            qB(mNz, blSide, [[x2,y1,z1],[x1,y1,z1],[x1,y2,z1],[x2,y2,z1]], [0,0,-1]);
+            qB(mPx, 0.82, [[x2,y1,z1],[x2,y1,z2],[x2,y2,z2],[x2,y2,z1]], [1,0,0]);
+            qB(mNx, 0.82, [[x1,y1,z2],[x1,y1,z1],[x1,y2,z1],[x1,y2,z2]], [-1,0,0]);
+            qB(mPy, 1.0,  [[x1,y2,z2],[x2,y2,z2],[x2,y2,z1],[x1,y2,z1]], [0,1,0]);
+            qB(mNy, 0.6,  [[x1,y1,z1],[x2,y1,z1],[x2,y1,z2],[x1,y1,z2]], [0,-1,0]);
+            qB(mPz, 0.82, [[x1,y1,z2],[x2,y1,z2],[x2,y2,z2],[x1,y2,z2]], [0,0,1]);
+            qB(mNz, 0.82, [[x2,y1,z1],[x1,y1,z1],[x1,y2,z1],[x2,y2,z1]], [0,0,-1]);
           }
           // ориентация: front указывает от ножной части к изголовью
           const fr = hasFacing ? World.facing.get(wx + ',' + y + ',' + wz) : undefined;
@@ -2784,10 +2904,11 @@ function buildChunkMesh(c) {
           let buf = byMat.get(mi);
           if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
           const st = leverState(wx, y, wz); // {on, facing}
-          const bl = faceBrightness(c, lx, y, lz);
+          sampleLight(c, lx, y, lz, _slTmp);
+          const blB = _slTmp[1] / 15, blS = _slTmp[0] / 15;
           const addQuad = (p, nrm) => {
             const base = buf.positions.length/3;
-            for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(bl,bl,bl); }
+            for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(blB, blS, 1); }
             buf.uvs.push(0,0,1,0,1,1,0,1);
             buf.indices.push(base,base+1,base+2,base,base+2,base+3);
           };
@@ -2821,10 +2942,11 @@ function buildChunkMesh(c) {
           const mi = getMatIndex(mat);
           let buf = byMat.get(mi);
           if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
-          const bl = faceBrightness(c, lx, y, lz);
+          sampleLight(c, lx, y, lz, _slTmp);
+          const blB = _slTmp[1] / 15, blS = _slTmp[0] / 15;
           const addQuad = (p, nrm) => {
             const base = buf.positions.length/3;
-            for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(bl,bl,bl); }
+            for (const v of p){ buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(blB, blS, 1); }
             buf.uvs.push(0,0,1,0,1,1,0,1);
             buf.indices.push(base,base+1,base+2,base,base+2,base+3);
           };
@@ -2860,8 +2982,8 @@ function buildChunkMesh(c) {
           // Переставляем грани так, чтобы лицевая панель (по умолчанию +Z) смотрела по facing
           const fr = (hasFacing) ? World.facing.get(wx + ',' + y + ',' + wz) : undefined;
           const blockMats = (fr !== undefined) ? orientedMaterialsFrom(mats, fr, false) : mats;
-          const bl = faceBrightness(c, lx, y, lz);
-          const blSide = bl * 0.82, blBot = bl * 0.6;
+          sampleLight(c, lx, y, lz, _slTmp);
+          const blB = _slTmp[1] / 15, blS = _slTmp[0] / 15;
           // корпус — полный куб (упрощённо), но если выдвинут — лицевая грань «утоплена»
           for (const f of FACES) {
             const nb = World.getBlock(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
@@ -2870,12 +2992,12 @@ function buildChunkMesh(c) {
             const mi = getMatIndex(material);
             let buf = byMat.get(mi);
             if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
-            let brt = f.dir[1] === 1 ? bl : (f.dir[1] === -1 ? blBot : blSide);
+            const brt = f.dir[1] === 1 ? 1 : (f.dir[1] === -1 ? 0.6 : 0.82);
             const base = buf.positions.length / 3;
             for (const cv of f.corners) {
               buf.positions.push(lx + cv[0], y + cv[1], lz + cv[2]);
               buf.normals.push(f.dir[0], f.dir[1], f.dir[2]);
-              buf.colors.push(brt, brt, brt);
+              buf.colors.push(blB, blS, brt);
             }
             buf.uvs.push(0,0, 1,0, 1,1, 0,1);
             buf.indices.push(base,base+1,base+2, base,base+2,base+3);
@@ -2888,8 +3010,8 @@ function buildChunkMesh(c) {
           const mats = MATERIALS[BLOCK.PISTON_HEAD];
           const fr = (hasFacing) ? World.facing.get(wx + ',' + y + ',' + wz) : undefined;
           const blockMats = (fr !== undefined) ? orientedMaterialsFrom(mats, fr, false) : mats;
-          const bl = faceBrightness(c, lx, y, lz);
-          const blSide = bl * 0.82, blBot = bl * 0.6;
+          sampleLight(c, lx, y, lz, _slTmp);
+          const blB = _slTmp[1] / 15, blS = _slTmp[0] / 15;
           // плита толщиной 0.4, смещённая к «лицу» (упрощённо — полный куб)
           for (const f of FACES) {
             const nb = World.getBlock(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
@@ -2898,12 +3020,12 @@ function buildChunkMesh(c) {
             const mi = getMatIndex(material);
             let buf = byMat.get(mi);
             if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
-            let brt = f.dir[1] === 1 ? bl : (f.dir[1] === -1 ? blBot : blSide);
+            const brt = f.dir[1] === 1 ? 1 : (f.dir[1] === -1 ? 0.6 : 0.82);
             const base = buf.positions.length / 3;
             for (const cv of f.corners) {
               buf.positions.push(lx + cv[0], y + cv[1], lz + cv[2]);
               buf.normals.push(f.dir[0], f.dir[1], f.dir[2]);
-              buf.colors.push(brt, brt, brt);
+              buf.colors.push(blB, blS, brt);
             }
             buf.uvs.push(0,0, 1,0, 1,1, 0,1);
             buf.indices.push(base,base+1,base+2, base,base+2,base+3);
@@ -2919,11 +3041,12 @@ function buildChunkMesh(c) {
           const mi = getMatIndex(mat);
           let buf = byMat.get(mi);
           if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
-          const bl = pwr > 0 ? 1 : faceBrightness(c, lx, y, lz) * 0.9;
+          sampleLight(c, lx, y, lz, _slTmp);
+          const blB = _slTmp[1] / 15, blS = _slTmp[0] / 15; // выключенная пыль слегка затенена (0.9)
           const H = 0.02; // чуть выше блока снизу
           // основная плоскость
           const base = buf.positions.length/3;
-          for (const v of [[0,H,0],[1,H,0],[1,H,1],[0,H,1]]) { buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(0,1,0); buf.colors.push(bl,bl,bl); }
+          for (const v of [[0,H,0],[1,H,0],[1,H,1],[0,H,1]]) { buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(0,1,0); buf.colors.push(blB, blS, pwr > 0 ? 1 : 0.9); }
           buf.uvs.push(0,0, 1,0, 1,1, 0,1);
           buf.indices.push(base,base+1,base+2, base,base+2,base+3);
           continue;
@@ -3083,17 +3206,34 @@ function buildChunkMesh(c) {
           const mi = getMatIndex(material);
           let buf = byMat.get(mi);
           if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water: liquid }; byMat.set(mi, buf); }
-          // яркость грани — из соседней (освещённой) ячейки
-          let bl = faceBrightness(c, lx + f.dir[0], y + f.dir[1], lz + f.dir[2]);
-          // лёгкая «псевдо-AO» по направлению грани (верх ярче, низ темнее)
-          if (f.dir[1] === -1) bl *= 0.6; else if (f.dir[1] === 0) bl *= 0.82;
+          // затенение по направлению грани (верх ярче, низ темнее)
+          const fShade = f.dir[1] === -1 ? 0.6 : (f.dir[1] === 0 ? 0.82 : 1);
+          // свет соседней (освещённой) ячейки грани
+          const px = lx + f.dir[0], py = y + f.dir[1], pz = lz + f.dir[2];
           const base = buf.positions.length / 3;
-          for (const cv of f.corners) {
-            // у жидкости верхние вершины опускаем до уровня поверхности
-            const vy = liquid && cv[1] === 1 ? y + waterTop : y + cv[1];
-            buf.positions.push(lx + cv[0], vy, lz + cv[2]);
-            buf.normals.push(f.dir[0], f.dir[1], f.dir[2]);
-            buf.colors.push(bl, bl, bl);
+          if (liquid) {
+            // жидкость — плоский свет грани (AO на течениях давал бы артефакты)
+            sampleLight(c, px, py, pz, _slTmp);
+            const wb = _slTmp[1] / 15, ws = _slTmp[0] / 15;
+            for (const cv of f.corners) {
+              // верхние вершины опускаем до уровня поверхности
+              const vy = cv[1] === 1 ? y + waterTop : y + cv[1];
+              buf.positions.push(lx + cv[0], vy, lz + cv[2]);
+              buf.normals.push(f.dir[0], f.dir[1], f.dir[2]);
+              buf.colors.push(wb, ws, fShade);
+            }
+          } else {
+            // СГЛАЖЕННОЕ ОСВЕЩЕНИЕ (как в MC): свет каждого УГЛА вершины —
+            // среднее по 4 смежным ячейкам + ambient occlusion от стен.
+            const st = SMOOTH_T[f.mat];
+            for (let ci = 0; ci < 4; ci++) {
+              const cv = f.corners[ci];
+              const t = st[ci];
+              cornerLight(c, px, py, pz, t[0], t[1], t[2], t[3], t[4], t[5], _cornerOut);
+              buf.positions.push(lx + cv[0], y + cv[1], lz + cv[2]);
+              buf.normals.push(f.dir[0], f.dir[1], f.dir[2]);
+              buf.colors.push(_cornerOut[0], _cornerOut[1], _cornerOut[2] * fShade);
+            }
           }
           // UV под порядок углов [нл, нп, вп, вл]
           buf.uvs.push(0,0, 1,0, 1,1, 0,1);
@@ -3367,6 +3507,7 @@ const overlay = document.getElementById('overlay');
 const WorldManager = {
   current: null, // имя текущего мира
   cheatsEnabled: false, // читы текущего мира (false для старых/без-читов миров)
+  rules: { legacyDurability: false }, // правила мира (задаются при создании, потом неизменны)
   LS_INDEX: 'minicraft_worlds',     // список миров
   LS_PREFIX: 'minicraft_world_',    // данные мира
 
@@ -3393,7 +3534,7 @@ const WorldManager = {
     openChestPos = null;
     // полное состояние нового мира (фикс: раньше новый мир наследовал
     // время суток, точку возрождения и редстоун-состояние предыдущего)
-    DAY.time = 0.30; DAY._lastStep = DAY.skyLevel = 15;
+    DAY.time = 0.30; DAY_LIGHT_UNIFORM.value = 1;
     PLAYER.spawnPoint = null;
     _dimReturn.overworld = null; _dimReturn.nether = null;
     if (typeof resetRedstoneState === 'function') resetRedstoneState();
@@ -3416,6 +3557,7 @@ const WorldManager = {
     PLAYER.burnTimer = 0; PLAYER.fallStart = undefined;
     PLAYER.flying = false;
     window.__creative = false; // креатив сбрасывается при смене мира
+    this.rules = { legacyDurability: false }; // правила сбрасываются (зададутся при создании/загрузке)
     document.getElementById('deathScreen').classList.remove('on');
     mobSpawnTimer = 4;
     // инвентарь / крафт
@@ -3432,13 +3574,15 @@ const WorldManager = {
   },
 
   // создать новый мир
-  create(name, seedStr, cheatsEnabled) {
+  create(name, seedStr, cheatsEnabled, rules) {
     name = (name || '').trim() || ('Мир ' + (this.list().length + 1));
     const seed = parseSeed(seedStr);
     this.resetState();
     WORLD_SEED = seed;
     this.current = name;
     this.cheatsEnabled = !!cheatsEnabled; // читы для нового мира
+    // правила мира: только при создании, дальше неизменны
+    this.rules = { legacyDurability: !!(rules && rules.legacyDurability) };
     spawnPlayer();
     renderHotbar();
 
@@ -3482,6 +3626,11 @@ const WorldManager = {
   deserializeDim(s, d) {
     if (!d) return;
     for (const e of (d.edits || [])) { const i = e.lastIndexOf(':'); s.edits.set(e.slice(0, i), parseInt(e.slice(i+1), 10)); }
+    // индекс источников света (факелы и пр.) — для сквозного света между чанками
+    if (s.lightEmitters) {
+      s.lightEmitters.clear();
+      for (const [k, id] of s.edits) { const em = lightEmission(id); if (em > 0) s.lightEmitters.set(k, em); }
+    }
     for (const e of (d.doors || [])) { const p = e.split(':'); s.doorState.set(p[0], { open: p[1]==='1', hinge: p[2]==='left'?'left':'right' }); }
     for (const f of (d.furnaces || [])) {
       s.furnaces.set(f.k, {
@@ -3520,6 +3669,7 @@ const WorldManager = {
       dim: World.dim,
       dimReturn: _dimReturn,
       cheatsEnabled: !!this.cheatsEnabled, // флаг читов для мира
+      rules: { legacyDurability: !!(this.rules && this.rules.legacyDurability) }, // правила мира (неизменны)
       player: {
         x: PLAYER.pos.x, y: PLAYER.pos.y, z: PLAYER.pos.z,
         yaw: PLAYER.yaw, pitch: PLAYER.pitch,
@@ -3565,6 +3715,10 @@ const WorldManager = {
     // МИГРАЦИЯ: старые миры (без поля cheatsEnabled) — читы выключены (cheatsDisabled = true).
     // Новые миры явно хранят cheatsEnabled (true/false).
     this.cheatsEnabled = (data.cheatsEnabled === true);
+    // МИГРАЦИЯ: старые миры без поля rules — правило выключено (ванильная прочность)
+    this.rules = (data.rules && typeof data.rules === 'object')
+      ? { legacyDurability: !!data.rules.legacyDurability }
+      : { legacyDurability: false };
 
     // восстановить оба измерения (со старой совместимостью: старый формат хранил поля прямо в data)
     if (data.overworld || data.nether) {
@@ -3621,8 +3775,7 @@ const WorldManager = {
 
     // время суток
     DAY.time = (typeof data.dayTime === 'number') ? data.dayTime : 0.30;
-    DAY.skyLevel = World.dim === 'overworld' ? Math.round(4 + daylight() * 11) : 15;
-    DAY._lastStep = DAY.skyLevel;
+    DAY_LIGHT_UNIFORM.value = World.dim === 'overworld' ? skyFactor() : 1;
 
     // восстановить сущности текущего измерения
     restoreDimEntities();
@@ -3781,6 +3934,8 @@ function startWorldLoading() {
 // запустить игровой процесс (после предзагрузки чанков)
 function beginGame() {
   gameStarted = true;
+  pausedFromGame = false; // играем, а не на паузе
+  document.getElementById('resumeBtn').style.display = 'none';
   overlay.classList.add('hidden');
   document.getElementById('menuBtn').style.display = 'block';
   initAudio();
@@ -6702,6 +6857,7 @@ function sleepInBed(bx, by, bz) {
     from: DAY.time, span: span, t: 0, dur: 2.5,
     sx, sy, sz, camFromX, camFromY, camFromZ,
     bedX: sx, bedY: sy, bedZ: sz,
+    bedBX: bx, bedBY: by, bedBZ: bz, // точные координаты блока кровати
   };
   showToast('Спокойной ночи…');
   // включить оверлей сна
@@ -6711,18 +6867,29 @@ function sleepInBed(bx, by, bz) {
   if (typeof requestSave === 'function') requestSave();
 }
 // тикер плавной промотки времени (вызывается из главного цикла)
+function endSleepTransition() {
+  const so = document.getElementById('sleepOverlay');
+  if (so) so.classList.remove('on');
+  sleepTransition = null;
+  if (typeof requestSave === 'function') requestSave();
+}
+
 function updateSleepTransition(dt) {
   if (!sleepTransition) return;
+  // погибли во сне (напр. голод) — резко проснуться там, где засыпали
+  if (PLAYER.dead) {
+    PLAYER.pos.set(sleepTransition.camFromX, sleepTransition.camFromY, sleepTransition.camFromZ);
+    PLAYER.vel.set(0, 0, 0);
+    endSleepTransition();
+    return;
+  }
   sleepTransition.t += dt;
   const k = Math.min(1, sleepTransition.t / sleepTransition.dur);
-  // ИНКРЕМЕНТИРУЕМ время вперёд (никакого отката назад) до рассвета
+  // ИНКРЕМЕНТИРУЕМ время вперёд (никакого отката назад) до рассвета.
+  // Небо теперь меняется юниформом на GPU — без перестройки чанков
+  // (раньше конец сна давал «вспышку» полного дня и двойной relight всех чанков).
   DAY.time = (sleepTransition.from + sleepTransition.span * k) % 1;
-  const dl = daylight();
-  DAY.skyLevel = Math.round(4 + dl * 11);
-  if (DAY.skyLevel !== DAY._lastStep) {
-    DAY._lastStep = DAY.skyLevel;
-    for (const c of World.chunks.values()) c.dirty = true;
-  }
+  DAY_LIGHT_UNIFORM.value = skyFactor();
   // плавно переместить камеру игрока к кровати (лёгкое «опускание» на кровать)
   const kk = k < 0.5 ? k * 2 : 1; // первая половина — движение к кровати
   PLAYER.pos.x = sleepTransition.camFromX + (sleepTransition.bedX - sleepTransition.camFromX) * kk;
@@ -6730,14 +6897,19 @@ function updateSleepTransition(dt) {
   PLAYER.pos.z = sleepTransition.camFromZ + (sleepTransition.bedZ - sleepTransition.camFromZ) * kk;
   if (k >= 1) {
     DAY.time = 0.25; // рассвет (daylight = 0.5)
-    DAY.skyLevel = 15; DAY._lastStep = 15;
-    for (const c of World.chunks.values()) c.dirty = true;
+    DAY_LIGHT_UNIFORM.value = skyFactor();
+    // Встать в безопасную клетку РЯДОМ с кроватью (фикс: раньше игрок
+    // просыпался в точке кровати и мог застрять в блоке над ней)
+    let woke = false;
+    if (sleepTransition.bedBX !== undefined) {
+      const wake = findBedSpawn(sleepTransition.bedBX, sleepTransition.bedBY, sleepTransition.bedBZ);
+      if (wake) { PLAYER.pos.set(wake.x, wake.y, wake.z); woke = true; }
+    }
+    if (!woke) PLAYER.pos.set(sleepTransition.camFromX, sleepTransition.camFromY, sleepTransition.camFromZ);
+    PLAYER.vel.set(0, 0, 0);
+    PLAYER.fallStart = undefined; // без урона от падения после сна
     showToast('Доброе утро!');
-    // выключить оверлей сна
-    const so = document.getElementById('sleepOverlay');
-    if (so) so.classList.remove('on');
-    sleepTransition = null;
-    if (typeof requestSave === 'function') requestSave();
+    endSleepTransition();
   }
 }
 
@@ -7168,7 +7340,7 @@ function findBedSpawn(bx, by, bz) {
       return { x: x + 0.5, y: by, z: z + 0.5 };
     }
   }
-  return { x: bx + 0.5, y: by + 1, z: bz + 0.5 }; // fallback — над кроватью
+  return null; // безопасной клетки нет
 }
 
 // безопасная точка выхода у портала: проверяем 4 горизонтальных соседа нижних клеток
@@ -7351,10 +7523,8 @@ function placeBlock() {
         for (let k = 0; k < n; k++) spawnDrop(BLOCK.WOOL, m.pos.x+(Math.random()-0.5)*0.4, m.pos.y+0.6, m.pos.z+(Math.random()-0.5)*0.4);
         if (m.mesh.userData.wool) m.mesh.userData.wool.scale.set(0.8, 0.7, 0.85); // визуально «голая»
         playSound('shear');
-        // ножницы теряют прочность
-        if (typeof slot0.dur !== 'number') slot0.dur = MAX_DURABILITY[ITEM.SHEARS];
-        slot0.dur--;
-        if (slot0.dur <= 0) { slots[activeSlot] = null; playSound('break', BLOCK.IRON_ORE); }
+        // ножницы теряют прочность (через useDurability — действует правило мира)
+        if (useDurability(slot0)) { slots[activeSlot] = null; playSound('break', BLOCK.IRON_ORE); }
         refreshUI();
         return;
       } else {
@@ -9309,11 +9479,19 @@ function loop(now) {
   if (!gameStarted) { requestAnimationFrame(loop); return; }
 
   if (!PLAYER.dead && overlay.classList.contains('hidden') && !invOpen && !chatOpen) {
-    updatePlayer(dt);
-    updateOxygen(dt);
-    updateSurvival(dt);
-    updateDrops(dt);
-    updateMining(dt);
+    if (sleepTransition) {
+      // игрок спит: не ходит и не копает (как в MC — лежит в кровати)
+      if (mining.active) resetMining();
+      updateOxygen(dt);
+      updateSurvival(dt);
+      updateDrops(dt);
+    } else {
+      updatePlayer(dt);
+      updateOxygen(dt);
+      updateSurvival(dt);
+      updateDrops(dt);
+      updateMining(dt);
+    }
   } else if (mining.active) {
     resetMining();
   }
@@ -9471,19 +9649,22 @@ function renderWorldList() {
     nm.textContent = w.name;
     const meta = document.createElement('div');
     meta.className = 'wm-meta';
-    // флаг читов: из индекса (быстро), для старых миров — из данных (медленно, один раз)
+    // флаги читов и правил: из индекса (быстро), для старых миров — из данных (медленно, один раз)
     let cheatsOn = !!w.cheats;
-    if (w.cheats === undefined) {
+    let legacyOn = !!w.legacy;
+    if (w.cheats === undefined || w.legacy === undefined) {
       try {
         const d = JSON.parse(localStorage.getItem(WorldManager.LS_PREFIX + w.name));
-        cheatsOn = !!(d && d.cheatsEnabled);
-        w.cheats = cheatsOn; // закешировать в индекс
+        if (w.cheats === undefined) cheatsOn = !!(d && d.cheatsEnabled);
+        if (w.legacy === undefined) legacyOn = !!(d && d.rules && d.rules.legacyDurability);
+        w.cheats = cheatsOn; w.legacy = legacyOn; // закешировать в индекс
         const arr1 = WorldManager.list();
         const w1 = arr1.find(x => x.name === w.name);
-        if (w1) { w1.cheats = cheatsOn; WorldManager.saveIndex(arr1); }
+        if (w1) { w1.cheats = cheatsOn; w1.legacy = legacyOn; WorldManager.saveIndex(arr1); }
       } catch (e) {}
     }
-    meta.textContent = 'Сид: ' + w.seed + ' · ' + timeAgo(w.updated) + (cheatsOn ? ' · читы ✓' : '');
+    meta.textContent = 'Сид: ' + w.seed + ' · ' + timeAgo(w.updated)
+      + (cheatsOn ? ' · читы ✓' : '') + (legacyOn ? ' · legacy-прочность ✓' : '');
     info.appendChild(nm); info.appendChild(meta);
 
     const loadBtn = document.createElement('button');
@@ -9508,7 +9689,8 @@ document.getElementById('createWorldBtn').addEventListener('click', () => {
   const name = document.getElementById('newWorldName').value;
   const seed = document.getElementById('newWorldSeed').value;
   const cheats = document.getElementById('cheatsToggle').checked;
-  WorldManager.create(name, seed, cheats);
+  const legacyDur = document.getElementById('legacyDurToggle').checked;
+  WorldManager.create(name, seed, cheats, { legacyDurability: legacyDur });
 });
 
 // ---- Навигация главного меню: Играть -> подменю миров -> Назад ----
@@ -9531,6 +9713,14 @@ function updateCheatsLabel() {
 }
 cheatsToggleEl.addEventListener('change', updateCheatsLabel);
 updateCheatsLabel();
+// подпись тумблера правила «Legacy-прочность»
+const legacyDurToggleEl = document.getElementById('legacyDurToggle');
+const legacyDurLabelEl = document.getElementById('legacyDurLabel');
+function updateLegacyDurLabel() {
+  legacyDurLabelEl.textContent = legacyDurToggleEl.checked ? 'Legacy-прочность: Вкл' : 'Legacy-прочность: Выкл';
+}
+legacyDurToggleEl.addEventListener('change', updateLegacyDurLabel);
+updateLegacyDurLabel();
 
 // ---- Настройка прорисовки чанков ----
 function setRenderDistance(rd) {
@@ -9568,6 +9758,10 @@ shadowToggleEl.addEventListener('change', () => {
   setShadows(shadowToggleEl.checked);
 });
 
+// пауза открыта ИЗ ИГРЫ (мир загружен и стоит на паузе).
+// Если false — меню открыто из главного меню, «продолжать» нечего.
+let pausedFromGame = false;
+
 // открыть меню (пауза + менеджер миров)
 function openMenu() {
   if (!gameStarted) return;
@@ -9575,12 +9769,30 @@ function openMenu() {
   document.exitPointerLock();
   if (invOpen) toggleInventory();
   overlay.classList.remove('hidden');
+  pausedFromGame = true; // мир загружен — пауза из игры
+  // «Продолжить» доступно только когда есть загруженный мир
+  document.getElementById('resumeBtn').style.display = 'block';
   // при паузе из игры — показываем подменю миров (чтобы можно было переключиться/создать)
   mainMenuBox.style.display = 'none';
   worldsMenuBox.style.display = 'block';
   renderWorldList();
   if (typeof updateChatMiniVisibility === 'function') updateChatMiniVisibility();
 }
+
+// вернуться в мир БЕЗ перезагрузки: скрыть меню и вернуть управление мышью
+function resumeGame() {
+  if (!pausedFromGame) return; // мир не загружен (главное меню) — продолжать нечего
+  pausedFromGame = false;
+  document.getElementById('resumeBtn').style.display = 'none';
+  overlay.classList.add('hidden');
+  if (typeof updateChatMiniVisibility === 'function') updateChatMiniVisibility();
+  if (!PLAYER.dead) canvas.requestPointerLock(); // вернуть захват мыши (как после респавна)
+}
+
+document.getElementById('resumeBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  resumeGame();
+});
 
 document.getElementById('menuBtn').addEventListener('click', (e) => {
   e.stopPropagation();
@@ -9630,6 +9842,9 @@ document.addEventListener('keydown', (e) => {
     if (chatOpen) { closeChat(); return; }
     if (PLAYER.dead) return;          // на экране смерти Esc ничего не делает
     if (invOpen) toggleInventory();   // открыт инвентарь -> закрыть его
+    else if (!overlay.classList.contains('hidden') && pausedFromGame) {
+      resumeGame();                   // меню открыто из игры -> сразу вернуться в мир
+    }
     else openMenu();                  // иначе -> меню/пауза
   }
 });
@@ -9715,10 +9930,13 @@ function handleChatCommand(msg) {
       else if (/^[0-9.]+$/.test(val)) t = Math.max(0, Math.min(0.999, parseFloat(val)));
     }
     if (t === null) { addChatMessage('Использование: /time set day|night|noon|midnight|<0-1>', 'chat-sys'); return; }
+    // смена времени во сне — отменяем сон (иначе переход сна перетирал бы время)
+    if (sleepTransition) {
+      PLAYER.pos.set(sleepTransition.camFromX, sleepTransition.camFromY, sleepTransition.camFromZ);
+      endSleepTransition();
+    }
     DAY.time = t;
-    DAY.skyLevel = Math.round(4 + daylight() * 11);
-    DAY._lastStep = -1;
-    for (const c of World.chunks.values()) c.dirty = true;
+    DAY_LIGHT_UNIFORM.value = skyFactor(); // мгновенно и без перестройки чанков
     addChatMessage('Время установлено: ' + val, 'chat-sys');
     return;
   }
