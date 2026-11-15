@@ -124,6 +124,19 @@
   .craft-result { width: 48px; height: 48px; background: #9b9b9b; }
   .inv-label { font-size: 11px; color: #444; }
 
+  /* Верхний ряд инвентаря: колонка брони + крафт */
+  .inv-top-row { display: flex; align-items: flex-start; justify-content: center; gap: 16px; }
+  .armor-col { display: grid; grid-template-columns: 42px; gap: 3px; }
+  .armor-col .inv-slot.helmet     { box-shadow: inset 0 0 0 1px rgba(60,120,200,0.35); }
+  .armor-col .inv-slot.chestplate { box-shadow: inset 0 0 0 1px rgba(200,120,60,0.35); }
+  .armor-col .inv-slot.leggings   { box-shadow: inset 0 0 0 1px rgba(90,170,90,0.35); }
+  .armor-col .inv-slot.boots      { box-shadow: inset 0 0 0 1px rgba(160,90,170,0.35); }
+  .armor-col .inv-slot.offhand    { box-shadow: inset 0 0 0 1px rgba(200,190,80,0.45); margin-top: 6px; }
+  .armor-col .inv-slot .ghost { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:18px; color:#5a5a5a; pointer-events:none; }
+  /* Вторая рука в хотбаре (слева, отдельной рамкой) */
+  .offhand-slot { margin-right: 12px; border-color: #7a9a5a !important; outline: 1px dashed #7a9a5a; outline-offset: -5px; }
+
   /* Печь */
   .furnace-zone { display: flex; align-items: center; gap: 14px; padding: 8px; background:#bdbdbd; }
   .furnace-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
@@ -247,6 +260,20 @@
   }
   .load-sub { font-size: 12px; color: #9fc77f; margin-top: 8px; }
   .load-tip { font-size: 11px; color: #88a070; margin-top: 18px; font-style: italic; min-height: 16px; }
+  .load-status { animation: statusPulse 1.2s ease-in-out infinite; }
+  @keyframes statusPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+  /* Тема Ада: при загрузке в незер полоска и фон «багровые» */
+  #loadingScreen.nether {
+    background: repeating-linear-gradient(45deg, #26100c 0 14px, #2e130c 14px 28px);
+  }
+  #loadingScreen.nether .load-bar {
+    background: repeating-linear-gradient(90deg, #d83a10 0 10px, #a82808 10px 20px);
+  }
+  #loadingScreen.nether .load-logo {
+    color: #ffb08a; text-shadow: 3px 3px 0 #000, 0 0 14px rgba(255,90,20,0.5);
+  }
+  #loadingScreen.nether .load-sub { color: #d9a89a; }
+  #loadingScreen.nether .load-tip { color: #b08878; }
 
   /* Подсказки / меню старта */
   #overlay {
@@ -572,7 +599,40 @@
 </div>
 <div id="chatMini"></div>
 
-<script src="three.min.js" onerror="this.onerror=null;var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';document.head.appendChild(s);"></script>
-<script src="game.js"></script>
+<script src="three.min.js"></script>
+<!-- Модули игры: порядок загрузки = порядок следования (1: core -> 33: save) -->
+<script src="js/core.js"></script>
+  <script src="js/textures.js"></script>
+  <script src="js/worldgen.js"></script>
+  <script src="js/liquids.js"></script>
+  <script src="js/fire.js"></script>
+  <script src="js/mesher.js"></script>
+  <script src="js/lighting.js"></script>
+  <script src="js/scene.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/worldmanager.js"></script>
+  <script src="js/loading.js"></script>
+  <script src="js/inventory.js"></script>
+  <script src="js/recipes.js"></script>
+  <script src="js/inventory_ui.js"></script>
+  <script src="js/creative.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/raycast.js"></script>
+  <script src="js/drops.js"></script>
+  <script src="js/sand.js"></script>
+  <script src="js/mobs.js"></script>
+  <script src="js/interaction.js"></script>
+  <script src="js/furnace.js"></script>
+  <script src="js/redstone.js"></script>
+  <script src="js/commandblock.js"></script>
+  <script src="js/particles.js"></script>
+  <script src="js/chunks.js"></script>
+  <script src="js/physics.js"></script>
+  <script src="js/teleport.js"></script>
+  <script src="js/hud.js"></script>
+  <script src="js/mainloop.js"></script>
+  <script src="js/menus.js"></script>
+  <script src="js/chat.js"></script>
+  <script src="js/save.js"></script>
 </body>
 </html>
