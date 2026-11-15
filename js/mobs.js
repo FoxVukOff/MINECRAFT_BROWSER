@@ -1522,6 +1522,8 @@ function hurtMob(p) {
     if (p.type === 'cow') { const lc = (Math.random()*3|0); for (let k=0;k<lc;k++) spawnDrop(ITEM.LEATHER, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4); }
     // куры роняют 0–2 пера (как в MC)
     if (p.type === 'chicken') { const fc = (Math.random()*3|0); for (let k=0;k<fc;k++) spawnDrop(ITEM.FEATHER, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4); }
+    // зомби-пиглины дополнительно роняют 0–1 золотой самородок (как в MC)
+    if (p.type === 'piglin') { const gn = (Math.random()*2|0); for (let k=0;k<gn;k++) spawnDrop(ITEM.GOLD_NUGGET, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4); }
     // овцы роняют 1 шерсть, если ещё не острижены
     if (p.type === 'sheep' && !p.sheared) { spawnDrop(BLOCK.WOOL, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4); }
     const idx = mobs.indexOf(p);

@@ -567,8 +567,16 @@ function tryEat() {
   // основная рука; пуста — еда из второй руки (parity MC)
   const slot = activeItem() || PLAYER.offhand;
   if (!slot || !isFood(slot.id)) return false;
-  if (PLAYER.hunger >= PLAYER.maxHunger) return false; // сыт
+  // золотое яблоко можно есть даже сытым (как в MC); обычная еда — только голодным
+  if (PLAYER.hunger >= PLAYER.maxHunger && slot.id !== ITEM.GOLDEN_APPLE) return false; // сыт
   PLAYER.hunger = Math.min(PLAYER.maxHunger, PLAYER.hunger + FOOD[slot.id]);
+  // Золотое яблоко (parity MC): регенерация — +2 сердца мгновенно
+  // (упрощение ванильного эффекта Regeneration II; поглощение не реализуем)
+  if (slot.id === ITEM.GOLDEN_APPLE && PLAYER.hp < PLAYER.maxHp) {
+    PLAYER.hp = Math.min(PLAYER.maxHp, PLAYER.hp + 4);
+    showToast('Золотое яблоко: здоровье восстановлено');
+    PLAYER.damageFlash = 0;
+  }
   consumeHeldItem(slot);
   // Гнилая плоть: 80% шанс «Голода» (как в MC) — голод тает быстрее 30 секунд
   if (slot.id === ITEM.ROTTEN_FLESH && Math.random() < 0.8) {

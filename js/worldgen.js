@@ -87,6 +87,9 @@ function oreVeinAt(wx, y, wz) {
   else if (y >= 2 && y <= 42 && sel >= 0.55 && sel < 0.74) ore = BLOCK.IRON_ORE;
   else if (y >= 1 && y <= 14 && sel >= 0.74 && sel < 0.86) ore = BLOCK.REDSTONE_ORE;
   else if (y >= 1 && y <= 14 && sel >= 0.86 && sel < 0.94) ore = BLOCK.DIAMOND_ORE;
+  // золото: в MC (1.18+) — треугольное распределение с пиком у дна (-64..32, пик -16);
+  // у нас — y 1..30, большинство жил ниже уровня глубосланца (14) — «на дне», как в MC
+  else if (y >= 1 && y <= 30 && sel >= 0.94 && sel < 0.995) ore = BLOCK.GOLD_ORE;
   else return 0;
   // центр и радиус жилы (детерминированные по ячейке)
   const cx = gx * 8 + 1 + hash3i(gx, gy, gz, 101) * 6;
@@ -394,6 +397,13 @@ function generateNetherData(cx, cz) {
         for (let y = FLOOR + 1; y < WORLD_HEIGHT - 2; y++) {
           if (blocks[idx(lx, y, lz)] === BLOCK.NETHERRACK && oreHash(wx + 13000, y, wz + 13000) < 0.08 && y > LAVA_SEA + 2 && y < NETHER_CEIL_MIN - 2) {
             blocks[idx(lx, y, lz)] = BLOCK.AIR;
+          }
+        }
+        // Незерская золотая руда (parity MC): россыпь по незераку островов/стен/свода —
+        // щедро, как в MC (руда дешёвая: дропает самородки, а не блок)
+        for (let y = LAVA_SEA + 1; y < NETHER_CEIL_MIN - 2; y++) {
+          if (blocks[idx(lx, y, lz)] === BLOCK.NETHERRACK && oreHash(wx + 51000, y, wz + 51000) < 0.014) {
+            blocks[idx(lx, y, lz)] = BLOCK.NETHER_GOLD_ORE;
           }
         }
         // СВЕТОКАМЕНЬ — только ГРОЗДЯМИ-СГУСТКАМИ на потолке (как в MC): редкие

@@ -98,6 +98,9 @@ function soundProfile(block) {
     case BLOCK.IRON_ORE:
     case BLOCK.COPPER_ORE:
     case BLOCK.COAL_ORE:
+    case BLOCK.GOLD_ORE:
+    case BLOCK.NETHER_GOLD_ORE:
+    case BLOCK.GOLD_BLOCK:
     case BLOCK.DIAMOND_ORE: return { freq: 360, dur: 0.13, type: 'lowpass' };
     default:            return { freq: 600, dur: 0.10, type: 'lowpass' };
   }

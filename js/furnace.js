@@ -18,6 +18,12 @@ const SMELT = {
   [BLOCK.WOOD]: { id: ITEM.CHARCOAL, count: 1 }, // дерево -> древесный уголь
   [BLOCK.IRON_ORE]: { id: ITEM.IRON_INGOT, count: 1 }, // железная руда -> слиток
   [BLOCK.COPPER_ORE]: { id: ITEM.COPPER_INGOT, count: 1 }, // медная руда -> медный слиток
+  [BLOCK.GOLD_ORE]: { id: ITEM.GOLD_INGOT, count: 1 }, // золотая руда -> золотой слиток
+  // золотая броня переплавляется в самородки (как в MC — из любого золотого предмета)
+  [ITEM.GOLD_HELMET]: { id: ITEM.GOLD_NUGGET, count: 1 },
+  [ITEM.GOLD_CHESTPLATE]: { id: ITEM.GOLD_NUGGET, count: 1 },
+  [ITEM.GOLD_LEGGINGS]: { id: ITEM.GOLD_NUGGET, count: 1 },
+  [ITEM.GOLD_BOOTS]: { id: ITEM.GOLD_NUGGET, count: 1 },
 };
 function isSmeltable(id) { return SMELT[id] !== undefined; }
 // Топливо: сколько предметов сжигает 1 единица (больше = горит дольше)

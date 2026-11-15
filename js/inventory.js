@@ -143,6 +143,7 @@ function iconCanvas(id, size) {
     if (idd === ITEM.COPPER_PICKAXE || idd === ITEM.COPPER_AXE || idd === ITEM.COPPER_SHOVEL || idd === ITEM.COPPER_SWORD) return '#d07a40';
     if (idd === ITEM.IRON_PICKAXE || idd === ITEM.IRON_AXE || idd === ITEM.IRON_SHOVEL || idd === ITEM.IRON_SWORD) return '#e2e2e8';
     if (idd === ITEM.DIAMOND_PICKAXE || idd === ITEM.DIAMOND_AXE || idd === ITEM.DIAMOND_SHOVEL || idd === ITEM.DIAMOND_SWORD) return '#3fd6e0';
+    if (idd === ITEM.GOLD_PICKAXE || idd === ITEM.GOLD_AXE || idd === ITEM.GOLD_SHOVEL || idd === ITEM.GOLD_SWORD) return '#f0c832'; // золото
     return '#b98e4d'; // деревянный
   };
   // алмаз — гранёный голубой кристалл
@@ -321,8 +322,9 @@ function iconCanvas(id, size) {
     const u = size/16;
     const isDia = (id>=ITEM.DIAMOND_HELMET), isIron = (id>=ITEM.IRON_HELMET && id<=ITEM.IRON_BOOTS);
     const isCopper = (id>=ITEM.COPPER_HELMET && id<=ITEM.COPPER_BOOTS);
-    const mat = isDia ? '#3fd6e0' : isIron ? '#cfd3da' : isCopper ? '#d07a40' : '#8a5a32';
-    const dark = isDia ? '#1f9fb0' : isIron ? '#9aa0a8' : isCopper ? '#9c4f22' : '#5e3a1e';
+    const isGold = (id>=ITEM.GOLD_HELMET && id<=ITEM.GOLD_BOOTS);
+    const mat = isDia ? '#3fd6e0' : isIron ? '#cfd3da' : isCopper ? '#d07a40' : isGold ? '#f0c832' : '#8a5a32';
+    const dark = isDia ? '#1f9fb0' : isIron ? '#9aa0a8' : isCopper ? '#9c4f22' : isGold ? '#a8841c' : '#5e3a1e';
     const sl = armorSlotOf(id);
     ctx.fillStyle = mat;
     if (sl === 'helmet') { ctx.fillRect(4*u,3*u,8*u,5*u); ctx.fillStyle=dark; ctx.fillRect(4*u,7*u,8*u,1*u); ctx.fillStyle='#0008'; ctx.fillRect(6*u,5*u,4*u,2*u); }
@@ -397,16 +399,53 @@ function iconCanvas(id, size) {
     ctx.fillRect(4*u,9*u,5*u,5*u);
     return c;
   }
-  // слитки: железный (серебристый) и медный (оранжевый)
-  if (id === ITEM.IRON_INGOT || id === ITEM.COPPER_INGOT) {
+  // слитки: железный (серебристый), медный (оранжевый) и золотой
+  if (id === ITEM.IRON_INGOT || id === ITEM.COPPER_INGOT || id === ITEM.GOLD_INGOT) {
     const u = size/16;
     const copper = (id === ITEM.COPPER_INGOT);
-    const mid  = copper ? '#cf7e44' : '#d2d2da';
-    const top  = copper ? '#ec9a5e' : '#eeeef4';
-    const bot  = copper ? '#a0552a' : '#9a9aa6';
+    const gold   = (id === ITEM.GOLD_INGOT);
+    const mid  = gold ? '#f0c832' : copper ? '#cf7e44' : '#d2d2da';
+    const top  = gold ? '#fbe27a' : copper ? '#ec9a5e' : '#eeeef4';
+    const bot  = gold ? '#a8841c' : copper ? '#a0552a' : '#9a9aa6';
     ctx.fillStyle = mid; ctx.fillRect(3*u,6*u,10*u,5*u);
     ctx.fillStyle = top; ctx.fillRect(4*u,6*u,8*u,1*u);   // блик сверху
     ctx.fillStyle = bot; ctx.fillRect(3*u,10*u,10*u,1*u); // тень снизу
+    return c;
+  }
+  // золотой самородок — маленький бугорок золота
+  if (id === ITEM.GOLD_NUGGET) {
+    const u = size/16;
+    ctx.fillStyle = '#a8841c';
+    ctx.beginPath(); ctx.ellipse(8*u, 9.6*u, 4.4*u, 3.6*u, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#f0c832';
+    ctx.beginPath(); ctx.ellipse(8*u, 9*u, 4*u, 3.1*u, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fbe27a';
+    ctx.fillRect(6*u, 7.4*u, 2*u, 1*u); ctx.fillRect(9*u, 8.4*u, 2*u, 1*u);
+    ctx.fillStyle = '#fff8cc';
+    ctx.fillRect(6*u, 7.4*u, 1*u, 1*u);
+    return c;
+  }
+  // яблоко (обычное красное / золотое — как в MC)
+  if (id === ITEM.APPLE || id === ITEM.GOLDEN_APPLE) {
+    const golden = (id === ITEM.GOLDEN_APPLE);
+    const u = size/16;
+    const body = golden ? '#f0c832' : '#d83a2e';
+    const hi   = golden ? '#fbe27a' : '#f07a60';
+    const edge = golden ? '#a8841c' : '#8e1e14';
+    // округлое яблоко
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.ellipse(8*u, 9.4*u, 4.8*u, 4.4*u, 0, 0, Math.PI*2); ctx.fill();
+    // черенок
+    ctx.strokeStyle = '#6e4a22'; ctx.lineWidth = Math.max(1, u);
+    ctx.beginPath(); ctx.moveTo(8*u, 5.6*u); ctx.lineTo(8.6*u, 3.4*u); ctx.stroke();
+    // листик
+    ctx.fillStyle = '#5d9c3f';
+    ctx.beginPath(); ctx.ellipse(9.8*u, 4.2*u, 1.8*u, 1*u, -0.5, 0, Math.PI*2); ctx.fill();
+    // блик и тень
+    ctx.fillStyle = hi; ctx.fillRect(5.6*u, 7.6*u, 1.6*u, 1.6*u);
+    ctx.fillStyle = edge; ctx.fillRect(5.2*u, 12*u, 5.6*u, 1*u);
+    // блёстки у золотого
+    if (golden) { ctx.fillStyle = '#fff8cc'; ctx.fillRect(9*u, 8*u, 1*u, 1*u); ctx.fillRect(6.4*u, 10.6*u, 1*u, 1*u); }
     return c;
   }
   // уголь / древесный уголь — кусочек угля
@@ -585,6 +624,9 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.IRON_ORE) tex = TEX.iron_ore;
   else if (id === BLOCK.COPPER_ORE) tex = TEX.copper_ore;
   else if (id === BLOCK.DIAMOND_ORE) tex = TEX.diamond_ore;
+  else if (id === BLOCK.GOLD_ORE) tex = TEX.gold_ore;
+  else if (id === BLOCK.NETHER_GOLD_ORE) tex = TEX.nether_gold_ore;
+  else if (id === BLOCK.GOLD_BLOCK) tex = TEX.gold_block;
   else if (id === BLOCK.GRAVEL) tex = TEX.gravel;
   else if (id === BLOCK.OBSIDIAN) tex = TEX.obsidian;
   else if (id === BLOCK.NETHERRACK) tex = TEX.netherrack;

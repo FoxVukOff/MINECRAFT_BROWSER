@@ -112,8 +112,9 @@ function finishBreak(t) {
 
   if (broken === BLOCK.GRASS) dropId = BLOCK.DIRT;
   else if (broken === BLOCK.LEAVES) {
-    // листва: только ножницы дают дроп листвы; иначе — ничего (как в Minecraft)
-    dropId = haveShears ? BLOCK.LEAVES : null;
+    // листва: только ножницы дают дроп листвы; иначе — ничего (как в Minecraft);
+    // изредка выпадает ЯБЛОКО (0.5%, как в MC — из листвы дуба)
+    dropId = haveShears ? BLOCK.LEAVES : (Math.random() < 0.005 ? ITEM.APPLE : null);
   }
   else if (broken === BLOCK.GLASS) dropId = null;        // стекло разбивается
   else if (broken === BLOCK.STONE) dropId = havePick ? BLOCK.COBBLESTONE : null; // камень -> булыжник только киркой
@@ -122,6 +123,13 @@ function finishBreak(t) {
   else if (broken === BLOCK.COAL_ORE) dropId = havePick ? ITEM.COAL : null; // уголь только киркой
   else if (broken === BLOCK.IRON_ORE) dropId = (tier >= 2) ? BLOCK.IRON_ORE : null; // железную руду — каменной киркой+, плавить в печи
   else if (broken === BLOCK.COPPER_ORE) dropId = (tier >= 2) ? BLOCK.COPPER_ORE : null; // медную руду — каменной киркой+, плавить в печи
+  else if (broken === BLOCK.GOLD_ORE) dropId = (tier >= 4) ? BLOCK.GOLD_ORE : null; // золотую руду — только ЖЕЛЕЗНОЙ киркой+ (как в MC), плавить в печи
+  else if (broken === BLOCK.NETHER_GOLD_ORE) {
+    // незерская золотая руда: любой киркой, дроп — 2-6 самородков (как в MC)
+    dropId = havePick ? ITEM.GOLD_NUGGET : null;
+    dropCount = havePick ? (2 + (Math.random()*5|0)) : 1;
+  }
+  else if (broken === BLOCK.GOLD_BLOCK) dropId = (tier >= 4) ? BLOCK.GOLD_BLOCK : null; // золотой блок — только железной киркой+ (как в MC)
   else if (broken === BLOCK.DIAMOND_ORE) dropId = (tier >= 4) ? ITEM.DIAMOND : null; // алмаз — только железной киркой+
   else if (broken === BLOCK.OBSIDIAN) dropId = (tier >= 5) ? BLOCK.OBSIDIAN : null; // обсидиан — только алмазной киркой
   else if (broken === BLOCK.GRAVEL) dropId = (Math.random() < 0.10) ? ITEM.FLINT : BLOCK.GRAVEL; // 10% шанс кремня (как в MC)

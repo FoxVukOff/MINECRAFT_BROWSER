@@ -356,6 +356,52 @@ function buildTextures() {
     ctx.fillStyle = '#eaffff';                 // искра
     ctx.fillRect(4,4,1,1); ctx.fillRect(6,11,1,1);
   });
+  // золотая руда — камень с яркими золотыми вкраплениями
+  TEX.gold_ore = makeTex(ctx => {
+    pixelFill(ctx, ['#8a8a8a','#7f7f7f','#949494','#757575'], [4,4,3,2], 404);
+    const blobs = [[3,4,3,2],[9,3,3,3],[6,9,4,3],[11,10,2,2],[2,11,2,2]];
+    ctx.fillStyle = '#f0c832';                 // тёплое золото
+    for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx,by,bw,bh);
+    ctx.fillStyle = '#fbe27a';                 // светлый блик
+    for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
+    ctx.fillStyle = '#a8841c';                 // тень
+    for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx+bw-1,by+bh-1,1,1);
+  });
+  // незерская золотая руда — незерак с золотыми крупинками (как в MC)
+  TEX.nether_gold_ore = makeTex(ctx => {
+    pixelFill(ctx, ['#5a1f1f','#6e2626','#4a1818','#7a2c2c','#3e1414'], [5,4,4,2,2], 2828);
+    ctx.fillStyle = '#2c0e0e';
+    for (const [gx,gy] of [[3,3],[12,9],[2,12]]) ctx.fillRect(gx,gy,2,2);
+    ctx.fillStyle = '#8a3434';
+    for (const [gx,gy] of [[3,3],[12,9],[2,12]]) ctx.fillRect(gx,gy-1,2,1);
+    const blobs = [[4,2,3,2],[9,5,3,3],[3,8,3,2],[11,11,2,2],[7,12,2,2]];
+    ctx.fillStyle = '#f0c832';
+    for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx,by,bw,bh);
+    ctx.fillStyle = '#fbe27a';
+    for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
+    ctx.fillStyle = '#a8841c';
+    for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx+bw-1,by+bh-1,1,1);
+  });
+  // золотой блок — слитое золото с объёмной фаской и чеканкой (как в MC)
+  TEX.gold_block = makeTex(ctx => {
+    pixelFill(ctx, ['#f0c832','#e8bc28','#f6d24a','#dfae1e'], [5,4,3,2], 4747);
+    // светлая фаска сверху/слева
+    ctx.fillStyle = '#fdf0a0';
+    ctx.fillRect(0,0,16,1); ctx.fillRect(0,0,1,16);
+    // тёмная фаска снизу/справа
+    ctx.fillStyle = '#a8841c';
+    ctx.fillRect(0,15,16,1); ctx.fillRect(15,0,1,16);
+    // центральная чеканка
+    ctx.fillStyle = '#f6d24a';
+    ctx.fillRect(4,4,8,8);
+    ctx.fillStyle = '#fdf0a0';
+    ctx.fillRect(4,4,8,1); ctx.fillRect(4,4,1,8);
+    ctx.fillStyle = '#c8981e';
+    ctx.fillRect(4,11,8,1); ctx.fillRect(11,4,1,8);
+    // искристые блики
+    ctx.fillStyle = '#fff8cc';
+    ctx.fillRect(6,6,1,1); ctx.fillRect(9,8,1,1);
+  });
   // гравий — округлая галька разных тонов с мокрыми бликами
   TEX.gravel = makeTex(ctx => {
     pixelFill(ctx, ['#8a8480','#9a938c','#76706a','#a39c94','#6a625c'], [5,4,4,2,2], 2424);
@@ -983,6 +1029,9 @@ function buildMaterials() {
   const mIronOre   = texToMaterial(TEX.iron_ore);
   const mCopperOre = texToMaterial(TEX.copper_ore);
   const mDiamondOre= texToMaterial(TEX.diamond_ore);
+  const mGoldOre   = texToMaterial(TEX.gold_ore);
+  const mNGoldOre  = texToMaterial(TEX.nether_gold_ore);
+  const mGoldBlock = texToMaterial(TEX.gold_block);
   const mGravel    = texToMaterial(TEX.gravel);
   const mObsidian  = texToMaterial(TEX.obsidian);
   const mNetherrack= texToMaterial(TEX.netherrack);
@@ -1067,6 +1116,9 @@ function buildMaterials() {
   MATERIALS[BLOCK.IRON_ORE] = [mIronOre, mIronOre, mIronOre, mIronOre, mIronOre, mIronOre];
   MATERIALS[BLOCK.COPPER_ORE] = [mCopperOre, mCopperOre, mCopperOre, mCopperOre, mCopperOre, mCopperOre];
   MATERIALS[BLOCK.DIAMOND_ORE] = [mDiamondOre, mDiamondOre, mDiamondOre, mDiamondOre, mDiamondOre, mDiamondOre];
+  MATERIALS[BLOCK.GOLD_ORE] = [mGoldOre, mGoldOre, mGoldOre, mGoldOre, mGoldOre, mGoldOre];
+  MATERIALS[BLOCK.NETHER_GOLD_ORE] = [mNGoldOre, mNGoldOre, mNGoldOre, mNGoldOre, mNGoldOre, mNGoldOre];
+  MATERIALS[BLOCK.GOLD_BLOCK] = [mGoldBlock, mGoldBlock, mGoldBlock, mGoldBlock, mGoldBlock, mGoldBlock];
   MATERIALS[BLOCK.GRAVEL] = [mGravel, mGravel, mGravel, mGravel, mGravel, mGravel];
   MATERIALS[BLOCK.OBSIDIAN] = [mObsidian, mObsidian, mObsidian, mObsidian, mObsidian, mObsidian];
   MATERIALS[BLOCK.NETHERRACK] = [mNetherrack, mNetherrack, mNetherrack, mNetherrack, mNetherrack, mNetherrack];

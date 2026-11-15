@@ -11,6 +11,8 @@
 // Для простоты: формовые задаются как массив строк с символами,
 // бесформенные — как набор {id:count}.
 const P = BLOCK.PLANKS, S = ITEM.STICK, C = BLOCK.COBBLESTONE, O = 0, I = ITEM.IRON_INGOT, U = ITEM.COPPER_INGOT, D = ITEM.DIAMOND, L = ITEM.LEATHER, W = BLOCK.WOOL, CO = ITEM.COAL;
+// золото: G — слиток, NG — самородок, AP — яблоко (для золотого яблока)
+const G = ITEM.GOLD_INGOT, NG = ITEM.GOLD_NUGGET, AP = ITEM.APPLE;
 // шаблоны брони (3x3): шлем/нагрудник/поножи/ботинки
 function armorRecipe(m, helmet, chest, legs, boots) {
   return [
@@ -72,6 +74,31 @@ const RECIPES = [
   { shaped: true, w: 2, h: 3, need3x3: true, cells: [D,D, D,S, O,S], result: { id: ITEM.DIAMOND_AXE, count: 1 } },
   { shaped: true, w: 1, h: 3, need3x3: true, cells: [D, S, S], result: { id: ITEM.DIAMOND_SHOVEL, count: 1 } },
 
+  // ---- Золотые инструменты (самые быстрые: ×12, но хрупкие — 32) ----
+  { shaped: true, w: 3, h: 3, need3x3: true,
+    cells: [G,G,G,
+            O,S,O,
+            O,S,O], result: { id: ITEM.GOLD_PICKAXE, count: 1 } },
+  { shaped: true, w: 2, h: 3, need3x3: true, cells: [G,G, G,S, O,S], result: { id: ITEM.GOLD_AXE, count: 1 } },
+  { shaped: true, w: 1, h: 3, need3x3: true, cells: [G, S, S], result: { id: ITEM.GOLD_SHOVEL, count: 1 } },
+  { shaped: true, w: 1, h: 3, need3x3: true, cells: [G, G, S], result: { id: ITEM.GOLD_SWORD, count: 1 } },
+  // самородки <-> слиток <-> блок (как в MC)
+  { shaped: true, w: 3, h: 3, need3x3: true,
+    cells: [NG,NG,NG,
+            NG,NG,NG,
+            NG,NG,NG], result: { id: ITEM.GOLD_INGOT, count: 1 } },
+  { shapeless: true, ingredients: { [ITEM.GOLD_INGOT]: 1 }, result: { id: ITEM.GOLD_NUGGET, count: 9 } },
+  { shaped: true, w: 3, h: 3, need3x3: true,
+    cells: [G,G,G,
+            G,G,G,
+            G,G,G], result: { id: BLOCK.GOLD_BLOCK, count: 1 } },
+  { shapeless: true, ingredients: { [BLOCK.GOLD_BLOCK]: 1 }, result: { id: ITEM.GOLD_INGOT, count: 9 } },
+  // золотое яблоко: 8 слитков вокруг яблока (как в MC)
+  { shaped: true, w: 3, h: 3, need3x3: true,
+    cells: [G,G,G,
+            G,AP,G,
+            G,G,G], result: { id: ITEM.GOLDEN_APPLE, count: 1 } },
+
   // ---- Ведро (3 железных слитка V-образно) ----
   { shaped: true, w: 3, h: 2, need3x3: true, cells: [I,O,I, O,I,O], result: { id: ITEM.BUCKET, count: 1 } },
   // Зажигалка: железо + кремень (по диагонали)
@@ -83,6 +110,7 @@ const RECIPES = [
   ...armorRecipe(U, ITEM.COPPER_HELMET, ITEM.COPPER_CHESTPLATE, ITEM.COPPER_LEGGINGS, ITEM.COPPER_BOOTS),
   ...armorRecipe(I, ITEM.IRON_HELMET, ITEM.IRON_CHESTPLATE, ITEM.IRON_LEGGINGS, ITEM.IRON_BOOTS),
   ...armorRecipe(D, ITEM.DIAMOND_HELMET, ITEM.DIAMOND_CHESTPLATE, ITEM.DIAMOND_LEGGINGS, ITEM.DIAMOND_BOOTS),
+  ...armorRecipe(G, ITEM.GOLD_HELMET, ITEM.GOLD_CHESTPLATE, ITEM.GOLD_LEGGINGS, ITEM.GOLD_BOOTS),
   // факел: уголь/древесный уголь над палкой -> 4 факела
   { shaped:true, w:1, h:2, cells:[CO, S], result:{ id: BLOCK.TORCH, count:4 } },
   { shaped:true, w:1, h:2, cells:[ITEM.CHARCOAL, S], result:{ id: BLOCK.TORCH, count:4 } },

@@ -63,6 +63,9 @@ const BLOCK = {
   PISTON:     40, // поршень (толкает блок при сигнале)
   PISTON_HEAD:41, // голова поршня (выдвигается)
   COMMAND_BLOCK: 42, // командный блок (только креатив//give; выполняет команду по редстоун-сигналу)
+  GOLD_ORE: 43, // золотая руда (глубоко; в MC — железной киркой+, плавить в печи)
+  NETHER_GOLD_ORE: 44, // незерская золотая руда (в Аду; дропает самородки, как в MC)
+  GOLD_BLOCK: 45, // золотой блок (9 слитков; в MC — железной киркой+)
 };
 
 // Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
@@ -164,6 +167,19 @@ const ITEM = {
   SPAWN_EGG_PIGLIN:  256,
   SPAWN_EGG_PHANTOM: 257,
   SPAWN_EGG_SPIDER:  258,
+  // ---- Золотое обновление: слиток/самородок/яблоки/инструменты/броня ----
+  GOLD_INGOT: 260, // золотой слиток (плавка золотой руды)
+  GOLD_NUGGET: 261, // золотой самородок (9 = слиток; дроп с незер-руды и пиглинов)
+  APPLE: 262, // яблоко (редко из листвы, как в MC)
+  GOLDEN_APPLE: 263, // золотое яблоко (8 слитков + яблоко; лечит, как в MC)
+  GOLD_PICKAXE: 264, // золотая кирка (самая быстрая: ×12, но 32 прочности)
+  GOLD_AXE: 265,
+  GOLD_SHOVEL: 266,
+  GOLD_SWORD: 267, // золотой меч (урон как у деревянного: 4 — парити MC)
+  GOLD_HELMET: 268, // золотая броня: 2/5/3/1 очков, хрупкая (77/112/105/91)
+  GOLD_CHESTPLATE: 269,
+  GOLD_LEGGINGS: 270,
+  GOLD_BOOTS: 271,
 };
 
 const BLOCK_NAMES = {
@@ -284,6 +300,21 @@ const BLOCK_NAMES = {
   [ITEM.SPAWN_EGG_PIGLIN]:  'Яйцо призыва зомби-пиглина',
   [ITEM.SPAWN_EGG_PHANTOM]: 'Яйцо призыва фантома',
   [ITEM.SPAWN_EGG_SPIDER]:  'Яйцо призыва паука',
+  [BLOCK.GOLD_ORE]: 'Золотая руда',
+  [BLOCK.NETHER_GOLD_ORE]: 'Незерская золотая руда',
+  [BLOCK.GOLD_BLOCK]: 'Золотой блок',
+  [ITEM.GOLD_INGOT]: 'Золотой слиток',
+  [ITEM.GOLD_NUGGET]: 'Золотой самородок',
+  [ITEM.APPLE]: 'Яблоко',
+  [ITEM.GOLDEN_APPLE]: 'Золотое яблоко',
+  [ITEM.GOLD_PICKAXE]: 'Золотая кирка',
+  [ITEM.GOLD_AXE]: 'Золотой топор',
+  [ITEM.GOLD_SHOVEL]: 'Золотая лопата',
+  [ITEM.GOLD_SWORD]: 'Золотой меч',
+  [ITEM.GOLD_HELMET]: 'Золотой шлем',
+  [ITEM.GOLD_CHESTPLATE]: 'Золотой нагрудник',
+  [ITEM.GOLD_LEGGINGS]: 'Золотые поножи',
+  [ITEM.GOLD_BOOTS]: 'Золотые ботинки',
 };
 
 // Еда: сколько голода восстанавливает (ванильные значения Minecraft)
@@ -299,6 +330,8 @@ const FOOD = {
   [ITEM.FISH_RAW]:       2,
   [ITEM.FISH_COOKED]:    5,
   [ITEM.ROTTEN_FLESH]:   4, // как в MC: 4 единицы, но высок шанс отравления
+  [ITEM.APPLE]: 4, // как в MC
+  [ITEM.GOLDEN_APPLE]: 4, // как в MC (+ лечение — см. tryEat)
 };
 function isFood(id) { return FOOD[id] !== undefined; }
 
@@ -370,42 +403,43 @@ const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND, BLOCK.GRAVE
                    BLOCK.IRON_ORE, BLOCK.COPPER_ORE, BLOCK.DIAMOND_ORE, BLOCK.OBSIDIAN,
                    BLOCK.TORCH, BLOCK.WOOL, BLOCK.BED_FOOT,
                    BLOCK.REDSTONE_ORE, ITEM.REDSTONE, BLOCK.REDSTONE_TORCH, BLOCK.LEVER,
-                   BLOCK.BUTTON, BLOCK.PISTON];
+                   BLOCK.BUTTON, BLOCK.PISTON,
+                   BLOCK.GOLD_ORE, BLOCK.NETHER_GOLD_ORE, BLOCK.GOLD_BLOCK];
 
 // Инструменты-кирки (ускоряют добычу камня и позволяют получить булыжник)
-function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.COPPER_PICKAXE || id === ITEM.IRON_PICKAXE || id === ITEM.DIAMOND_PICKAXE; }
+function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.COPPER_PICKAXE || id === ITEM.IRON_PICKAXE || id === ITEM.DIAMOND_PICKAXE || id === ITEM.GOLD_PICKAXE; }
 // Уровень кирки: 1 — дерево, 2 — камень, 3 — медь, 4 — железо, 5 — алмаз (лучшая)
 function pickaxeTier(id) {
   if (id === ITEM.DIAMOND_PICKAXE) return 5;
   if (id === ITEM.IRON_PICKAXE) return 4;
   if (id === ITEM.COPPER_PICKAXE) return 3;
   if (id === ITEM.STONE_PICKAXE) return 2;
-  if (id === ITEM.WOODEN_PICKAXE) return 1;
+  if (id === ITEM.WOODEN_PICKAXE || id === ITEM.GOLD_PICKAXE) return 1; // золото добывает как дерево (MC)
   return 0;
 }
 
 // --- Топоры (ускоряют дерево/доски) ---
-function isAxe(id) { return id === ITEM.WOODEN_AXE || id === ITEM.STONE_AXE || id === ITEM.COPPER_AXE || id === ITEM.IRON_AXE || id === ITEM.DIAMOND_AXE; }
+function isAxe(id) { return id === ITEM.WOODEN_AXE || id === ITEM.STONE_AXE || id === ITEM.COPPER_AXE || id === ITEM.IRON_AXE || id === ITEM.DIAMOND_AXE || id === ITEM.GOLD_AXE; }
 function axeTier(id) {
   if (id === ITEM.DIAMOND_AXE) return 5;
   if (id === ITEM.IRON_AXE) return 4;
   if (id === ITEM.COPPER_AXE) return 3;
   if (id === ITEM.STONE_AXE) return 2;
-  if (id === ITEM.WOODEN_AXE) return 1;
+  if (id === ITEM.WOODEN_AXE || id === ITEM.GOLD_AXE) return 1; // золото — уровень дерева (MC)
   return 0;
 }
 // --- Лопаты (ускоряют землю/песок/траву) ---
-function isShovel(id) { return id === ITEM.WOODEN_SHOVEL || id === ITEM.STONE_SHOVEL || id === ITEM.COPPER_SHOVEL || id === ITEM.IRON_SHOVEL || id === ITEM.DIAMOND_SHOVEL; }
+function isShovel(id) { return id === ITEM.WOODEN_SHOVEL || id === ITEM.STONE_SHOVEL || id === ITEM.COPPER_SHOVEL || id === ITEM.IRON_SHOVEL || id === ITEM.DIAMOND_SHOVEL || id === ITEM.GOLD_SHOVEL; }
 function shovelTier(id) {
   if (id === ITEM.DIAMOND_SHOVEL) return 5;
   if (id === ITEM.IRON_SHOVEL) return 4;
   if (id === ITEM.COPPER_SHOVEL) return 3;
   if (id === ITEM.STONE_SHOVEL) return 2;
-  if (id === ITEM.WOODEN_SHOVEL) return 1;
+  if (id === ITEM.WOODEN_SHOVEL || id === ITEM.GOLD_SHOVEL) return 1; // золото — уровень дерева (MC)
   return 0;
 }
 // --- Мечи (оружие: больше урона) ---
-function isSword(id) { return id === ITEM.WOODEN_SWORD || id === ITEM.STONE_SWORD || id === ITEM.COPPER_SWORD || id === ITEM.IRON_SWORD || id === ITEM.DIAMOND_SWORD; }
+function isSword(id) { return id === ITEM.WOODEN_SWORD || id === ITEM.STONE_SWORD || id === ITEM.COPPER_SWORD || id === ITEM.IRON_SWORD || id === ITEM.DIAMOND_SWORD || id === ITEM.GOLD_SWORD; }
 function swordDamage(id) {
   // ванильные значения MC: дерево 4, камень 5, железо 6, алмаз 7; медь (кастом) 5
   if (id === ITEM.DIAMOND_SWORD) return 7;
@@ -413,6 +447,7 @@ function swordDamage(id) {
   if (id === ITEM.COPPER_SWORD) return 5;
   if (id === ITEM.STONE_SWORD) return 5;
   if (id === ITEM.WOODEN_SWORD) return 4;
+  if (id === ITEM.GOLD_SWORD) return 4; // ваниль MC: у золотого меча урон как у деревянного
   return 0;
 }
 // Любой инструмент
@@ -437,6 +472,11 @@ const ARMOR = {
   [ITEM.DIAMOND_CHESTPLATE]:{ slot: 'chestplate', points: 8 },
   [ITEM.DIAMOND_LEGGINGS]:  { slot: 'leggings',   points: 6 },
   [ITEM.DIAMOND_BOOTS]:     { slot: 'boots',      points: 3 },
+  // золотая броня: 2/5/3/1 = 11 очков (ваниль MC) — лучше кожи, хуже железа
+  [ITEM.GOLD_HELMET]:    { slot: 'helmet',     points: 2 },
+  [ITEM.GOLD_CHESTPLATE]:{ slot: 'chestplate', points: 5 },
+  [ITEM.GOLD_LEGGINGS]:  { slot: 'leggings',   points: 3 },
+  [ITEM.GOLD_BOOTS]:     { slot: 'boots',      points: 1 },
 };
 function isArmor(id) { return ARMOR[id] !== undefined; }
 function armorSlotOf(id) { return ARMOR[id] ? ARMOR[id].slot : null; }
@@ -457,6 +497,9 @@ const MAX_DURABILITY = {
   [ITEM.COPPER_HELMET]:120,   [ITEM.COPPER_CHESTPLATE]:160,  [ITEM.COPPER_LEGGINGS]:150,  [ITEM.COPPER_BOOTS]:130,
   [ITEM.IRON_HELMET]:165,     [ITEM.IRON_CHESTPLATE]:240,    [ITEM.IRON_LEGGINGS]:225,    [ITEM.IRON_BOOTS]:195,
   [ITEM.DIAMOND_HELMET]:363,  [ITEM.DIAMOND_CHESTPLATE]:528, [ITEM.DIAMOND_LEGGINGS]:495, [ITEM.DIAMOND_BOOTS]:462,
+  // золото (ваниль MC): инструменты 32 (самые хрупкие), броня 77/112/105/91
+  [ITEM.GOLD_PICKAXE]:32, [ITEM.GOLD_AXE]:32, [ITEM.GOLD_SHOVEL]:32, [ITEM.GOLD_SWORD]:32,
+  [ITEM.GOLD_HELMET]:77, [ITEM.GOLD_CHESTPLATE]:112, [ITEM.GOLD_LEGGINGS]:105, [ITEM.GOLD_BOOTS]:91,
 };
 function hasDurability(id) { return MAX_DURABILITY[id] !== undefined; }
 // израсходовать 1 заряд прочности у предмета в слоте; вернуть true если предмет сломался.
@@ -496,14 +539,16 @@ function axeBlock(b) { return b === BLOCK.WOOD || b === BLOCK.PLANKS || b === BL
 function shovelBlock(b) { return b === BLOCK.DIRT || b === BLOCK.GRASS || b === BLOCK.SAND || b === BLOCK.GRAVEL; }
 
 // Блоки, для добычи которых нужна кирка (иначе ломается, но ничего не выпадает)
-function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE || b === BLOCK.DIAMOND_ORE || b === BLOCK.OBSIDIAN || b === BLOCK.NETHERRACK || b === BLOCK.DEEPSLATE || b === BLOCK.REDSTONE_ORE || b === BLOCK.PISTON; }
+function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE || b === BLOCK.DIAMOND_ORE || b === BLOCK.OBSIDIAN || b === BLOCK.NETHERRACK || b === BLOCK.DEEPSLATE || b === BLOCK.REDSTONE_ORE || b === BLOCK.PISTON || b === BLOCK.GOLD_ORE || b === BLOCK.NETHER_GOLD_ORE || b === BLOCK.GOLD_BLOCK; }
 // Минимальный уровень кирки для добычи блока:
 //  руды железа/меди — каменная(2)+; алмаз и редстоун — железная(4)+; обсидиан — алмазная(5).
 //  Светокамень в MC кирки НЕ требует.
 function minePickTier(b) {
   if (b === BLOCK.OBSIDIAN) return 5;
   if (b === BLOCK.DIAMOND_ORE || b === BLOCK.REDSTONE_ORE) return 4; // в MC — только железной киркой+
+  if (b === BLOCK.GOLD_ORE || b === BLOCK.GOLD_BLOCK) return 4; // золотая руда/блок — только железной киркой+ (MC)
   if (b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE) return 2;
+  if (b === BLOCK.NETHER_GOLD_ORE) return 1; // любая кирка (как в MC)
   return 1;
 }
 
@@ -539,6 +584,9 @@ const HARDNESS = {
   [BLOCK.WOOL]:    0.8,
   [BLOCK.DEEPSLATE]: 3.0,
   [BLOCK.REDSTONE_ORE]: 3.0,
+  [BLOCK.GOLD_ORE]: 3.0,        // как в MC
+  [BLOCK.NETHER_GOLD_ORE]: 3.0, // как в MC
+  [BLOCK.GOLD_BLOCK]: 3.0,      // как в MC
   [BLOCK.REDSTONE_DUST]: 0,
   [BLOCK.REDSTONE_TORCH]: 0,
   [BLOCK.LEVER]: 0.5,
@@ -557,6 +605,12 @@ const HARDNESS = {
 
 // Делители скорости инструментов (ваниль MC: дерево 2, камень 4, железо 6, алмаз 8; медь 5 — кастом)
 const TOOL_DIVISOR = { 1: 2, 2: 4, 3: 5, 4: 6, 5: 8 };
+// Скорость КОНКРЕТНОГО предмета: золото — ×12 (самое быстрое в MC).
+// Уровень ДОБЫЧИ у золота при этом «деревянный» (см. pickaxeTier) — как в MC.
+function toolSpeed(id) {
+  if (id === ITEM.GOLD_PICKAXE || id === ITEM.GOLD_AXE || id === ITEM.GOLD_SHOVEL) return 12;
+  return 0; // не золотый — смотреть по тиру (TOOL_DIVISOR)
+}
 
 // Время ломания блока (сек) с учётом держимого предмета — формула Minecraft
 function computeBreakTime(block, heldId) {
@@ -570,14 +624,15 @@ function computeBreakTime(block, heldId) {
     if (!isPickaxe(heldId) || tier < minePickTier(block)) {
       return hard * 5;                  // не тем инструментом: в MC ×5 и без дропа
     }
-    return hard * 1.5 / TOOL_DIVISOR[tier];
+    const spd = toolSpeed(heldId) || TOOL_DIVISOR[tier]; // золото — ×12
+    return hard * 1.5 / spd;
   }
   // ножницы по листве/шерсти — очень быстро (делитель 5, как в MC)
   if (heldId === ITEM.SHEARS && (block === BLOCK.LEAVES || block === BLOCK.WOOL)) {
     return Math.max(0.05, hard * 1.5 / 5);
   }
-  if (axeBlock(block) && isAxe(heldId)) return hard * 1.5 / TOOL_DIVISOR[axeTier(heldId)];
-  if (shovelBlock(block) && isShovel(heldId)) return hard * 1.5 / TOOL_DIVISOR[shovelTier(heldId)];
+  if (axeBlock(block) && isAxe(heldId)) return hard * 1.5 / (toolSpeed(heldId) || TOOL_DIVISOR[axeTier(heldId)]);
+  if (shovelBlock(block) && isShovel(heldId)) return hard * 1.5 / (toolSpeed(heldId) || TOOL_DIVISOR[shovelTier(heldId)]);
   return hard * 1.5;
 }
 
