@@ -49,6 +49,7 @@ const BLOCK = {
   BUTTON:     39, // кнопка (временный источник сигнала, авто-выкл)
   PISTON:     40, // поршень (толкает блок при сигнале)
   PISTON_HEAD:41, // голова поршня (выдвигается)
+  COMMAND_BLOCK: 42, // командный блок (только креатив//give; выполняет команду по редстоун-сигналу)
 };
 
 // Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
@@ -180,6 +181,7 @@ const BLOCK_NAMES = {
   [BLOCK.BUTTON]: 'Кнопка',
   [BLOCK.PISTON]: 'Поршень',
   [BLOCK.PISTON_HEAD]: 'Поршень',
+  [BLOCK.COMMAND_BLOCK]: 'Командный блок',
   [ITEM.STICK]:    'Палки',
   [ITEM.WOODEN_PICKAXE]: 'Деревянная кирка',
   [ITEM.STONE_PICKAXE]: 'Каменная кирка',
@@ -408,6 +410,8 @@ function hasDurability(id) { return MAX_DURABILITY[id] !== undefined; }
 // израсходовать 1 заряд прочности у предмета в слоте; вернуть true если предмет сломался
 function useDurability(slot) {
   if (!slot || !hasDurability(slot.id)) return false;
+  // Креатив: инструменты не изнашиваются (как в MC)
+  if (window.__creative) return false;
   // ПРАВИЛО МИРА «Legacy-прочность»: включается только при создании мира,
   // после — неизменно. Предметы никогда не изнашиваются (старое поведение).
   // Читом не считается — это просто «как раньше».
@@ -478,6 +482,7 @@ const HARDNESS = {
   [BLOCK.PISTON_HEAD]: 1.5,
   [BLOCK.NETHER_PORTAL]: 0, // ломается мгновенно, без дропа
   [BLOCK.FIRE]: 0,          // гасится мгновенно
+  [BLOCK.COMMAND_BLOCK]: Infinity, // как в MC: в выживании неразрушим (ломается только в креативе)
   [BLOCK.BEDROCK]: Infinity,
   [BLOCK.WATER]:   Infinity,
   [BLOCK.WATER_FLOW]: Infinity,
@@ -567,44 +572,96 @@ function shade(hex, amt) {
 }
 
 function buildTextures() {
-  // --- Новая фаза: более чистый пиксель-арт, насыщенные палитры ---
-  // трава сверху — три оттенка зелёного, детерминированный паттерн
+  // --- Фаза 3: объёмный пиксель-арт (свет сверху, тень снизу, органические пятна) ---
+  // трава сверху — кластеры светлых «лопухов» по тёмной зелени (как в MC)
   TEX.grass_top  = makeTex(ctx => {
-    pixelFill(ctx, ['#6ab04c','#5a9e3a','#4f8c33','#76bd57'], [4,5,3,2], 101);
+    pixelFill(ctx, ['#5d9c3f','#549136','#66a847','#4b8230','#6fb050'], [4,4,3,3,2], 101);
+    // светлые «островки» травы (2x2 со скошенным краем)
+    ctx.fillStyle = '#79bd58';
+    for (const [gx,gy] of [[1,2],[9,1],[5,6],[12,8],[3,11],[8,12],[13,3],[0,8]]) {
+      ctx.fillRect(gx,gy,2,1); ctx.fillRect(gx,gy+1,1,1);
+    }
+    // тёмные точки-тени между кустиками
+    ctx.fillStyle = '#3f7026';
+    for (const [gx,gy] of [[4,3],[11,5],[7,9],[2,13],[13,12],[6,1]]) ctx.fillRect(gx,gy,1,1);
   });
-  // земля — тёплая коричневая палитра с редкими камешками
+  // земля — комковатая, с камешками и корневыми точками
   const dirtDraw = (ctx) => {
-    pixelFill(ctx, ['#8a6a40','#7d5e36','#96754a','#6e5430'], [5,4,3,2], 202);
-    // редкие камешки
+    pixelFill(ctx, ['#8a6a40','#7d5e36','#96754a','#6e5430','#84633a'], [4,4,3,3,2], 202);
+    // комки: светлый верх + тёмная кромка снизу (объём)
+    ctx.fillStyle = '#a0804f';
+    for (const [gx,gy] of [[2,2],[11,3],[6,6],[13,9],[3,12],[8,10]]) ctx.fillRect(gx,gy,2,1);
     ctx.fillStyle = '#5e4628';
-    for (const [gx,gy] of [[3,11],[10,4],[13,12],[6,7]]) ctx.fillRect(gx,gy,2,1);
+    for (const [gx,gy] of [[2,3],[11,4],[6,7],[13,10],[3,13],[8,11]]) ctx.fillRect(gx,gy,2,1);
+    // редкие серые камешки
+    ctx.fillStyle = '#9a9288';
+    for (const [gx,gy] of [[10,7],[1,9],[7,14]]) ctx.fillRect(gx,gy,1,1);
   };
   TEX.dirt    = makeTex(dirtDraw);
-  // бок травы — земля снизу + ровная зелёная кромка сверху (3-4px) с «свесом»
+  // бок травы — земля + пышная неровная кромка с тёмной «подложкой» и свесами
   TEX.grass_side = makeTex(ctx => {
     dirtDraw(ctx);
-    // зелёная шапка
-    pixelFillRegion(ctx, 0, 0, 16, 4, ['#6ab04c','#5a9e3a','#4f8c33'], [4,4,2], 303);
-    // неровный нижний край шапки (свес)
-    ctx.fillStyle = '#5a9e3a';
-    for (let x = 0; x < 16; x++) if ((x*37+11)%5 < 2) ctx.fillRect(x, 4, 1, 1);
+    // тёмная подложка кромки (тень травы на земле)
+    pixelFillRegion(ctx, 0, 0, 16, 3, ['#456f2b','#3d6425'], [3,2], 302);
+    // основная зелёная кромка 3-4px
+    pixelFillRegion(ctx, 0, 0, 16, 3, ['#5d9c3f','#549136','#66a847'], [4,4,3], 303);
+    // неровный свисающий край (глубина 1-2px, детерминированно)
+    for (let x = 0; x < 16; x++) {
+      const d = ((x * 73 + 29) % 7) < 3 ? 1 : 0;      // 0 или 1 доп. пиксель
+      const d2 = ((x * 41 + 13) % 11) < 2 ? 2 : 0;    // редкие длинные свесы
+      ctx.fillStyle = '#549136';
+      ctx.fillRect(x, 3, 1, d + d2);
+      if (d + d2 > 0) { ctx.fillStyle = '#4b8230'; ctx.fillRect(x, 3 + d + d2 - 1, 1, 1); }
+    }
+    // блики травы
+    ctx.fillStyle = '#79bd58';
+    for (const [gx,gy] of [[2,1],[7,0],[12,2],[5,2],[14,1]]) ctx.fillRect(gx,gy,1,1);
   });
-  // камень — серый с тёмными вкраплениями, аккуратнее
+  // камень — светлые «валуны» с тёмной окантовкой (фактурный MC-стиль)
   TEX.stone   = makeTex(ctx => {
-    pixelFill(ctx, ['#909090','#828282','#9a9a9a','#777777'], [5,4,3,2], 404);
-    ctx.fillStyle = '#6c6c6c';
-    for (const [gx,gy] of [[2,3],[11,2],[5,9],[12,11],[7,13]]) ctx.fillRect(gx,gy,2,1);
+    pixelFill(ctx, ['#8a8a8a','#7f7f7f','#949494','#757575'], [4,4,3,2], 404);
+    const rock = (x, y, w, h) => {
+      ctx.fillStyle = '#9e9e9e'; ctx.fillRect(x, y, w, h - 1);
+      ctx.fillStyle = '#6e6e6e'; ctx.fillRect(x, y + h - 1, w, 1); ctx.fillRect(x + w - 1, y, 1, h - 1);
+      ctx.fillStyle = '#b0b0b0'; ctx.fillRect(x + 1, y, w - 2, 1);
+    };
+    rock(1,1,5,3); rock(8,0,6,3); rock(0,6,4,3); rock(6,5,5,4); rock(12,6,4,4);
+    rock(2,11,6,3); rock(10,12,5,3);
+    // трещинки
+    ctx.fillStyle = '#646464';
+    for (const [gx,gy] of [[5,4],[12,5],[4,10],[9,9],[14,11]]) ctx.fillRect(gx,gy,1,1);
   });
-  TEX.bedrock = makeTex(ctx => pixelFill(ctx, ['#3a3a3a','#4a4a4a','#2c2c2c','#565656'], [4,4,3,2], 505));
-  // глубинный камень — тёмно-серый, более «зернистый» камень глубин
+  TEX.bedrock = makeTex(ctx => {
+    // грубые угловатые пласты чёрного/серого с жёсткими краями (как в MC)
+    pixelFill(ctx, ['#3a3a3a','#4a4a4a','#2c2c2c','#565656'], [4,4,3,2], 505);
+    ctx.fillStyle = '#1e1e1e';
+    ctx.fillRect(0,3,7,2); ctx.fillRect(9,6,7,2); ctx.fillRect(3,11,6,2); ctx.fillRect(12,0,4,2); ctx.fillRect(0,8,3,2);
+    ctx.fillStyle = '#666666';
+    ctx.fillRect(7,3,5,2); ctx.fillRect(1,6,5,2); ctx.fillRect(8,9,6,2); ctx.fillRect(2,1,4,2); ctx.fillRect(11,13,5,2);
+  });
+  // глубинный камень — тёмный слоистый (горизонтальные напластования, как MC deepslate)
   TEX.deepslate = makeTex(ctx => {
-    pixelFill(ctx, ['#4a4a52','#42424a','#52525c','#38383f'], [5,4,3,2], 3434);
-    ctx.fillStyle = '#2c2c33';
-    for (const [gx,gy] of [[2,3],[11,2],[5,9],[12,11],[7,13],[3,6]]) ctx.fillRect(gx,gy,2,1);
+    pixelFill(ctx, ['#4a4a52','#42424a','#52525c','#38383f'], [4,4,3,2], 3434);
+    // горизонтальные слои: светлый гребень + тёмная борозда
+    for (const y of [2,6,10,14]) {
+      ctx.fillStyle = '#5a5a64'; ctx.fillRect(0, y, 16, 1);
+      ctx.fillStyle = '#303038'; ctx.fillRect(0, y + 1, 16, 1);
+    }
+    // обрывы слоёв (не сплошные)
+    ctx.fillStyle = '#42424a';
+    ctx.fillRect(3,2,4,1); ctx.fillRect(10,6,5,1); ctx.fillRect(5,10,4,1); ctx.fillRect(12,14,4,1);
+    // редкие светлые вкрапления
     ctx.fillStyle = '#5e5e68';
-    for (const [gx,gy] of [[4,4],[9,8],[13,5]]) ctx.fillRect(gx,gy,1,1);
+    for (const [gx,gy] of [[4,4],[9,8],[13,5],[2,12]]) ctx.fillRect(gx,gy,1,1);
   });
-  TEX.water   = makeTex(ctx => pixelFill(ctx, ['#3a6ea5','#3566a0','#4078b0','#315f96'], [5,4,3,2], 606));
+  TEX.water   = makeTex(ctx => {
+    pixelFill(ctx, ['#3a6ea5','#3566a0','#4078b0','#315f96'], [5,4,3,2], 606);
+    // лёгкие волны-блики
+    ctx.fillStyle = '#5a90c8';
+    ctx.fillRect(1,3,5,1); ctx.fillRect(9,5,5,1); ctx.fillRect(4,11,6,1); ctx.fillRect(12,13,3,1);
+    ctx.fillStyle = '#2a5288';
+    ctx.fillRect(2,4,3,1); ctx.fillRect(10,9,4,1); ctx.fillRect(5,12,4,1);
+  });
   // лава — раскалённая, тёмно-красная основа с ярко-оранжевыми «жилами» магмы
   TEX.lava    = makeTex(ctx => {
     pixelFill(ctx, ['#d83a10','#b82c08','#e85a18','#a02404'], [5,4,3,3], 6161);
@@ -633,43 +690,96 @@ function buildTextures() {
     ctx.fillStyle = '#c79cff';
     for (const [gx,gy] of [[4,3],[10,6],[6,10],[12,12],[2,8]]) ctx.fillRect(gx,gy,1,1);
   });
-  // песок — светлый, мягкие точки
+  // песок — мелкозернистый с лёгкой рябью дюн
   TEX.sand    = makeTex(ctx => {
-    pixelFill(ctx, ['#ddd2a0','#e6dcae','#d4c894','#cfc088'], [5,4,3,2], 707);
+    pixelFill(ctx, ['#ddd2a0','#e6dcae','#d4c894','#cfc088','#e2d8a8'], [4,4,3,2,2], 707);
+    // диагональная рябь (полосы-дюны)
+    ctx.fillStyle = '#c8b87e';
+    for (let i = 0; i < 16; i++) {
+      const x = (i * 2 + (i % 3)) % 16, y = (i + 4) % 16;
+      ctx.fillRect(x, y, 2, 1);
+    }
+    // светлые песчинки
+    ctx.fillStyle = '#f2ecc4';
+    for (const [gx,gy] of [[2,2],[8,5],[13,9],[5,12],[10,14]]) ctx.fillRect(gx,gy,1,1);
+    // тёмные крупинки
+    ctx.fillStyle = '#b8a86e';
+    for (const [gx,gy] of [[6,3],[11,7],[3,8],[14,2],[7,11]]) ctx.fillRect(gx,gy,1,1);
   });
 
-  // дерево: бок — кора с вертикальными полосами
+  // дерево: бок — кора с глубокими вертикальными бороздами
   TEX.wood_side = makeTex(ctx => {
     pixelFill(ctx, ['#6b4f2a','#5e4424','#785931','#523c20'], [5,4,3,2], 808);
-    // вертикальные тёмные волокна коры
-    ctx.fillStyle = '#46331b';
-    for (const x of [2,6,10,13]) for (let y=0;y<16;y++) if ((y+x)%3) ctx.fillRect(x,y,1,1);
+    // глубокие тёмные борозды (изогнутые)
+    ctx.fillStyle = '#3d2c15';
+    for (const bx of [1,4,8,12,14]) {
+      for (let y = 0; y < 16; y++) {
+        const wob = ((y + bx * 7) % 5 < 2) ? 1 : 0;
+        ctx.fillRect(bx + wob, y, 1, 1);
+      }
+    }
+    // светлые гребни рядом с бороздами (объём коры)
+    ctx.fillStyle = '#8a6a3c';
+    for (const [gx,gy] of [[2,1],[5,4],[9,2],[13,6],[3,10],[10,9],[6,13]]) ctx.fillRect(gx,gy,1,2);
+    // сучок
+    ctx.fillStyle = '#2e2110'; ctx.fillRect(10,6,2,2);
+    ctx.fillStyle = '#5e4424'; ctx.fillRect(10,6,1,1);
   });
-  // дерево: торец — годовые кольца
+  // дерево: торец — годовые кольца с корой по краю
   TEX.wood_top = makeTex(ctx => {
     pixelFill(ctx, ['#9c7842','#8a6a38','#a8854c'], [5,4,2], 909);
-    ctx.strokeStyle = '#6b4f2a'; ctx.lineWidth = 1;
-    for (let r = 2; r < 8; r += 2) { ctx.beginPath(); ctx.arc(8, 8, r, 0, Math.PI*2); ctx.stroke(); }
+    // кора по периметру
+    ctx.strokeStyle = '#5e4424'; ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, 15, 15);
+    // кольца (чередование тонов — как спил)
+    for (let r = 2; r < 8; r += 2) {
+      ctx.strokeStyle = r % 4 === 0 ? '#6b4f2a' : '#8a6a38';
+      ctx.beginPath(); ctx.arc(8, 8, r, 0, Math.PI*2); ctx.stroke();
+    }
+    // трещины от центра
+    ctx.strokeStyle = '#7a5c30';
+    ctx.beginPath(); ctx.moveTo(8,8); ctx.lineTo(12,3); ctx.moveTo(8,8); ctx.lineTo(3,11); ctx.stroke();
     ctx.fillStyle = '#5e4628'; ctx.fillRect(7,7,2,2); // сердцевина
+    ctx.fillStyle = '#b09055'; ctx.fillRect(8,8,1,1); // блик сердцевины
   });
-  // листва — насыщенная зелень с прозрачными «дырками»
+  // листва — двухъярусная зелень: тёмный низ кроны + светлые листья поверх, с дырками
   TEX.leaves = makeTex(ctx => {
     ctx.clearRect(0,0,16,16);
     let s = 1212>>>0; const rnd=()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};
     const pal = ['#3f8b2e','#357a26','#4a9c36','#2e6b20'];
     for (let y=0;y<16;y++) for (let x=0;x<16;x++) {
-      if (rnd() < 0.14) continue; // дырки
+      if (rnd() < 0.13) continue; // дырки
       ctx.fillStyle = pal[(rnd()*pal.length)|0];
       ctx.fillRect(x,y,1,1);
     }
+    // светлые «листики»-блики верхнего яруса
+    ctx.fillStyle = '#5cb040';
+    for (const [gx,gy] of [[1,1],[4,2],[8,1],[12,3],[2,6],[10,6],[6,9],[13,10],[3,12],[9,12]]) {
+      ctx.fillRect(gx,gy,1,1); ctx.fillRect(gx+1,gy+1,1,1);
+    }
+    // тёмные «прожилки» нижнего яруса
+    ctx.fillStyle = '#245418';
+    for (const [gx,gy] of [[6,3],[11,7],[1,9],[14,13],[4,14]]) ctx.fillRect(gx,gy,1,1);
   });
-  // доски — ровные горизонтальные доски с тёмными стыками
+  // доски — 4 горизонтальные доски с фаской, волокнами и гвоздями
   TEX.planks = makeTex(ctx => {
-    pixelFill(ctx, ['#bd9252','#b08549','#c79c5d'], [5,4,2], 1313);
-    ctx.fillStyle = '#7a5a30';
-    for (let y = 3; y < 16; y += 4) ctx.fillRect(0, y, 16, 1);   // линии досок
-    ctx.fillStyle = '#8a663a';
-    ctx.fillRect(7,0,1,3); ctx.fillRect(3,4,1,4); ctx.fillRect(11,8,1,4); ctx.fillRect(6,12,1,4); // короткие стыки
+    const rows = [['#bd9252','#b08549','#c79c5d'],['#b58c4e','#a87e45','#bf965a'],['#c09050','#b3884a','#c99e5d'],['#b98e4d','#ac8244','#c2975a']];
+    for (let r = 0; r < 4; r++) {
+      pixelFillRegion(ctx, 0, r*4, 16, 4, rows[r], [4,3,2], 1313 + r*17);
+      // тёмный шов между досками
+      ctx.fillStyle = '#7a5a30'; ctx.fillRect(0, r*4 + 3, 16, 1);
+      // светлый верхний фас доски (свет сверху)
+      ctx.fillStyle = '#d4a868'; ctx.fillRect(0, r*4, 16, 1);
+      // вертикальный стык (вразбежку)
+      const jx = [7,3,11,6][r];
+      ctx.fillStyle = '#8a663a'; ctx.fillRect(jx, r*4, 1, 3);
+      // гвоздики у стыка
+      ctx.fillStyle = '#6e5228';
+      ctx.fillRect((jx+2)%15, r*4+1, 1, 1);
+      // волокна-риски
+      ctx.fillStyle = '#a37c40';
+      for (const gx of [1,5,9,13]) if ((gx + r) % 2) ctx.fillRect((gx + r*3) % 15, r*4 + 1 + ((gx*7+r*5)%2), 2, 1);
+    }
   });
   // верстак: верх — сетка инструментов, бок — доски с полосой
   TEX.craft_top = makeTex(ctx => {
@@ -685,103 +795,146 @@ function buildTextures() {
     for (let y=0;y<16;y++){ ctx.fillRect(3,y,1,1); ctx.fillRect(11,y,1,1); }
   });
 
-  // булыжник — крупные камни
+  // булыжник — крупные округлые камни в тёмном растворе, с бликами
   TEX.cobble = makeTex(ctx => {
-    // булыжник — отдельные камни с тёмными швами (чистый пиксель-арт)
     pixelFill(ctx, ['#7d7d7d','#6f6f6f','#888888','#656565'], [5,4,3,2], 1414);
-    ctx.fillStyle = '#4f4f4f';
-    // тёмные швы между камнями
+    // тёмные швы-раствор
+    ctx.fillStyle = '#474747';
     ctx.fillRect(0,5,16,1); ctx.fillRect(0,10,16,1);
     ctx.fillRect(6,0,1,5); ctx.fillRect(10,6,1,4); ctx.fillRect(4,11,1,5); ctx.fillRect(11,11,1,5);
-    // блики на камнях
-    ctx.fillStyle = '#9a9a9a';
-    ctx.fillRect(2,2,2,1); ctx.fillRect(11,2,2,1); ctx.fillRect(2,7,2,1); ctx.fillRect(12,7,2,1); ctx.fillRect(7,12,2,1);
+    // объём каждого камня: свет сверху-слева, тень снизу-справа
+    const stones = [[1,1,4,3],[8,1,6,3],[0,6,5,3],[7,7,3,2],[12,7,3,2],[1,11,2,4],[5,11,5,4],[12,12,3,3]];
+    for (const [sx,sy,sw,sh] of stones) {
+      ctx.fillStyle = '#9a9a9a'; ctx.fillRect(sx, sy, sw, 1); ctx.fillRect(sx, sy, 1, sh); // свет
+      ctx.fillStyle = '#585858'; ctx.fillRect(sx, sy+sh-1, sw, 1); ctx.fillRect(sx+sw-1, sy, 1, sh); // тень
+      ctx.fillStyle = '#b0b0b0'; ctx.fillRect(sx+1, sy+1, 1, 1); // блик
+    }
   });
-  // угольная руда — камень с чёрными вкраплениями угля
+  // угольная руда — камень с ГРАНЁННЫМИ чёрными кусками угля
   TEX.coal_ore = makeTex(ctx => {
-    pixelFill(ctx, ['#909090','#828282','#9a9a9a','#777777'], [5,4,3,2], 404); // та же база, что камень
-    // чёрные «жилы» угля
-    ctx.fillStyle = '#1c1c1c';
-    const blobs = [[3,3,3,2],[10,4,3,3],[5,9,4,3],[11,10,2,3],[2,11,2,2]];
+    pixelFill(ctx, ['#8a8a8a','#7f7f7f','#949494','#757575'], [4,4,3,2], 404);
+    const blobs = [[3,3,3,2],[10,4,3,3],[5,9,4,3],[11,10,2,3],[2,12,2,2]];
+    ctx.fillStyle = '#161616';
     for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx,by,bw,bh);
-    ctx.fillStyle = '#3a3a3a';
+    ctx.fillStyle = '#3a3a3a'; // грань-блик
     for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
+    ctx.fillStyle = '#4a4a4a'; // трещинки на угле
+    for (const [bx,by,b2] of [[4,4],[6,10],[11,5]]) ctx.fillRect(bx,by,1,1);
   });
-  // железная руда — камень со светло-бежевыми/розоватыми вкраплениями (НЕ медь!)
+  // железная руда — камень с бежево-розоватыми крупинками руды
   TEX.iron_ore = makeTex(ctx => {
-    pixelFill(ctx, ['#909090','#828282','#9a9a9a','#777777'], [5,4,3,2], 404);
+    pixelFill(ctx, ['#8a8a8a','#7f7f7f','#949494','#757575'], [4,4,3,2], 404);
     const blobs = [[3,4,3,2],[9,3,3,3],[6,9,4,3],[11,10,2,2],[2,11,2,2]];
-    ctx.fillStyle = '#d8c4b0';                 // светлый бежево-серый металл (как в майне)
+    ctx.fillStyle = '#d8c4b0';                 // светлый бежево-серый металл
     for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx,by,bw,bh);
     ctx.fillStyle = '#efe2d4';                 // светлый блик
     for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
-    ctx.fillStyle = '#b09c86';                 // тень
+    ctx.fillStyle = '#a08a72';                 // тень
     for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx+bw-1,by+bh-1,1,1);
   });
   // медная руда — камень с оранжево-рыжими вкраплениями
   TEX.copper_ore = makeTex(ctx => {
-    pixelFill(ctx, ['#909090','#828282','#9a9a9a','#777777'], [5,4,3,2], 404);
+    pixelFill(ctx, ['#8a8a8a','#7f7f7f','#949494','#757575'], [4,4,3,2], 404);
     const blobs = [[4,3,3,2],[9,4,3,3],[3,9,3,3],[10,10,3,2],[6,12,2,2]];
     ctx.fillStyle = '#c87038';                 // насыщенная медь
     for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx,by,bw,bh);
     ctx.fillStyle = '#e89a5a';                 // блик
     for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
-    ctx.fillStyle = '#9c4f22';                 // тень
+    ctx.fillStyle = '#8a4620';                 // тень
     for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx+bw-1,by+bh-1,1,1);
   });
-  // алмазная руда — камень с голубыми кристаллами
+  // алмазная руда — камень с огранёнными бирюзовыми кристаллами
   TEX.diamond_ore = makeTex(ctx => {
-    pixelFill(ctx, ['#909090','#828282','#9a9a9a','#777777'], [5,4,3,2], 404);
+    pixelFill(ctx, ['#8a8a8a','#7f7f7f','#949494','#757575'], [4,4,3,2], 404);
     const blobs = [[3,4,3,2],[10,3,2,3],[5,10,3,2],[11,11,2,2],[2,11,2,2]];
-    ctx.fillStyle = '#3fd6e0';                 // яркая бирюза алмаза
+    ctx.fillStyle = '#3fd6e0';                 // яркая бирюза
     for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx,by,bw,bh);
     ctx.fillStyle = '#bff7ff';                 // блик-грань
     for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
-    ctx.fillStyle = '#1f9fb0';                 // тень
+    ctx.fillStyle = '#1f8fa0';                 // тень-грань
     for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx+bw-1,by+bh-1,1,1);
+    ctx.fillStyle = '#eaffff';                 // искра
+    ctx.fillRect(4,4,1,1); ctx.fillRect(6,11,1,1);
   });
-  // гравий — серо-коричневая каменная крошка
+  // гравий — округлая галька разных тонов с мокрыми бликами
   TEX.gravel = makeTex(ctx => {
     pixelFill(ctx, ['#8a8480','#9a938c','#76706a','#a39c94','#6a625c'], [5,4,4,2,2], 2424);
-    // тёмные камешки
-    ctx.fillStyle = '#55504a';
-    for (const [gx,gy] of [[2,3],[7,2],[12,5],[4,9],[10,11],[6,13]]) ctx.fillRect(gx,gy,2,2);
-    ctx.fillStyle = '#b8b0a6';
-    for (const [gx,gy] of [[3,4],[8,3],[5,10]]) ctx.fillRect(gx,gy,1,1);
+    // галька: каждая — со светом сверху и тенью снизу
+    const pebbles = [[2,2],[7,1],[12,4],[4,7],[9,8],[1,11],[6,12],[12,11]];
+    for (const [gx,gy] of pebbles) {
+      ctx.fillStyle = '#5a544e'; ctx.fillRect(gx,gy,2,2);
+      ctx.fillStyle = '#8a8480'; ctx.fillRect(gx,gy,2,1);
+      ctx.fillStyle = '#b0a89e'; ctx.fillRect(gx,gy,1,1);
+    }
+    // светлые блестящие камешки
+    ctx.fillStyle = '#c8c0b4';
+    for (const [gx,gy] of [[10,2],[3,9],[13,8],[8,14]]) ctx.fillRect(gx,gy,1,1);
   });
-  // обсидиан — почти чёрный с фиолетовыми бликами
+  // обсидиан — стеклянисто-чёрный с фиолетовым отливом и сколами
   TEX.obsidian = makeTex(ctx => {
     pixelFill(ctx, ['#140d22','#0e0a1a','#1c1430','#0a0814'], [5,4,3,3], 2525);
-    ctx.fillStyle = '#3a2a5c';                 // фиолетовые блики
-    for (const [gx,gy] of [[3,3],[10,5],[6,9],[12,11],[2,12]]) ctx.fillRect(gx,gy,1,1);
+    // диагональные стеклянные блики
+    ctx.fillStyle = '#3a2a5c';
+    for (let i = 0; i < 9; i++) ctx.fillRect(2 + i, 12 - i, 1, 1);
     ctx.fillStyle = '#5a3f8a';
-    ctx.fillRect(4,6,1,1); ctx.fillRect(9,10,1,1);
+    for (let i = 0; i < 5; i++) ctx.fillRect(9 + i, 14 - i, 1, 1);
+    // острые сколы-грани
+    ctx.fillStyle = '#2e2050';
+    ctx.fillRect(3,3,1,2); ctx.fillRect(12,6,1,3); ctx.fillRect(6,10,2,1);
+    // редкие фиолетовые искры
+    ctx.fillStyle = '#8a6ad0';
+    ctx.fillRect(5,5,1,1); ctx.fillRect(11,12,1,1);
   });
-  // незерак — багрово-красный пористый камень
+  // незерак — багровый пористый камень с «порами»-кратерами
   TEX.netherrack = makeTex(ctx => {
     pixelFill(ctx, ['#5a1f1f','#6e2626','#4a1818','#7a2c2c','#3e1414'], [5,4,4,2,2], 2828);
-    ctx.fillStyle = '#852f2f';
-    for (const [gx,gy] of [[3,4],[10,6],[6,10],[12,12],[2,11],[8,2]]) ctx.fillRect(gx,gy,1,1);
-    ctx.fillStyle = '#3a1212';
-    for (const [gx,gy] of [[5,7],[11,3],[7,13],[1,5]]) ctx.fillRect(gx,gy,1,1);
+    // поры: тёмные кратеры со светлым верхним ободком
+    const pores = [[3,3],[10,2],[6,7],[12,9],[2,12],[8,13],[13,5]];
+    for (const [gx,gy] of pores) {
+      ctx.fillStyle = '#2c0e0e'; ctx.fillRect(gx,gy,2,2);
+      ctx.fillStyle = '#8a3434'; ctx.fillRect(gx,gy-1,2,1);
+    }
+    // мясистые светлые наросты
+    ctx.fillStyle = '#933c3c';
+    for (const [gx,gy] of [[1,1],[7,5],[12,12],[4,10],[14,1]]) ctx.fillRect(gx,gy,2,1);
+    ctx.fillStyle = '#b04545';
+    for (const [gx,gy] of [[2,1],[8,5],[13,12]]) ctx.fillRect(gx,gy,1,1);
   });
-  // светопыль (glowstone) — жёлто-оранжевый светящийся
+  // светопыль — мозаика ярких светящихся «зёрен» в янтарной кайме (как в MC)
   TEX.glowstone = makeTex(ctx => {
-    pixelFill(ctx, ['#e0a838','#d49028','#f0c860','#b87818'], [5,4,3,3], 2929);
-    ctx.fillStyle = '#fff0a0';
-    for (const [gx,gy] of [[3,3],[10,4],[6,9],[12,11],[4,12],[9,7]]) ctx.fillRect(gx,gy,2,2);
-    ctx.fillStyle = '#a86810';
-    ctx.fillRect(0,8,16,1); ctx.fillRect(8,0,1,16);
+    pixelFill(ctx, ['#d49028','#c07c1c','#b06e14'], [4,3,3], 2929);
+    // яркая мозаика: блоки 3x3/2x2 светло-жёлтых зёрен
+    const grains = [[1,1,3,3],[6,1,3,2],[11,2,3,3],[2,6,2,3],[6,6,3,3],[11,7,2,3],[1,12,3,2],[6,12,3,2],[11,12,3,2],[4,4,2,2],[9,4,2,2]];
+    for (const [gx,gy,gw,gh] of grains) {
+      ctx.fillStyle = '#f8d878'; ctx.fillRect(gx,gy,gw,gh);
+      ctx.fillStyle = '#fff0a8'; ctx.fillRect(gx,gy,gw-1,1); ctx.fillRect(gx,gy,1,gh-1);
+      ctx.fillStyle = '#e8b84a'; ctx.fillRect(gx+gw-1,gy+gh-1,1,1);
+    }
+    // тёмные швы между зёрнами
+    ctx.fillStyle = '#8a5a10';
+    ctx.fillRect(0,5,16,1); ctx.fillRect(0,11,16,1);
+    ctx.fillRect(5,0,1,16); ctx.fillRect(10,0,1,16);
   });
   // кожа — текстура для предметной иконки рисуется кодом; здесь не нужна
-  // стекло — почти прозрачное с рамкой/бликом
+  // стекло — прозрачное с рамкой, угловыми швами и бликом
   TEX.glass = makeTex(ctx => {
     ctx.clearRect(0,0,16,16);
-    ctx.strokeStyle = 'rgba(220,240,255,0.9)'; ctx.lineWidth=1;
+    // рамка со слегка «старым» стеклом
+    ctx.strokeStyle = 'rgba(225,242,255,0.95)'; ctx.lineWidth=1;
     ctx.strokeRect(0.5,0.5,15,15);
-    ctx.strokeStyle = 'rgba(220,240,255,0.5)';
-    ctx.beginPath(); ctx.moveTo(3,13); ctx.lineTo(11,3); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(6,13); ctx.lineTo(13,6); ctx.stroke();
+    // швы в углах (свинцовая раскладка)
+    ctx.fillStyle = 'rgba(200,225,245,0.75)';
+    ctx.fillRect(0,0,2,1); ctx.fillRect(0,0,1,2); ctx.fillRect(14,0,2,1); ctx.fillRect(15,0,1,2);
+    ctx.fillRect(0,14,2,2); ctx.fillRect(14,14,2,2);
+    // диагональные блики
+    ctx.strokeStyle = 'rgba(235,250,255,0.55)';
+    ctx.beginPath(); ctx.moveTo(3,12); ctx.lineTo(10,4); ctx.stroke();
+    ctx.strokeStyle = 'rgba(235,250,255,0.35)';
+    ctx.beginPath(); ctx.moveTo(6,13); ctx.lineTo(12,6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(9,13); ctx.lineTo(13,8); ctx.stroke();
+    // точечный блеск
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fillRect(4,10,1,1); ctx.fillRect(10,4,1,1);
   });
   // печь: бок/верх — гладкий камень; перед — топка с решёткой
   TEX.furnace_side = makeTex(ctx => {
@@ -913,11 +1066,22 @@ function buildTextures() {
     ctx.fillStyle = '#6b4a20'; ctx.fillRect(1,2,13,12);
     ctx.fillStyle = '#4d3416'; ctx.fillRect(0,0,2,16);      // стык-планка
   });
-  // шерсть (белая по умолчанию) — мягкая ворсистая фактура
+  // шерсть (белая по умолчанию) — вязаное плетение «v-стежками»
   TEX.wool = makeTex(ctx => {
     pixelFill(ctx, ['#e9e9ec','#dedee2','#f2f2f4','#d2d2d6'], [5,4,3,2], 3333);
-    ctx.fillStyle = '#c8c8cd';
-    for (const [gx,gy] of [[2,4],[7,2],[11,6],[4,10],[13,12],[8,13]]) ctx.fillRect(gx,gy,2,1);
+    // диагональные стежки вязки (чередующиеся v)
+    for (let y = 1; y < 16; y += 2) {
+      for (let x = 0; x < 16; x += 4) {
+        const ox = (y % 4 === 1) ? 0 : 2;
+        ctx.fillStyle = '#c8c8cd';
+        ctx.fillRect((x + ox) % 16, y, 1, 1);
+        ctx.fillRect((x + ox + 1) % 16, y + 1, 1, 1);
+        ctx.fillRect((x + ox + 2) % 16, y, 1, 1);
+      }
+    }
+    // светлые точки ворса
+    ctx.fillStyle = '#fafafc';
+    for (const [gx,gy] of [[2,2],[9,1],[13,6],[5,8],[11,11],[3,13]]) ctx.fillRect(gx,gy,1,1);
   });
   // факел — палочка с пламенем (для предметной иконки/билборда)
   TEX.torch = makeTex(ctx => {
@@ -1065,6 +1229,39 @@ function buildTextures() {
     ctx.fillStyle = '#5a5a5e'; ctx.fillRect(6,0,1,8); ctx.fillStyle = '#9a9a9e'; ctx.fillRect(9,0,1,8);
     ctx.fillStyle = '#b98e4d'; ctx.fillRect(2,8,12,8); // голова-плита
     ctx.fillStyle = '#a87e3d'; ctx.fillRect(2,14,12,2);
+  });
+  // ---- Командный блок (импульсный, как в MC: тёмный с оранжевым узором) ----
+  TEX.cmd_side = makeTex(ctx => {
+    // тёмная база (зеленовато-коричневая, как командный блок MC)
+    pixelFill(ctx, ['#4a4238','#3e382e','#544c40','#35302a'], [5,4,3,2], 5051);
+    // оранжевая рамка-кайма по краю (фирменный узор КБ)
+    ctx.fillStyle = '#c87f0e';
+    ctx.fillRect(0,0,16,1); ctx.fillRect(0,15,16,1); ctx.fillRect(0,0,1,16); ctx.fillRect(15,0,1,16);
+    ctx.fillStyle = '#8a5a10'; // тень рамки
+    ctx.fillRect(1,1,14,1); ctx.fillRect(1,14,14,1); ctx.fillRect(1,1,1,14); ctx.fillRect(14,1,1,14);
+    // угловые «пины»
+    ctx.fillStyle = '#e8a020';
+    ctx.fillRect(2,2,2,2); ctx.fillRect(12,2,2,2); ctx.fillRect(2,12,2,2); ctx.fillRect(12,12,2,2);
+    // центральные тёмные шестерёнки-намёки
+    ctx.fillStyle = '#2a2620';
+    ctx.fillRect(5,5,2,2); ctx.fillRect(9,5,2,2); ctx.fillRect(5,9,2,2); ctx.fillRect(9,9,2,2);
+    ctx.fillRect(7,7,2,2);
+  });
+  TEX.cmd_front = makeTex(ctx => {
+    // перед с оранжевой стрелкой «команда» (импульсный КБ)
+    pixelFill(ctx, ['#4a4238','#3e382e','#544c40','#35302a'], [5,4,3,2], 5052);
+    ctx.fillStyle = '#c87f0e';
+    ctx.fillRect(0,0,16,1); ctx.fillRect(0,15,16,1); ctx.fillRect(0,0,1,16); ctx.fillRect(15,0,1,16);
+    // оранжевая стрелка вверх (как у impulse-блока MC)
+    ctx.fillStyle = '#e89020';
+    ctx.beginPath();
+    ctx.moveTo(8,3); ctx.lineTo(12,8); ctx.lineTo(10,8); ctx.lineTo(10,12);
+    ctx.lineTo(6,12); ctx.lineTo(6,8); ctx.lineTo(4,8); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffd070'; ctx.fillRect(8,4,1,3); // блик стрелки
+    // «> _» — строка команды
+    ctx.fillStyle = '#e8a020';
+    ctx.fillRect(3,13,2,1); ctx.fillRect(4,12,1,1); ctx.fillRect(5,13,2,1); // стрелка-промпт
+    ctx.fillRect(8,13,4,1);
   });
 }
 
@@ -1342,6 +1539,11 @@ function buildMaterials() {
   MATERIALS[BLOCK.BUTTON] = [mButton, mButton, mButton, mButton, mButton, mButton];
   MATERIALS.BUTTON_PRESSED = [mButtonPressed, mButtonPressed, mButtonPressed, mButtonPressed, mButtonPressed, mButtonPressed];
 
+  // Командный блок: перед (+Z по facing) — со стрелкой, остальное — узор с рамкой
+  const mCmdSide = texToMaterial(TEX.cmd_side);
+  const mCmdFront = texToMaterial(TEX.cmd_front);
+  MATERIALS[BLOCK.COMMAND_BLOCK] = [mCmdSide, mCmdSide, mCmdSide, mCmdSide, mCmdFront, mCmdSide];
+
   // Поршень: корпус (бока/верх) + лицевая панель по направлению (facing)
   const mPistonSide = texToMaterial(TEX.piston_side);
   const mPistonTop  = texToMaterial(TEX.piston_top);
@@ -1479,6 +1681,19 @@ function netherHeight(wx, wz) {
   return Math.floor(14 + DEPTH + h * 22);
 }
 
+// Нижняя кромка ПОТОЛКА Ада (незерак + бедрок сверху, как в Minecraft).
+// Неровная: 86..91, чтобы потолок выглядел грубым, а не плоским.
+const NETHER_CEIL_MIN = 86;
+function netherCeilBottom(wx, wz) {
+  let h = 0, amp = 1, freq = 0.05, sum = 0;
+  for (let o = 0; o < 2; o++) {
+    h += valueNoise((wx+3300) * freq, (wz+3300) * freq) * amp;
+    sum += amp; amp *= 0.5; freq *= 2;
+  }
+  h /= sum; // 0..1
+  return NETHER_CEIL_MIN + Math.floor(h * 5);
+}
+
 // 3D-хеш для размещения руды (детерминированно, зависит от сида)
 function oreHash(x, y, z) {
   let h = (x | 0) * 73856093 ^ (y | 0) * 19349663 ^ (z | 0) * 83492791 ^ Math.imul(WORLD_SEED, 2654435761);
@@ -1600,6 +1815,7 @@ function makeDimStore() {
     levers: new Map(),       // "x,y,z" -> {on:bool, facing} — состояние рычагов
     buttons: new Map(),      // "x,y,z" -> {pressed:bool, timer:sec, facing}
     pistons: new Set(),      // "x,y,z" выдвинутых поршней
+    cmdBlocks: new Map(),    // "x,y,z" -> {cmd:string, always:bool} — командные блоки
     // индекс ИСТОЧНИКОВ света (факелы и пр.): "x,y,z" -> уровень 0..15.
     // Нужен, чтобы свет факела из соседнего чанка заходил в наш чанк
     // дальше, чем 2-блочный бордюр световой сетки.
@@ -1612,6 +1828,7 @@ const World = {
   chunks: null, edits: null, waterLevel: null, doorState: null,
   furnaces: null, chests: null, doubleChests: null, facing: null, portals: null,
   lightEmitters: null,               // индекс источников света активного измерения
+  cmdBlocks: null,                   // командные блоки активного измерения
   dim: 'overworld',                 // текущее измерение
   dims: { overworld: makeDimStore(), nether: makeDimStore() },
 
@@ -1624,6 +1841,7 @@ const World = {
     this.doorState = s.doorState; this.furnaces = s.furnaces; this.chests = s.chests;
     this.doubleChests = s.doubleChests; this.facing = s.facing;
     this.portals = s.portals; this.lightEmitters = s.lightEmitters;
+    this.cmdBlocks = s.cmdBlocks;
   },
 
   key(cx, cz) { return cx + ',' + cz; },
@@ -1740,11 +1958,16 @@ const World = {
   // --- Генерация Ада: незерак, потолок/пол из бедрока, озёра лавы, светопыль ---
   generateNetherChunk(cx, cz) {
     const blocks = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
-    // Ад: бескрайний ЛАВОВЫЙ ОКЕАН снизу, над ним парят ОСТРОВА из незерака
-    // (с вкраплениями светопыли). Нижний слой (y=0) — бедрок (неразрушим), над ним
-    // глубинный камень как дно лавового океана.
+    // Ад как в Minecraft: замкнутая полость — снизу бедрок и глубинный камень,
+    // сверху потолок из незерака с бедроком, между ними пещера.
+    // Внизу НЕГЛУБОКОЕ лавовое море (2-3 блока лавы над каменным дном, как в MC —
+    // раньше лава занимала ~38 слоёв, что грузило свет/меширование/симуляцию),
+    // над морём — острова незерака, а где шум рельефа высокий — СТЕНЫ/СТОЛБЫ,
+    // дорастающие до самого потолка. Светопыль — на потолке и в гроздьях под островами.
     const LAVA_SEA = 20 + DEPTH;        // уровень лавового океана
+    const LAVA_BED = LAVA_SEA - 2;      // лава занимает LAVA_BED+1..LAVA_SEA (мелкое море)
     const FLOOR = 6;                    // толщина глубинного дна под лавой
+    const CEIL_BEDROCK = WORLD_HEIGHT - 1; // верхний слой — бедрок (как в MC)
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
         const wx = cx * CHUNK_SIZE + lx, wz = cz * CHUNK_SIZE + lz;
@@ -1756,28 +1979,49 @@ const World = {
         // толщина острова растёт к его центру (по величине шума)
         const thickness = hasIsland ? 3 + Math.floor((island - 0.56) * 26) : 0;
         const islandBottom = islandTop - thickness;
+        // где шум совсем высокий — остров вырастает в СТЕНУ до потолка
+        const isWall = island > 0.64;
+        // потолок: незерак от ceilBottom+1 до бедрока
+        const ceilBottom = netherCeilBottom(wx, wz);
         for (let y = 0; y < WORLD_HEIGHT; y++) {
           let b = BLOCK.AIR;
           if (y === 0) {
             b = BLOCK.BEDROCK;                       // самый нижний слой Ада — бедрок (неразрушим)
+          } else if (y === CEIL_BEDROCK) {
+            b = BLOCK.BEDROCK;                       // потолок Ада — бедрок (как в MC)
           } else if (y < FLOOR) {
             b = BLOCK.DEEPSLATE;                     // дно под лавой из глубинного камня
+          } else if (y <= LAVA_BED) {
+            b = BLOCK.DEEPSLATE;                     // толща дна — камень вместо 38 слоёв лавы
           } else if (y <= LAVA_SEA) {
-            b = BLOCK.LAVA;                          // лавовый океан
+            b = BLOCK.LAVA;                          // мелкое лавовое море (2-3 слоя)
+          } else if (y > ceilBottom) {
+            b = BLOCK.NETHERRACK;                    // свод потолка
+            if (oreHash(wx + 21000, y, wz + 21000) < 0.012) b = BLOCK.GLOWSTONE;
           }
           // парящий остров из незерака
-          if (hasIsland && y >= islandBottom && y <= islandTop && y > FLOOR) {
+          if (hasIsland && y >= islandBottom && y <= islandTop && y > FLOOR && y <= LAVA_SEA + 30) {
             b = BLOCK.NETHERRACK;
             // светопыль: гроздьями ближе к низу острова и редкими вкраплениями
             if (oreHash(wx + 11000, y, wz + 11000) < 0.02) b = BLOCK.GLOWSTONE;
           }
+          // стена/столб: остров дорастает до потолка (незерак от islandTop до потолка)
+          if (isWall && y > islandTop && y <= ceilBottom && y > LAVA_SEA) {
+            b = BLOCK.NETHERRACK;
+            if (oreHash(wx + 25000, y, wz + 25000) < 0.008) b = BLOCK.GLOWSTONE;
+          }
           blocks[idx(lx, y, lz)] = b;
         }
-        // пещеры/пустоты в толще островов (3D-шум)
+        // пещеры/пустоты в толще островов и стен (3D-шум)
         for (let y = FLOOR + 1; y < WORLD_HEIGHT - 2; y++) {
-          if (blocks[idx(lx, y, lz)] === BLOCK.NETHERRACK && oreHash(wx + 13000, y, wz + 13000) < 0.08 && y > LAVA_SEA + 2) {
+          if (blocks[idx(lx, y, lz)] === BLOCK.NETHERRACK && oreHash(wx + 13000, y, wz + 13000) < 0.08 && y > LAVA_SEA + 2 && y < NETHER_CEIL_MIN - 2) {
             blocks[idx(lx, y, lz)] = BLOCK.AIR;
           }
+        }
+        // светящаяся «сталактитная» гроздь под потолком (как светопыль MC на своде)
+        if (oreHash(wx + 23000, 0, wz + 23000) < 0.06) {
+          const yy = ceilBottom;
+          if (blocks[idx(lx, yy, lz)] === BLOCK.NETHERRACK) blocks[idx(lx, yy, lz)] = BLOCK.GLOWSTONE;
         }
         // светящиеся «сталактиты» снизу островов: подвесить грозди светопыли
         if (hasIsland && islandBottom > LAVA_SEA + 1) {
@@ -2467,7 +2711,7 @@ function orientedMaterials(id, front) {
 // теряла травяной верх — теперь изотропные блоки не ориентируются вовсе).
 function orientKind(id) {
   if (id === BLOCK.WOOD) return 'log';
-  if (id === BLOCK.FURNACE || id === BLOCK.CHEST || id === BLOCK.CRAFTING_TABLE) return 'horizontal';
+  if (id === BLOCK.FURNACE || id === BLOCK.CHEST || id === BLOCK.CRAFTING_TABLE || id === BLOCK.COMMAND_BLOCK) return 'horizontal';
   if (id === BLOCK.PISTON || id === BLOCK.PISTON_HEAD) return 'full';
   return 'none';
 }
@@ -2616,9 +2860,19 @@ function computeChunkLight(c) {
         } else {
           openSky = false;
         }
-        if (baseAmb && ps && blk[li] < baseAmb) { blk[li] = baseAmb; blkQueue.push(x, y, z); }
+        // ОПТИМИЗАЦИЯ Ада: ambient-подсветку пишем напрямую БЕЗ BFS-посева —
+        // раньше КАЖДАЯ светопроводящая клетка (весь воздух Ада, ~38 000 на чанк)
+        // становилась семенем BFS, который ничего не давал (все клетки уже = 6).
+        if (baseAmb && ps && blk[li] < baseAmb) blk[li] = baseAmb;
         const em = lightEmission(b);
-        if (em > 0 && em > blk[li]) { blk[li] = em; blkQueue.push(x, y, z); }
+        if (em > 0 && em > blk[li]) {
+          blk[li] = em;
+          // ОПТИМИЗАЦИЯ: эмиттер, накрытый сверху ТАКИМ ЖЕ эмиттером (лава под лавой),
+          // в очередь не ставим — его свет уже записан напрямую, а грань поверхности
+          // засеет верхняя клетка столба. Лавовое море: было ~15 000 семян на чанк, стало ~400.
+          const ab = (y < WORLD_HEIGHT - 1) ? getB(x, y + 1, z) : BLOCK.AIR;
+          if (lightEmission(ab) < em) blkQueue.push(x, y, z);
+        }
       }
     }
   }
@@ -3113,19 +3367,23 @@ function buildChunkMesh(c) {
         // (порядок как в FACES: +X -X +Y -Y +Z -Z; -1 = «ещё не читали»). Полностью
         // погребённые блоки (все соседи непрозрачны) пропускаем целиком, а видимые
         // грани переиспользуют кеш вместо повторного World.getBlock на каждую грань.
+        // ВАЖНО: за границами мира по Y сосед считается НЕПРОЗРАЧНЫМ — иначе дно мира (y=0)
+        // и потолок Ада (y=95) рисуют грани «в пустоту», которые никто никогда не увидит
+        // (~170 лишних граней на чанк и там, и там — заметный процент полигональности).
+        const nbGet = (nx, ny, nz) => (ny < 0 || ny >= WORLD_HEIGHT) ? BLOCK.BEDROCK : World.getBlock(nx, ny, nz);
         _nbCache[0] = _nbCache[1] = _nbCache[2] = _nbCache[3] = _nbCache[4] = _nbCache[5] = -1;
         if (!liquid) {
-          _nbCache[0] = World.getBlock(wx+1, y, wz);
+          _nbCache[0] = nbGet(wx+1, y, wz);
           if (OPAQUE[_nbCache[0]]) {
-            _nbCache[1] = World.getBlock(wx-1, y, wz);
+            _nbCache[1] = nbGet(wx-1, y, wz);
             if (OPAQUE[_nbCache[1]]) {
-              _nbCache[2] = World.getBlock(wx, y+1, wz);
+              _nbCache[2] = nbGet(wx, y+1, wz);
               if (OPAQUE[_nbCache[2]]) {
-                _nbCache[3] = World.getBlock(wx, y-1, wz);
+                _nbCache[3] = nbGet(wx, y-1, wz);
                 if (OPAQUE[_nbCache[3]]) {
-                  _nbCache[4] = World.getBlock(wx, y, wz+1);
+                  _nbCache[4] = nbGet(wx, y, wz+1);
                   if (OPAQUE[_nbCache[4]]) {
-                    _nbCache[5] = World.getBlock(wx, y, wz-1);
+                    _nbCache[5] = nbGet(wx, y, wz-1);
                     if (OPAQUE[_nbCache[5]]) continue; // полностью погребён — пропускаем
                   }
                 }
@@ -3184,8 +3442,9 @@ function buildChunkMesh(c) {
 
         for (let fi = 0; fi < 6; fi++) {
           const f = FACES[fi];
-          // сосед из кешa face-culling проверки (для жидкостей/недочитанных — читаем напрямую)
-          const nb = _nbCache[fi] >= 0 ? _nbCache[fi] : World.getBlock(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
+          // сосед из кешa face-culling проверки (для жидкостей/недочитанных — читаем напрямую;
+          // за границей мира по Y — непрозрачный «бедрок», чтобы не рисовать дно/крышу в пустоту)
+          const nb = _nbCache[fi] >= 0 ? _nbCache[fi] : nbGet(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
           if (liquid) {
             const sameLiquid = lava ? isLavaLiquid(nb) : isWaterLiquid(nb);
             // верхняя грань: рисуем, если сверху не та же жидкость
@@ -3586,7 +3845,7 @@ const WorldManager = {
   },
 
   // создать новый мир
-  create(name, seedStr, cheatsEnabled, rules) {
+  create(name, seedStr, cheatsEnabled, rules, creative) {
     name = (name || '').trim() || ('Мир ' + (this.list().length + 1));
     const seed = parseSeed(seedStr);
     this.resetState();
@@ -3595,6 +3854,8 @@ const WorldManager = {
     this.cheatsEnabled = !!cheatsEnabled; // читы для нового мира
     // правила мира: только при создании, дальше неизменны
     this.rules = { legacyDurability: !!(rules && rules.legacyDurability) };
+    // режим игры: креатив с создания мира (как в MC — креатив включает читы)
+    setGameMode(!!creative, false);
     spawnPlayer();
     renderHotbar();
 
@@ -3632,6 +3893,8 @@ const WorldManager = {
       levers: Array.from((s.levers || new Map()).entries()).map(([k, v]) => k + ':' + (v.on ? 1 : 0) + ':' + (v.facing === undefined ? -1 : v.facing)),
       buttons: Array.from((s.buttons || new Map()).entries()).map(([k, v]) => k + ':' + (v.facing === undefined ? -1 : v.facing)),
       pistons: Array.from(s.pistons || []),
+      // командные блоки: JSON (в команде могут быть любые символы — запятые, двоеточия)
+      cmdBlocks: Array.from((s.cmdBlocks || new Map()).entries()).map(([k, v]) => JSON.stringify([k, v.cmd || '', v.always ? 1 : 0])),
     };
   },
   // восстановить состояние измерения из объекта
@@ -3666,6 +3929,13 @@ const WorldManager = {
     s.buttons = new Map();
     for (const e of (d.buttons || [])) { const p = e.split(':'); const facing = parseInt(p[1],10); s.buttons.set(p[0], { pressed: false, timer: 0, facing: facing<0 ? undefined : facing }); }
     s.pistons = new Set(d.pistons || []);
+    // командные блоки
+    if (s.cmdBlocks) {
+      s.cmdBlocks.clear();
+      for (const e of (d.cmdBlocks || [])) {
+        try { const [k, cmd, always] = JSON.parse(e); s.cmdBlocks.set(k, { cmd: cmd || '', always: !!always }); } catch (err) {}
+      }
+    }
   },
 
   save() {
@@ -3681,6 +3951,7 @@ const WorldManager = {
       dim: World.dim,
       dimReturn: _dimReturn,
       cheatsEnabled: !!this.cheatsEnabled, // флаг читов для мира
+      gameMode: window.__creative ? 'creative' : 'survival', // режим игры (восстанавливается при загрузке)
       rules: { legacyDurability: !!(this.rules && this.rules.legacyDurability) }, // правила мира (неизменны)
       player: {
         x: PLAYER.pos.x, y: PLAYER.pos.y, z: PLAYER.pos.z,
@@ -3731,6 +4002,8 @@ const WorldManager = {
     this.rules = (data.rules && typeof data.rules === 'object')
       ? { legacyDurability: !!data.rules.legacyDurability }
       : { legacyDurability: false };
+    // восстановить игровой режим (креатив/выживание); старые миры — выживание
+    setGameMode(data.gameMode === 'creative', false);
 
     // восстановить оба измерения (со старой совместимостью: старый формат хранил поля прямо в data)
     if (data.overworld || data.nether) {
@@ -4037,6 +4310,18 @@ document.addEventListener('keydown', (e) => {
     debugOpen = !debugOpen;
     hudEl.classList.toggle('on', debugOpen);
   }
+  // Креатив: ДВОЙНОЙ ПРОБЕЛ — вкл/выкл полёта (как в Minecraft)
+  if (e.code === 'Space' && window.__creative && !e.repeat) {
+    const now = performance.now();
+    if (now - _lastSpaceTap < 300) {
+      PLAYER.flying = !PLAYER.flying;
+      if (PLAYER.flying) PLAYER.vel.y = 0;
+      showToast(PLAYER.flying ? 'Полёт включён (двойной пробел)' : 'Полёт выключен');
+      _lastSpaceTap = 0;
+    } else {
+      _lastSpaceTap = now;
+    }
+  }
   if (e.code === 'KeyE') { toggleInventory(); }
   if (e.code === 'KeyJ') { toggleInventory('guide'); } // справочник рецептов
   // Q — выбросить 1 предмет; Ctrl+Q — выбросить весь стак (работает и в инвентаре с курсора)
@@ -4047,6 +4332,7 @@ document.addEventListener('keydown', (e) => {
   }
   // Escape обрабатывается в отдельном обработчике ниже (инвентарь/меню)
 });
+let _lastSpaceTap = 0;
 document.addEventListener('keyup', (e) => {
   blockBrowserShortcut(e);
   keys[e.code] = false;
@@ -4225,6 +4511,14 @@ function selectSlot(i) { activeSlot = i; renderHotbar(); }
 // активный предмет хотбара (для постановки блоков)
 function activeItem() { return slots[activeSlot]; }
 
+// списать 1 предмет из активного слота при использовании/постановке.
+// Креатив: предметы БЕСКОНЕЧНЫ и не расходуются (parity MC)
+function consumeHeldItem(slot) {
+  if (window.__creative) return;
+  slot.count--;
+  if (slot.count <= 0) slots[activeSlot] = null;
+}
+
 // ---- Иконки блоков и предметов ----
 function iconCanvas(id, size) {
   const c = document.createElement('canvas');
@@ -4311,6 +4605,39 @@ function iconCanvas(id, size) {
     ctx.strokeStyle = '#5e3a1e'; ctx.lineWidth=1; ctx.strokeRect(3*u,4*u,10*u,8*u);
     // стежки
     ctx.fillStyle = '#c89a6a'; for (let i=4;i<12;i+=2) ctx.fillRect(i*u,4*u,1*u,1*u);
+    return c;
+  }
+  // ПЕРО (фикс: раньше не было своей иконки и рисовалось серым квадратом-фолбэком)
+  if (id === ITEM.FEATHER) {
+    const u = size/16;
+    // стержень по диагонали (снизу-слева вверх-направо)
+    ctx.strokeStyle = '#c9b892'; ctx.lineWidth = Math.max(1, u*0.9);
+    ctx.beginPath(); ctx.moveTo(3.4*u, 13.4*u); ctx.lineTo(12.6*u, 2.6*u); ctx.stroke();
+    // опахало — белые «борозды» по обе стороны от стержня
+    const barbs = [
+      // верхняя сторона (выше стержня)
+      [6,11,8,9], [8,9,10,7], [10,7,12,5], [11.6,5.4,13,4],
+      // нижняя сторона (ниже стержня)
+      [5,10,7,8.4], [7,8,9,6], [9,6,11,4.4],
+    ];
+    ctx.fillStyle = '#f4f4f0';
+    for (const [x1,y1,x2,y2] of barbs) {
+      ctx.beginPath();
+      ctx.moveTo(x1*u, y1*u);
+      ctx.lineTo(x2*u, y2*u);
+      ctx.lineTo((x2-0.6)*u, (y2+1.2)*u);
+      ctx.lineTo((x1-0.6)*u, (y1+1.4)*u);
+      ctx.closePath(); ctx.fill();
+    }
+    // тень-гребень на опахале (лёгкий серый оттенок снизу)
+    ctx.fillStyle = '#d8d8d2';
+    ctx.beginPath(); ctx.moveTo(5*u,11.6*u); ctx.lineTo(7*u,9.6*u); ctx.lineTo(6.4*u,10.8*u); ctx.closePath(); ctx.fill();
+    // очин — светлое основание стержня
+    ctx.fillStyle = '#e8e0c8';
+    ctx.fillRect(3*u,13*u,2*u,2*u);
+    // контур опахала сверху
+    ctx.strokeStyle = '#c2c2ba'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(6*u,10.2*u); ctx.lineTo(12.4*u,3.8*u); ctx.stroke();
     return c;
   }
   // броня — рисуем по типу куска + цвету материала
@@ -4594,6 +4921,7 @@ function iconCanvas(id, size) {
   else if (id === BLOCK.BUTTON) tex = TEX.button;
   else if (id === BLOCK.PISTON) tex = TEX.piston_face;
   else if (id === BLOCK.PISTON_HEAD) tex = TEX.piston_head_face;
+  else if (id === BLOCK.COMMAND_BLOCK) tex = TEX.cmd_front;
   else if (id === BLOCK.WOOL) tex = TEX.wool;
   else if (id === BLOCK.GLASS) tex = TEX.glass;
   else if (id === BLOCK.FURNACE) tex = TEX.furnace_front;
@@ -5161,6 +5489,13 @@ function renderGuide() {
   intro.textContent = 'Справочник рецептов — открыто ' + unlocked + ' из ' + total +
                       '. Добывайте новые ресурсы, чтобы открыть больше.';
   wrap.appendChild(intro);
+  // заметка о некрафтяемых вещах (parity MC)
+  const extra = document.createElement('div');
+  extra.className = 'guide-intro';
+  extra.style.marginTop = '6px';
+  extra.innerHTML = 'Не крафтится (как в Minecraft): командный блок — только <b>креатив-инвентарь (E)</b> или <code>/give command_block</code>. ' +
+    'Креатив: <code>/gamemode c</code> или при создании мира — полёт, бесконечные предметы.';
+  wrap.appendChild(extra);
 
   // строка рецепта (сетка -> стрелка -> результат)
   const appendRecipeRow = (row, cells, w, h, resultId, resultCount) => {
@@ -5229,18 +5564,135 @@ function renderGuide() {
   invGrid.appendChild(wrap);
 }
 
-// вкладки переключения Инвентарь/Справочник
+// ============================================================
+//  Креатив-инвентарь: ВСЕ предметы/блоки + поиск (parity MC)
+// ============================================================
+// Что доступно в креативе: все ставимые блоки (кроме технических) + все предметы
+const CREATIVE_ITEMS = [
+  // природные блоки
+  BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.COBBLESTONE, BLOCK.DEEPSLATE, BLOCK.BEDROCK,
+  BLOCK.SAND, BLOCK.GRAVEL, BLOCK.WOOD, BLOCK.LEAVES, BLOCK.PLANKS,
+  // руды и материалы
+  BLOCK.COAL_ORE, BLOCK.COPPER_ORE, BLOCK.IRON_ORE, BLOCK.DIAMOND_ORE, BLOCK.REDSTONE_ORE,
+  BLOCK.OBSIDIAN, BLOCK.GLASS, BLOCK.WOOL, BLOCK.NETHERRACK, BLOCK.GLOWSTONE,
+  ITEM.COAL, ITEM.CHARCOAL, ITEM.IRON_INGOT, ITEM.COPPER_INGOT, ITEM.DIAMOND, ITEM.REDSTONE,
+  ITEM.STICK, ITEM.FLINT, ITEM.LEATHER, ITEM.FEATHER,
+  // инструменты (по возрастанию)
+  ITEM.WOODEN_PICKAXE, ITEM.STONE_PICKAXE, ITEM.COPPER_PICKAXE, ITEM.IRON_PICKAXE, ITEM.DIAMOND_PICKAXE,
+  ITEM.WOODEN_AXE, ITEM.STONE_AXE, ITEM.COPPER_AXE, ITEM.IRON_AXE, ITEM.DIAMOND_AXE,
+  ITEM.WOODEN_SHOVEL, ITEM.STONE_SHOVEL, ITEM.COPPER_SHOVEL, ITEM.IRON_SHOVEL, ITEM.DIAMOND_SHOVEL,
+  ITEM.WOODEN_SWORD, ITEM.STONE_SWORD, ITEM.COPPER_SWORD, ITEM.IRON_SWORD, ITEM.DIAMOND_SWORD,
+  ITEM.SHEARS, ITEM.FLINT_AND_STEEL, ITEM.BUCKET, ITEM.WATER_BUCKET, ITEM.LAVA_BUCKET, ITEM.BOAT,
+  // броня
+  ITEM.LEATHER_HELMET, ITEM.LEATHER_CHESTPLATE, ITEM.LEATHER_LEGGINGS, ITEM.LEATHER_BOOTS,
+  ITEM.COPPER_HELMET, ITEM.COPPER_CHESTPLATE, ITEM.COPPER_LEGGINGS, ITEM.COPPER_BOOTS,
+  ITEM.IRON_HELMET, ITEM.IRON_CHESTPLATE, ITEM.IRON_LEGGINGS, ITEM.IRON_BOOTS,
+  ITEM.DIAMOND_HELMET, ITEM.DIAMOND_CHESTPLATE, ITEM.DIAMOND_LEGGINGS, ITEM.DIAMOND_BOOTS,
+  // функциональные блоки
+  BLOCK.CRAFTING_TABLE, BLOCK.FURNACE, BLOCK.CHEST, ITEM.DOOR, BLOCK.TORCH, BLOCK.BED_FOOT,
+  // редстоун + механизмы
+  BLOCK.REDSTONE_TORCH, BLOCK.LEVER, BLOCK.BUTTON, BLOCK.PISTON, BLOCK.COMMAND_BLOCK,
+  // еда
+  ITEM.PORK_RAW, ITEM.PORK_COOKED, ITEM.BEEF_RAW, ITEM.BEEF_COOKED,
+  ITEM.CHICKEN_RAW, ITEM.CHICKEN_COOKED, ITEM.MUTTON_RAW, ITEM.MUTTON_COOKED,
+  ITEM.FISH_RAW, ITEM.FISH_COOKED, ITEM.ROTTEN_FLESH,
+];
+let creativeSearchQuery = '';
+
+function renderCreativeInv() {
+  const wrap = document.createElement('div');
+  wrap.className = 'creative-wrap';
+
+  // поиск по названию (как вкладка поиска в креативе MC)
+  const search = document.createElement('input');
+  search.type = 'text';
+  search.className = 'creative-search';
+  search.placeholder = 'Поиск (например: алмаз, кирка, дверь)…';
+  search.value = creativeSearchQuery;
+  search.addEventListener('input', () => {
+    creativeSearchQuery = search.value;
+    renderInventory();
+    // вернуть фокус в поле поиска после перерисовки
+    const el = invGrid.querySelector('.creative-search');
+    if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+  });
+  // не даём E/Esc в поле поиска закрывать инвентарь (это просто ввод)
+  search.addEventListener('keydown', (e) => { e.stopPropagation(); });
+  wrap.appendChild(search);
+
+  const q = creativeSearchQuery.trim().toLowerCase();
+  const items = CREATIVE_ITEMS.filter(id => {
+    const nm = (BLOCK_NAMES[id] || '').toLowerCase();
+    return !q || nm.includes(q);
+  });
+
+  const grid = document.createElement('div');
+  grid.className = 'creative-grid';
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'creative-note';
+    empty.style.gridColumn = '1 / -1';
+    empty.textContent = 'Ничего не найдено: ' + creativeSearchQuery;
+    grid.appendChild(empty);
+  }
+  for (const id of items) {
+    const cell = document.createElement('div');
+    cell.className = 'creative-cell';
+    cell.appendChild(iconCanvas(id, 34));
+    const nm = BLOCK_NAMES[id] || '';
+    cell.title = nm + (isBlock(id) || id === ITEM.DOOR || id === ITEM.REDSTONE ? ' (блок)' : '');
+    // ЛКМ — взять полный стак на курсор; ПКМ — одну штуку (как в MC)
+    cell.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const stackSize = (e.button === 2) ? 1 : Math.min(maxStack(id), isBlock(id) ? 64 : maxStack(id));
+      const stack = { id, count: stackSize };
+      if (hasDurability(id)) { stack.dur = MAX_DURABILITY[id]; stack.count = 1; }
+      // клик с предметом на курсоре по сетке креатива = заменить (как «выбросить» в MC)
+      cursorItem = stack;
+      renderCursor();
+      playSound('pop');
+    });
+    cell.addEventListener('contextmenu', e => e.preventDefault());
+    grid.appendChild(cell);
+  }
+  wrap.appendChild(grid);
+
+  const note = document.createElement('div');
+  note.className = 'creative-note';
+  note.textContent = 'ЛКМ — стак на курсор · ПКМ — одна штука · положить — кликом по слотам ниже · командный блок — только здесь и /give';
+  wrap.appendChild(note);
+
+  invGrid.appendChild(wrap);
+}
+
+// вкладки переключения Инвентарь/Креатив/Справочник
 function makeTabs() {
   const tabs = document.createElement('div');
   tabs.className = 'inv-tabs';
+  const setMode = (mode, title) => {
+    if (craftMode === mode) return;
+    if (craftMode !== 'furnace' && craftMode !== 'chest') clearCraftToInventory();
+    craftMode = mode;
+    document.getElementById('invTitle').textContent = title;
+    updateCraftResult();
+    renderInventory();
+  };
+  // в креативе первой — вкладка «Креатив»
+  if (window.__creative) {
+    const t0 = document.createElement('div');
+    t0.className = 'inv-tab' + (craftMode === 'creative' ? ' active' : '');
+    t0.textContent = 'Креатив';
+    t0.addEventListener('click', () => setMode('creative', 'Креатив'));
+    tabs.appendChild(t0);
+  }
   const t1 = document.createElement('div');
-  t1.className = 'inv-tab' + (craftMode !== 'guide' ? ' active' : '');
+  t1.className = 'inv-tab' + (craftMode !== 'guide' && craftMode !== 'creative' ? ' active' : '');
   t1.textContent = 'Инвентарь';
-  t1.addEventListener('click', () => { if (craftMode === 'guide') { craftMode = '2x2'; document.getElementById('invTitle').textContent = 'Инвентарь'; updateCraftResult(); renderInventory(); } });
+  t1.addEventListener('click', () => setMode('2x2', 'Инвентарь'));
   const t2 = document.createElement('div');
   t2.className = 'inv-tab' + (craftMode === 'guide' ? ' active' : '');
   t2.textContent = 'Справочник (J)';
-  t2.addEventListener('click', () => { if (craftMode !== 'guide') { clearCraftToInventory(); craftMode = 'guide'; document.getElementById('invTitle').textContent = 'Справочник'; renderInventory(); } });
+  t2.addEventListener('click', () => setMode('guide', 'Справочник'));
   tabs.appendChild(t1); tabs.appendChild(t2);
   return tabs;
 }
@@ -5249,14 +5701,18 @@ function renderInventory() {
   // строим всю панель заново (заголовок задан в HTML)
   invGrid.innerHTML = '';
 
-  // вкладки показываем только в обычном инвентаре и справочнике
-  if (craftMode === '2x2' || craftMode === 'guide') {
+  // вкладки показываем в обычном инвентаре, креативе и справочнике
+  if (craftMode === '2x2' || craftMode === 'guide' || craftMode === 'creative') {
     invGrid.appendChild(makeTabs());
   }
 
   if (craftMode === 'guide') {
     renderGuide();
     return; // справочник занимает всю панель
+  }
+  if (craftMode === 'creative') {
+    renderCreativeInv();
+    return; // креатив-инвентарь занимает всю панель (слоты ниже — обычные)
   }
 
   if (craftMode === 'chest') {
@@ -5362,16 +5818,17 @@ document.addEventListener('mousemove', (e) => {
 function toggleInventory(mode) {
   invOpen = !invOpen;
   if (invOpen) {
-    craftMode = mode || '2x2';
+    // по умолчанию в креативе открывается креатив-инвентарь (parity MC)
+    craftMode = mode || (window.__creative ? 'creative' : '2x2');
     invPanel.classList.add('open');
-    const title = craftMode === '3x3' ? 'Верстак' : (craftMode === 'furnace' ? 'Печь' : (craftMode === 'chest' ? 'Сундук' : (craftMode === 'guide' ? 'Справочник' : 'Инвентарь')));
+    const title = craftMode === '3x3' ? 'Верстак' : (craftMode === 'furnace' ? 'Печь' : (craftMode === 'chest' ? 'Сундук' : (craftMode === 'guide' ? 'Справочник' : (craftMode === 'creative' ? 'Креатив' : 'Инвентарь'))));
     document.getElementById('invTitle').textContent = title;
     document.exitPointerLock();
     updateCraftResult();
     renderInventory();
   } else {
     // вернуть предметы из крафта только в режимах с сеткой крафта
-    if (craftMode !== 'furnace' && craftMode !== 'chest') clearCraftToInventory();
+    if (craftMode !== 'furnace' && craftMode !== 'chest' && craftMode !== 'creative' && craftMode !== 'guide') clearCraftToInventory();
     if (cursorItem) {
       // фикс: при полном инвентаре предмет с курсора выпадает под ноги, а не исчезает
       if (!addToInventory(cursorItem.id, cursorItem.count, cursorItem.dur)) tossDropForward(cursorItem.id);
@@ -5480,6 +5937,7 @@ function soundProfile(block) {
     case BLOCK.NETHERRACK: return { freq: 420, dur: 0.12, type: 'lowpass' };
     case BLOCK.REDSTONE_ORE: return { freq: 380, dur: 0.12, type: 'lowpass' };
     case BLOCK.REDSTONE_DUST: return { freq: 2800, dur: 0.06, type: 'highpass' };
+    case BLOCK.COMMAND_BLOCK: return { freq: 320, dur: 0.15, type: 'lowpass' };  // глухой «системный» блок
     case BLOCK.IRON_ORE:
     case BLOCK.COPPER_ORE:
     case BLOCK.COAL_ORE:
@@ -7174,9 +7632,10 @@ function hurtMob(p) {
   if ((p.hurtResist || 0) > 0) return;
   p.hurtResist = 0.5;
   // урон зависит от оружия: меч бьёт сильнее, кулак — 1
+  // креатив: удар сносит моба с одного раза (как в MC — creative punch)
   const held = activeItem();
   const heldId = held ? held.id : 0;
-  const dmg = isSword(heldId) ? swordDamage(heldId) : (isTool(heldId) ? 2 : 1);
+  const dmg = window.__creative ? 1000 : (isSword(heldId) ? swordDamage(heldId) : (isTool(heldId) ? 2 : 1));
   p.hp -= dmg;
   p.hurtT = 0.3;
   addExhaustion(0.1); // атака тратит голод
@@ -7230,7 +7689,9 @@ function dist2Between(a, b) {
 // ============================================================
 function finishBreak(t) {
   if (!t) return;
-  if (t.block === BLOCK.BEDROCK) return; // бедрок не ломается
+  // бедрок и командный блок: в ВЫЖИВАНИИ неразрушимы, в КРЕАТИВЕ ломаются (parity MC)
+  if (t.block === BLOCK.BEDROCK && !window.__creative) return;
+  if (t.block === BLOCK.COMMAND_BLOCK && !window.__creative) return;
   if (t.y <= 0) return; // самый нижний слой мира (дно) — неразрушим, чтобы не упасть в пустоту
   const broken = t.block;
 
@@ -7241,7 +7702,7 @@ function finishBreak(t) {
     World.setBlock(t.x, t.y, t.z, BLOCK.AIR);
     if (isDoor(World.getBlock(t.x, otherY, t.z))) World.setBlock(t.x, otherY, t.z, BLOCK.AIR);
     World.doorState.delete(World.ekey(t.x, byd, t.z));
-    spawnDrop(ITEM.DOOR, t.x + 0.5, t.y + 0.5, t.z + 0.5);
+    if (!window.__creative) spawnDrop(ITEM.DOOR, t.x + 0.5, t.y + 0.5, t.z + 0.5); // креатив: без дропа (как в MC)
     onObtain(ITEM.DOOR);
     rebuildAround(t.x, t.z);
     playSound('break', BLOCK.PLANKS);
@@ -7261,7 +7722,7 @@ function finishBreak(t) {
     World.setBlock(t.x, t.y, t.z, BLOCK.AIR);
     World.facing.delete(World.ekey(t.x, t.y, t.z));
     if (isBed(World.getBlock(ox, t.y, oz))) { World.setBlock(ox, t.y, oz, BLOCK.AIR); World.facing.delete(World.ekey(ox, t.y, oz)); rebuildAround(ox, oz); }
-    spawnDrop(BLOCK.BED_FOOT, t.x + 0.5, t.y + 0.5, t.z + 0.5);
+    if (!window.__creative) spawnDrop(BLOCK.BED_FOOT, t.x + 0.5, t.y + 0.5, t.z + 0.5); // креатив: без дропа
     onObtain(BLOCK.BED_FOOT);
     rebuildAround(t.x, t.z);
     playSound('break', BLOCK.PLANKS);
@@ -7360,6 +7821,10 @@ function finishBreak(t) {
   else if (broken === BLOCK.BUTTON) dropId = BLOCK.BUTTON;
   else if (broken === BLOCK.PISTON) dropId = havePick ? BLOCK.PISTON : null;
   else if (broken === BLOCK.PISTON_HEAD) dropId = null; // голова не выпадает
+  else if (broken === BLOCK.COMMAND_BLOCK) dropId = null; // командный блок не выпадает (как в MC)
+
+  // КРЕАТИВ: блоки ломаются без дропа (parity MC) — контейнеры содержимое всё же роняют
+  if (window.__creative) dropId = null;
 
   if (dropId !== null) {
     for (let i = 0; i < dropCount; i++) spawnDrop(dropId, t.x + 0.5, t.y + 0.5, t.z + 0.5);
@@ -7369,11 +7834,12 @@ function finishBreak(t) {
   // при ломании редстоун-блоков — пересчитать сеть
   if (broken === BLOCK.REDSTONE_ORE || broken === BLOCK.REDSTONE_DUST ||
       broken === BLOCK.REDSTONE_TORCH || broken === BLOCK.LEVER ||
-      broken === BLOCK.BUTTON || broken === BLOCK.PISTON) {
+      broken === BLOCK.BUTTON || broken === BLOCK.PISTON || broken === BLOCK.COMMAND_BLOCK) {
     if (broken === BLOCK.REDSTONE_TORCH) World.facing.delete(World.ekey(t.x, t.y, t.z));
     if (broken === BLOCK.LEVER) { leverStates.delete(ekeyOf(t.x, t.y, t.z)); World.facing.delete(World.ekey(t.x, t.y, t.z)); }
     if (broken === BLOCK.BUTTON) { buttonStates.delete(ekeyOf(t.x, t.y, t.z)); World.facing.delete(World.ekey(t.x, t.y, t.z)); }
     if (broken === BLOCK.PISTON) { pistonExtendedSet.delete(ekeyOf(t.x, t.y, t.z)); World.facing.delete(World.ekey(t.x, t.y, t.z)); }
+    if (broken === BLOCK.COMMAND_BLOCK) { World.cmdBlocks.delete(World.ekey(t.x, t.y, t.z)); cmdPoweredSet.delete(ekeyOf(t.x, t.y, t.z)); World.facing.delete(World.ekey(t.x, t.y, t.z)); }
     markRedstoneDirty(t.x, t.y, t.z);
   }
   // свечение руды при ломании (визуальный эффект перед удалением)
@@ -7602,7 +8068,7 @@ function placeBoat(t, slot) {
   const target = World.getBlock(nx, ny, nz);
   if (target !== BLOCK.AIR && !isWaterLiquid(target)) return;
   spawnBoat(nx + 0.5, ny + 0.2, nz + 0.5);
-  slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+  consumeHeldItem(slot);
   refreshUI();
   playSound('place', BLOCK.PLANKS);
 }
@@ -7715,6 +8181,11 @@ function placeBlock() {
     sleepInBed(t.x, t.y, t.z);
     return;
   }
+  // ПКМ по командному блоку — настроить команду (ранний прототип, как в MC)
+  if (t.block === BLOCK.COMMAND_BLOCK) {
+    openCmdBlockUI(t.x, t.y, t.z);
+    return;
+  }
 
   // ПКМ по овце — состричь шерсть (нужны Ножницы; иначе просто «погладить»)
   {
@@ -7767,7 +8238,7 @@ function placeBlock() {
     if (intersectsPlayer(nx, ny, nz) || intersectsPlayer(nx, ny + 1, nz)) return;
     // нужна опора снизу
     if (canFallInto(World.getBlock(nx, ny - 1, nz))) return;
-    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    consumeHeldItem(slot);
     refreshUI();
     // ориентация двери по взгляду: «перед» (лицо) смотрит на игрока
     const lookD = new THREE.Vector3(
@@ -7847,7 +8318,7 @@ function placeBlock() {
       else if (fb[2] === 1) facing = FACE_PZ; else facing = FACE_NZ;
     }
     if (!okSupport) return;
-    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    consumeHeldItem(slot);
     refreshUI();
     World.setBlock(nx, ny, nz, BLOCK.TORCH);
     if (facing !== undefined) World.facing.set(World.ekey(nx, ny, nz), facing);
@@ -7868,7 +8339,7 @@ function placeBlock() {
     if (hb !== BLOCK.AIR && !isLiquid(hb)) return;        // место под изголовье
     if (canFallInto(World.getBlock(nx, ny - 1, nz)) || canFallInto(World.getBlock(hx, ny - 1, hz))) return; // нужна опора
     if (intersectsPlayer(nx, ny, nz) || intersectsPlayer(hx, ny, hz)) return;
-    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    consumeHeldItem(slot);
     refreshUI();
     World.setBlock(nx, ny, nz, BLOCK.BED_FOOT);
     World.setBlock(hx, ny, hz, BLOCK.BED_HEAD);
@@ -7885,7 +8356,7 @@ function placeBlock() {
     const support = World.getBlock(t.x, t.y, t.z);
     if (isTransparent(support) || isLiquid(support)) return;
     if (target !== BLOCK.AIR && !isLiquid(target)) return;
-    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    consumeHeldItem(slot);
     refreshUI();
     World.setBlock(nx, ny, nz, BLOCK.REDSTONE_DUST);
     rebuildAround(nx, nz);
@@ -7905,7 +8376,7 @@ function placeBlock() {
       else if (fb[2] === 1) facing = FACE_PZ; else facing = FACE_NZ;
     }
     if (!okSupport) return;
-    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    consumeHeldItem(slot);
     refreshUI();
     World.setBlock(nx, ny, nz, BLOCK.REDSTONE_TORCH);
     if (facing !== undefined) World.facing.set(World.ekey(nx, ny, nz), facing);
@@ -7926,7 +8397,7 @@ function placeBlock() {
       else if (fb[2] === 1) facing = FACE_PZ; else facing = FACE_NZ;
     }
     if (!okSupport) return;
-    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    consumeHeldItem(slot);
     refreshUI();
     World.setBlock(nx, ny, nz, BLOCK.LEVER);
     if (facing !== undefined) World.facing.set(World.ekey(nx, ny, nz), facing);
@@ -7948,7 +8419,7 @@ function placeBlock() {
       else if (fb[2] === 1) facing = FACE_PZ; else facing = FACE_NZ;
     }
     if (!okSupport) return;
-    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    consumeHeldItem(slot);
     refreshUI();
     World.setBlock(nx, ny, nz, BLOCK.BUTTON);
     if (facing !== undefined) World.facing.set(World.ekey(nx, ny, nz), facing);
@@ -7975,7 +8446,7 @@ function placeBlock() {
       else if (fb[2] === 1) facing = FACE_PZ; else facing = FACE_NZ;
     }
     if (!okSupport) return;
-    slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+    consumeHeldItem(slot);
     refreshUI();
     World.setBlock(nx, ny, nz, BLOCK.PISTON);
     if (facing !== undefined) World.facing.set(World.ekey(nx, ny, nz), facing);
@@ -7990,7 +8461,7 @@ function placeBlock() {
 
   const placeId = slot.id;
   // списать 1 штуку из активного слота
-  slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+  consumeHeldItem(slot);
   refreshUI();
 
   World.setBlock(nx, ny, nz, placeId);
@@ -8223,6 +8694,7 @@ let redstonePower = new Map();      // активная размерность
 let leverStates = new Map();        // «x,y,z» -> {on:bool, facing}
 let buttonStates = new Map();       // «x,y,z» -> {pressed:bool, timer:sec, facing}
 let pistonExtendedSet = new Set();  // набор ekey выдвинутых поршней
+let cmdPoweredSet = new Set();      // набор ekey запитанных командных блоков (для фронта сигнала)
 let glowingOre = new Map();         // «x,y,z» -> время до истечения свечения (сек)
 let particles = [];                 // визуальные частицы (редстоун-руда, поршень)
 
@@ -8232,6 +8704,7 @@ function resetRedstoneState() {
   leverStates = new Map();
   buttonStates = new Map();
   pistonExtendedSet = new Set();
+  cmdPoweredSet = new Set();
   glowingOre = new Map();
   particles = [];
 }
@@ -8304,6 +8777,8 @@ function isPistonPushable(b) {
   // редстоун-компоненты отламываются предметом (упрощённо — не двигаются)
   if (b === BLOCK.REDSTONE_DUST || b === BLOCK.REDSTONE_TORCH ||
       b === BLOCK.LEVER || b === BLOCK.BUTTON) return false;
+  // командный блок — блочная сущность, не двигается (как в MC)
+  if (b === BLOCK.COMMAND_BLOCK) return false;
   return true;
 }
 // активировать поршень: если не выдвинут и спереди толкаемый блок — выдвинуть + толкнуть
@@ -8498,8 +8973,6 @@ function updateRedstone(dt) {
         else if (b === BLOCK.BUTTON && buttonState(x,y,z).pressed) { setP(x,y,z,15); queue.push({x,y,z,p:15}); }
         else if (b === BLOCK.REDSTONE_TORCH && !redstoneTorchPowered(x,y,z)) { setP(x,y,z,15); queue.push({x,y,z,p:15}); }
       }
-  window.__rsStep1 = { srcCount: queue.length, newPowerSize: newPower.size, bounds: {minX, maxX, minY, maxY, minZ, maxZ},
-    probeLever9558: leverState(9,55,8).on, srcKeys: queue.map(q => q.x+','+q.y+','+q.z+'@'+q.p), newPowerKeys: Array.from(newPower.keys()) };
   // 2) распространение по пыли (BFS)
   let head = 0;
   while (head < queue.length) {
@@ -8544,6 +9017,9 @@ function updateRedstone(dt) {
   // 5) активировать поршни (толкают/задвигают по изменению сигнала)
   updatePistons(minX, maxX, minZ, maxZ);
 
+  // 5.5) командные блоки: выполнить команду по фронту сигнала
+  updateCommandBlocks(minX, maxX, minZ, maxZ);
+
   // 6) перестроить изменившиеся чанки
   for (const k of changed) {
     const [cx2, cz2] = k.split(',').map(Number);
@@ -8551,7 +9027,123 @@ function updateRedstone(dt) {
   }
 }
 
-// открыть/закрыть двери в зависимости от редстоуна поблизости
+// ============================================================
+//  Командный блок (ранний прототип, как в MC)
+//  — ставится только из креатива//give; в выживании неразрушим
+//  — ПКМ — ввести команду (без слэша), флаг «Всегда активен»
+//  — выполняется по ФРОНТУ редстоун-сигнала (рычаг/кнопка/пыль рядом)
+//  — цель команды: @p/@s/@a/@e/@r или ник (см. isTargetToken)
+// ============================================================
+function isCmdBlockPowered(wx, y, wz) {
+  // питание от своей клетки или от соседей (как у поршня)
+  if (redstonePowerAt(wx, y, wz) > 0 || sourcePowerAt(wx, y, wz) > 0) return true;
+  const neigh = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+  for (const d of neigh) {
+    const nx = wx + d[0], ny = y + d[1], nz = wz + d[2];
+    if (redstonePowerAt(nx, ny, nz) > 0 || sourcePowerAt(nx, ny, nz) > 0) return true;
+  }
+  return false;
+}
+
+// выполнить команду командного блока
+function executeCmdBlock(wx, y, wz, st) {
+  const cmd = (st && st.cmd || '').trim();
+  if (!cmd) {
+    addChatMessage('[КБ ' + wx + ',' + y + ',' + wz + '] Команда не задана (ПКМ по блоку)', 'chat-sys');
+    return;
+  }
+  playSound('click');
+  addChatMessage('[КБ ' + wx + ',' + y + ',' + wz + '] Выполняю: /' + cmd, 'chat-sys');
+  handleChatCommand('/' + cmd.replace(/^\/+/, ''), { fromCmdBlock: true, pos: { x: wx, y, z: wz } });
+}
+
+// тикер командных блоков: срабатывание по фронту сигнала (как updatePistons,
+// проходит только по чанкам в области пересчёта редстоуна)
+function updateCommandBlocks(minX, maxX, minZ, maxZ) {
+  if (World.cmdBlocks.size === 0) return;
+  const ccxMin = Math.floor(minX / CHUNK_SIZE), ccxMax = Math.floor(maxX / CHUNK_SIZE);
+  const cczMin = Math.floor(minZ / CHUNK_SIZE), cczMax = Math.floor(maxZ / CHUNK_SIZE);
+  const checked = new Set();
+  for (const [k, st] of World.cmdBlocks) {
+    const i1 = k.indexOf(','), i2 = k.indexOf(',', i1 + 1);
+    const wx = +k.slice(0, i1), y = +k.slice(i1 + 1, i2), wz = +k.slice(i2 + 1);
+    if (wx < ccxMin * CHUNK_SIZE - 1 || wx > (ccxMax + 1) * CHUNK_SIZE || wz < cczMin * CHUNK_SIZE - 1 || wz > (cczMax + 1) * CHUNK_SIZE) continue;
+    if (checked.has(k)) continue;
+    checked.add(k);
+    if (st.always) continue; // «Всегда активен» — редстоун не реагирует (как в MC)
+    const powered = isCmdBlockPowered(wx, y, wz);
+    const was = cmdPoweredSet.has(k);
+    if (powered && !was) {
+      cmdPoweredSet.add(k);
+      executeCmdBlock(wx, y, wz, st);
+    } else if (!powered && was) {
+      cmdPoweredSet.delete(k);
+    }
+  }
+}
+
+// ---- UI настройки командного блока (модалка) ----
+const cmdBlockBoxEl = document.getElementById('cmdBlockBox');
+const cmdBlockInputEl = document.getElementById('cmdBlockInput');
+const cmdBlockAlwaysEl = document.getElementById('cmdBlockAlways');
+const cmdBlockPosEl = document.getElementById('cmdBlockPos');
+let cmdBlockUIOpen = false;
+let cmdBlockPos = null; // {x,y,z} настраиваемого блока
+
+function openCmdBlockUI(x, y, z) {
+  cmdBlockPos = { x, y, z };
+  const st = World.cmdBlocks.get(World.ekey(x, y, z)) || { cmd: '', always: false };
+  cmdBlockInputEl.value = st.cmd || '';
+  cmdBlockAlwaysEl.checked = !!st.always;
+  cmdBlockPosEl.textContent = 'Позиция: ' + x + ', ' + y + ', ' + z;
+  cmdBlockBoxEl.classList.add('open');
+  cmdBlockUIOpen = true;
+  document.exitPointerLock();
+  setTimeout(() => cmdBlockInputEl.focus(), 30);
+  if (typeof updateChatMiniVisibility === 'function') updateChatMiniVisibility();
+}
+function closeCmdBlockUI() {
+  cmdBlockBoxEl.classList.remove('open');
+  cmdBlockUIOpen = false;
+  cmdBlockPos = null;
+  if (overlay.classList.contains('hidden') && !chatOpen && !invOpen && canvas) canvas.requestPointerLock();
+  if (typeof updateChatMiniVisibility === 'function') updateChatMiniVisibility();
+}
+function saveCmdBlockFromUI() {
+  if (!cmdBlockPos) return null;
+  const k = World.ekey(cmdBlockPos.x, cmdBlockPos.y, cmdBlockPos.z);
+  const cmd = cmdBlockInputEl.value.trim().replace(/^\/+/, '').slice(0, 120);
+  const always = cmdBlockAlwaysEl.checked;
+  const st = { cmd, always };
+  if (cmd) World.cmdBlocks.set(k, st); else World.cmdBlocks.delete(k);
+  if (typeof requestSave === 'function') requestSave();
+  return st;
+}
+document.getElementById('cmdBlockDone').addEventListener('click', () => {
+  const st = saveCmdBlockFromUI();
+  const pos = cmdBlockPos;
+  closeCmdBlockUI();
+  // «Всегда активен» — выполняется один раз при установке (как в MC)
+  if (st && st.always && st.cmd && pos) {
+    playSound('click');
+    addChatMessage('[КБ ' + pos.x + ',' + pos.y + ',' + pos.z + '] Всегда активен — выполняю: /' + st.cmd, 'chat-sys');
+    handleChatCommand('/' + st.cmd, { fromCmdBlock: true, pos });
+  }
+});
+document.getElementById('cmdBlockExec').addEventListener('click', () => {
+  const st = saveCmdBlockFromUI();
+  const pos = cmdBlockPos;
+  closeCmdBlockUI();
+  if (st && pos) executeCmdBlock(pos.x, pos.y, pos.z, st);
+});
+document.getElementById('cmdBlockCancel').addEventListener('click', () => closeCmdBlockUI());
+cmdBlockInputEl.addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.key === 'Enter') document.getElementById('cmdBlockDone').click();
+  if (e.key === 'Escape') closeCmdBlockUI();
+});
+
+// открыть/закрыть редстоун-двери в зависимости от сигнала поблизости
 function syncDoorsWithRedstone(minX,maxX,minY,maxY,minZ,maxZ) {
   for (const [k, st] of World.doorState) {
     const [x,y,z] = k.split(',').map(Number);
@@ -8995,10 +9587,13 @@ function updatePlayer(dt) {
   }
 
   let speed = PLAYER.speed;
-  // спринт как в MC: только ВПЕРЁД и при голоде ≥ 6
-  const sprinting = keys['ControlLeft'] && keys['KeyW'] && !PLAYER.crouching && PLAYER.hunger >= 6;
+  // спринт как в MC: только ВПЕРЁД и при голоде ≥ 6 (в креативе голод не тратится — всегда можно)
+  const sprinting = keys['ControlLeft'] && keys['KeyW'] && !PLAYER.crouching && (PLAYER.hunger >= 6 || window.__creative);
   if (sprinting) speed *= PLAYER.sprintMul;
   if (PLAYER.crouching) speed *= 0.45;
+
+  // креатив-полёт: скорость как в MC (~10.9 м/с, со спринтом ~21)
+  if (window.__creative && PLAYER.flying) speed = PLAYER.speed * (sprinting ? 4.8 : 2.5);
 
   if (PLAYER.inLiquid) {
     // ---- плавание (вода или лава) ----
@@ -9023,9 +9618,10 @@ function updatePlayer(dt) {
     // ---- обычная физика ----
     PLAYER.vel.x = move.x * speed;
     PLAYER.vel.z = move.z * speed;
-    // креатив-полёт: Space — вверх, Shift — вниз
+    // креатив-полёт: Space — вверх, Shift — вниз (скорость как в MC, со спринтом быстрее)
     if (window.__creative && PLAYER.flying) {
-      PLAYER.vel.y = keys['Space'] ? 7 : (keys['ShiftLeft'] ? -7 : 0);
+      const fspd = sprinting ? 16 : 10;
+      PLAYER.vel.y = keys['Space'] ? fspd : (keys['ShiftLeft'] ? -fspd : 0);
     } else {
       PLAYER.vel.y -= GRAVITY * dt;
       if (PLAYER.vel.y < -55) PLAYER.vel.y = -55;
@@ -9107,6 +9703,12 @@ function updatePlayer(dt) {
 // ---- Кислород / утопление ----
 // ---- Голод, регенерация, урон ----
 function updateSurvival(dt) {
+  // Креатив: ни голода, ни регенерации, ни урона от истощения (parity MC)
+  if (window.__creative) {
+    PLAYER.hunger = PLAYER.maxHunger;
+    PLAYER.exhaustion = 0;
+    return;
+  }
   // «Голод» после гнилой плоти: 30 с голод тает заметно быстрее (парити MC)
   if ((PLAYER.foodPoisonT || 0) > 0) {
     PLAYER.foodPoisonT -= dt;
@@ -9139,7 +9741,7 @@ function updateSurvival(dt) {
 }
 
 // добавить истощения (расход голода)
-function addExhaustion(v) { PLAYER.exhaustion += v; }
+function addExhaustion(v) { if (window.__creative) return; PLAYER.exhaustion += v; }
 
 // нанести урон игроку
 // сумма очков брони (0..20)
@@ -9153,6 +9755,7 @@ function totalArmorPoints() {
 }
 function damagePlayer(amount, reason, ignoreArmor) {
   if (PLAYER.dead) return;             // уже мертвы — больше не получаем урон (фикс лишнего догорания)
+  if (window.__creative) return;       // креатив: игрок неуязвим (как в MC)
   // броня поглощает часть урона (как в MC: каждое очко ~4% защиты),
   // но НЕ защищает от лавы/огня/падения/утопления (как в MC)
   if (!ignoreArmor) {
@@ -9258,7 +9861,7 @@ function equipArmor(slot) {
   // надеть новую (с прочностью предмета, если была)
   PLAYER.armor[sl] = { id: slot.id, ...(slot.dur!==undefined?{dur:slot.dur}:{}) };
   // убрать одну единицу из слота
-  slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+  consumeHeldItem(slot);
   // если был старый предмет — вернуть в инвентарь (не терять!); не влез — под ноги
   if (prev) {
     if (!addToInventory(prev.id, 1, prev.dur)) spawnDrop(prev.id, PLAYER.pos.x, PLAYER.pos.y + 0.5, PLAYER.pos.z);
@@ -9274,7 +9877,7 @@ function tryEat() {
   if (!slot || !isFood(slot.id)) return false;
   if (PLAYER.hunger >= PLAYER.maxHunger) return false; // сыт
   PLAYER.hunger = Math.min(PLAYER.maxHunger, PLAYER.hunger + FOOD[slot.id]);
-  slot.count--; if (slot.count <= 0) slots[activeSlot] = null;
+  consumeHeldItem(slot);
   // Гнилая плоть: 80% шанс «Голода» (как в MC) — голод тает быстрее 30 секунд
   if (slot.id === ITEM.ROTTEN_FLESH && Math.random() < 0.8) {
     PLAYER.foodPoisonT = 30;
@@ -9427,7 +10030,9 @@ function teleportDimension(target) {
   else { tx = Math.floor(PLAYER.pos.x * 8); tz = Math.floor(PLAYER.pos.z * 8); }
   let ty;
   if (target === 'nether') {
-    ty = 24 + DEPTH; for (let y = WORLD_HEIGHT-4; y > 20; y--) { if (World.getBlock(tx,y,tz)===BLOCK.AIR && World.getBlock(tx,y-1,tz)!==BLOCK.AIR && !isLiquid(World.getBlock(tx,y-1,tz))) { ty = y; break; } }
+    // искать площадку СНИЗУ ПОТОЛКА Ада (потолок из незерака/бедрока начинается
+    // не ниже NETHER_CEIL_MIN — раньше поиск мог высадить игрока на крыше Ада)
+    ty = 24 + DEPTH; for (let y = NETHER_CEIL_MIN - 2; y > 20; y--) { if (World.getBlock(tx,y,tz)===BLOCK.AIR && World.getBlock(tx,y-1,tz)!==BLOCK.AIR && !isLiquid(World.getBlock(tx,y-1,tz))) { ty = y; break; } }
   } else {
     ty = terrainHeight(tx, tz) + 1;
   }
@@ -9612,10 +10217,10 @@ function updateWaterUI() {
   // красная вспышка урона
   damageFlashEl.style.background = 'rgba(180,20,20,' + (PLAYER.damageFlash * 0.35).toFixed(3) + ')';
 
-  // показываем полосы в игре
-  const inGame = gameStarted && overlay.classList.contains('hidden');
+  // показываем полосы в игре; в КРЕАТИВЕ полос нет (parity MC)
+  const inGame = gameStarted && overlay.classList.contains('hidden') && !window.__creative;
   statusBarsEl.classList.toggle('on', inGame);
-  if (!inGame) return;
+  if (!inGame) { _lastStatus = ''; return; }
 
   // подпись состояния, чтобы не перерисовывать каждый кадр
   const hp = Math.max(0, Math.round(PLAYER.hp));
@@ -9885,19 +10490,22 @@ function renderWorldList() {
     // флаги читов и правил: из индекса (быстро), для старых миров — из данных (медленно, один раз)
     let cheatsOn = !!w.cheats;
     let legacyOn = !!w.legacy;
-    if (w.cheats === undefined || w.legacy === undefined) {
-      try {
-        const d = JSON.parse(localStorage.getItem(WorldManager.LS_PREFIX + w.name));
+    let creativeOn = false;
+    try {
+      const d = JSON.parse(localStorage.getItem(WorldManager.LS_PREFIX + w.name));
+      // режим игры читаем всегда — он может меняться /gamemode в игре
+      creativeOn = !!(d && d.gameMode === 'creative');
+      if (w.cheats === undefined || w.legacy === undefined) {
         if (w.cheats === undefined) cheatsOn = !!(d && d.cheatsEnabled);
         if (w.legacy === undefined) legacyOn = !!(d && d.rules && d.rules.legacyDurability);
         w.cheats = cheatsOn; w.legacy = legacyOn; // закешировать в индекс
         const arr1 = WorldManager.list();
         const w1 = arr1.find(x => x.name === w.name);
         if (w1) { w1.cheats = cheatsOn; w1.legacy = legacyOn; WorldManager.saveIndex(arr1); }
-      } catch (e) {}
-    }
+      }
+    } catch (e) {}
     meta.textContent = 'Сид: ' + w.seed + ' · ' + timeAgo(w.updated)
-      + (cheatsOn ? ' · читы ✓' : '') + (legacyOn ? ' · legacy-прочность ✓' : '');
+      + (creativeOn ? ' · креатив ✓' : '') + (cheatsOn ? ' · читы ✓' : '') + (legacyOn ? ' · legacy-прочность ✓' : '');
     info.appendChild(nm); info.appendChild(meta);
 
     const loadBtn = document.createElement('button');
@@ -9921,9 +10529,11 @@ function renderWorldList() {
 document.getElementById('createWorldBtn').addEventListener('click', () => {
   const name = document.getElementById('newWorldName').value;
   const seed = document.getElementById('newWorldSeed').value;
-  const cheats = document.getElementById('cheatsToggle').checked;
+  const creative = document.getElementById('creativeToggle').checked;
+  // креатив включает читы (как в MC — команды доступны всегда в креативных мирах)
+  const cheats = document.getElementById('cheatsToggle').checked || creative;
   const legacyDur = document.getElementById('legacyDurToggle').checked;
-  WorldManager.create(name, seed, cheats, { legacyDurability: legacyDur });
+  WorldManager.create(name, seed, cheats, { legacyDurability: legacyDur }, creative);
 });
 
 // ---- Навигация главного меню: Играть -> подменю миров -> Назад ----
@@ -9954,6 +10564,20 @@ function updateLegacyDurLabel() {
 }
 legacyDurToggleEl.addEventListener('change', updateLegacyDurLabel);
 updateLegacyDurLabel();
+
+// подпись тумблера режима (креатив/выживание) при создании мира
+const creativeToggleEl = document.getElementById('creativeToggle');
+const creativeLabelEl = document.getElementById('creativeLabel');
+function updateCreativeLabel() {
+  creativeLabelEl.textContent = creativeToggleEl.checked ? 'Режим: Креатив' : 'Режим: Выживание';
+  // при выборе креатива читы включаются автоматически (как в MC)
+  if (creativeToggleEl.checked) {
+    cheatsToggleEl.checked = true;
+    updateCheatsLabel();
+  }
+}
+creativeToggleEl.addEventListener('change', updateCreativeLabel);
+updateCreativeLabel();
 
 // ---- Настройка прорисовки чанков ----
 function setRenderDistance(rd) {
@@ -10063,7 +10687,7 @@ function showSaveToast() {
 document.addEventListener('keydown', (e) => {
   if (!gameStarted) return;
   // чат: T или / открывают окно ввода
-  if (!chatOpen && !invOpen && (e.code === 'KeyT' || (e.key === '/' && e.code !== 'NumpadDivide'))) {
+  if (!chatOpen && !invOpen && !cmdBlockUIOpen && (e.code === 'KeyT' || (e.key === '/' && e.code !== 'NumpadDivide'))) {
     e.preventDefault();
     openChat(e.key === '/');
     return;
@@ -10073,6 +10697,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.code === 'Escape') {
     if (chatOpen) { closeChat(); return; }
+    if (cmdBlockUIOpen) { closeCmdBlockUI(); return; } // закрыть настройку командного блока
     if (PLAYER.dead) return;          // на экране смерти Esc ничего не делает
     if (invOpen) toggleInventory();   // открыт инвентарь -> закрыть его
     else if (!overlay.classList.contains('hidden') && pausedFromGame) {
@@ -10106,6 +10731,7 @@ const GIVE_ALIASES = {
   flint: ITEM.FLINT, flint_and_steel: ITEM.FLINT_AND_STEEL, boat: ITEM.BOAT,
   bread: null, apple: null, feather: ITEM.FEATHER, leather: ITEM.LEATHER,
   wool: BLOCK.WOOL, bed: BLOCK.BED_FOOT, redstone: ITEM.REDSTONE, obsidian: BLOCK.OBSIDIAN,
+  command_block: BLOCK.COMMAND_BLOCK, cmd_block: BLOCK.COMMAND_BLOCK,
   sword: ITEM.WOODEN_SWORD, pickaxe: ITEM.WOODEN_PICKAXE, axe: ITEM.WOODEN_AXE, shovel: ITEM.WOODEN_SHOVEL,
   shears: ITEM.SHEARS,
   // инструменты по префиксам
@@ -10137,18 +10763,62 @@ function resolveGiveId(nameOrId) {
   return null;
 }
 
-function handleChatCommand(msg) {
+// ---- Таргетинг команд: @-селекторы и ник (для команд, действующих на игрока) ----
+// Single-player: все селекторы (@p/@s/@a/@e/@r) разрешаются в игрока.
+// Ник сравнивается регистронезависимо с никнеймом из главного меню.
+function isTargetToken(tok) {
+  if (tok === undefined || tok === null) return false;
+  const t = String(tok).toLowerCase();
+  if (t === '@p' || t === '@s' || t === '@a' || t === '@e' || t === '@r') return true;
+  const nick = (getPlayerNick() || '').toLowerCase();
+  return !!nick && t === nick;
+}
+// разрешить цель: возвращает true (цель = игрок) или выводит ошибку и возвращает false
+function resolveCommandTarget(tok, prefix) {
+  if (isTargetToken(tok)) return true;
+  addChatMessage((prefix || '') + 'Цель не найдена: ' + tok + ' (доступны @p, @s, @a, @e, @r или ник)', 'chat-sys');
+  return false;
+}
+
+// Переключение игрового режима (выживание/креатив) — используется /gamemode,
+// командным блоком и экраном создания мира
+function setGameMode(creative, announce) {
+  window.__creative = !!creative;
+  if (window.__creative) {
+    // при входе в креатив самочувствие игрока не должно висеть «раненым/голодным»
+    PLAYER.hp = PLAYER.maxHp;
+    PLAYER.hunger = PLAYER.maxHunger;
+    PLAYER.oxygen = PLAYER.maxOxygen;
+    PLAYER.burnTimer = 0;
+    PLAYER.exhaustion = 0;
+  } else {
+    PLAYER.flying = false; // выход из креатива выключает полёт (как в MC)
+  }
+  if (typeof requestSave === 'function') requestSave();
+  if (announce !== false) {
+    addChatMessage(window.__creative
+      ? 'Креатив-режим: мгновенное ломание без дропа, бесконечные предметы, полёт (двойной пробел вкл/выкл, Space — вверх, Shift — вниз), E — креатив-инвентарь, урона и голода нет'
+      : 'Режим выживания', 'chat-sys');
+  }
+  if (typeof refreshUI === 'function') refreshUI();
+}
+
+function handleChatCommand(msg, opts) {
+  opts = opts || {};
+  const fromCB = !!opts.fromCmdBlock; // выполняется командным блоком — чит-флаг не нужен
+  const cbPrefix = fromCB ? '[КБ] ' : '';
   const parts = msg.slice(1).trim().split(/\s+/);
   const cmd = (parts[0] || '').toLowerCase();
   const args = parts.slice(1);
 
   const helpText = () => {
     addChatMessage('Команды (нужны читы в мире): /time set day|night|noon|midnight|<0-1>, ' +
-      '/tp <x> <y> <z>, /give <имя|id> [кол-во], /seed, /kill, /clear, /gamemode s|c', 'chat-sys');
+      '/tp [цель] <x> <y> <z> (~ — относительно), /give [цель] <имя|id> [кол-во], /seed, /kill [цель], /clear [цель], /gamemode s|c [цель]', 'chat-sys');
+    addChatMessage('Цель: @p (ближайший), @s (сам), @a/@e (все), @r (случайный) или ник. Пример: /tp @p ~ ~10 ~', 'chat-sys');
   };
 
   if (cmd === 'help' || cmd === '?') { helpText(); return; }
-  if (!WorldManager.cheatsEnabled) {
+  if (!fromCB && !WorldManager.cheatsEnabled) {
     addChatMessage('Команды заблокированы: читы выключены для этого мира. /help для справки.', 'chat-sys');
     return;
   }
@@ -10179,27 +10849,40 @@ function handleChatCommand(msg) {
   }
 
   if (cmd === 'tp') {
-    // /tp x y z (поддержка ~ — относительно текущей позиции)
-    if (args.length < 3) { addChatMessage('Использование: /tp <x> <y> <z> (~ — относительно себя)', 'chat-sys'); return; }
-    const rel = (a, cur) => a === '~' ? cur : (a.startsWith('~') ? cur + parseFloat(a.slice(1) || '0') : parseFloat(a));
-    const nx = rel(args[0], PLAYER.pos.x), ny = rel(args[1], PLAYER.pos.y), nz = rel(args[2], PLAYER.pos.z);
-    if (![nx, ny, nz].every(Number.isFinite)) { addChatMessage('Неверные координаты', 'chat-sys'); return; }
+    // /tp [цель] <x> <y> <z> (~ — относительно текущей позиции игрока)
+    // Цель: @-селектор или ник; без цели — телепортируется сам игрок
+    let coords = args;
+    if (isTargetToken(args[0])) {
+      if (!resolveCommandTarget(args[0], cbPrefix)) return;
+      coords = args.slice(1);
+    } else if (fromCB) {
+      // командный блок без цели действует на ближайшего игрока (@p, как в MC)
+    }
+    if (coords.length < 3) { addChatMessage(cbPrefix + 'Использование: /tp [цель] <x> <y> <z> (~ — относительно)', 'chat-sys'); return; }
+    const rel = (a, cur) => a === '~' ? cur : (String(a).startsWith('~') ? cur + parseFloat(a.slice(1) || '0') : parseFloat(a));
+    const nx = rel(coords[0], PLAYER.pos.x), ny = rel(coords[1], PLAYER.pos.y), nz = rel(coords[2], PLAYER.pos.z);
+    if (![nx, ny, nz].every(Number.isFinite)) { addChatMessage(cbPrefix + 'Неверные координаты', 'chat-sys'); return; }
     PLAYER.pos.set(nx, Math.max(1, Math.min(WORLD_HEIGHT - 2, ny)), nz);
     PLAYER.vel.set(0, 0, 0);
     PLAYER.fallStart = undefined;
-    addChatMessage(`Телепорт: ${nx.toFixed(1)}, ${PLAYER.pos.y.toFixed(1)}, ${nz.toFixed(1)}`, 'chat-sys');
+    addChatMessage(cbPrefix + `Телепорт: ${nx.toFixed(1)}, ${PLAYER.pos.y.toFixed(1)}, ${nz.toFixed(1)}`, 'chat-sys');
     return;
   }
 
   if (cmd === 'give') {
-    // /give <имя|id> [кол-во]
-    if (args.length < 1) { addChatMessage('Использование: /give <имя|id> [кол-во]', 'chat-sys'); return; }
-    const id = resolveGiveId(args[0]);
-    if (id === null) { addChatMessage('Неизвестный предмет: ' + args[0], 'chat-sys'); return; }
+    // /give [цель] <имя|id> [кол-во]
+    let rest = args;
+    if (isTargetToken(args[0])) {
+      if (!resolveCommandTarget(args[0], cbPrefix)) return;
+      rest = args.slice(1);
+    }
+    if (rest.length < 1) { addChatMessage(cbPrefix + 'Использование: /give [цель] <имя|id> [кол-во]', 'chat-sys'); return; }
+    const id = resolveGiveId(rest[0]);
+    if (id === null) { addChatMessage(cbPrefix + 'Неизвестный предмет: ' + rest[0], 'chat-sys'); return; }
     let n = 1;
-    if (args[1] && /^[0-9]+$/.test(args[1])) n = Math.max(1, Math.min(64 * 9, parseInt(args[1], 10)));
-    if (addToInventory(id, n)) addChatMessage(`Выдано: ${BLOCK_NAMES[id] || id} ×${n}`, 'chat-sys');
-    else addChatMessage('Инвентарь полон — предмет выпал под ноги', 'chat-sys'), spawnDrop(id, PLAYER.pos.x, PLAYER.pos.y + 0.5, PLAYER.pos.z, n);
+    if (rest[1] && /^[0-9]+$/.test(rest[1])) n = Math.max(1, Math.min(64 * 9, parseInt(rest[1], 10)));
+    if (addToInventory(id, n)) addChatMessage(cbPrefix + `Выдано: ${BLOCK_NAMES[id] || id} ×${n}`, 'chat-sys');
+    else { addChatMessage(cbPrefix + 'Инвентарь полон — предмет выпал под ноги', 'chat-sys'); spawnDrop(id, PLAYER.pos.x, PLAYER.pos.y + 0.5, PLAYER.pos.z, n); }
     return;
   }
 
@@ -10209,36 +10892,44 @@ function handleChatCommand(msg) {
   }
 
   if (cmd === 'kill') {
-    damagePlayer(9999, 'Вы приказали долго жить', true);
+    // /kill [цель] — в креативе урон заблокирован, поэтому убираем напрямую
+    if (args.length >= 1) {
+      if (!resolveCommandTarget(args[0], cbPrefix)) return;
+    }
+    PLAYER.hp = 0;
+    onDeath('Вы приказали долго жить');
     return;
   }
 
   if (cmd === 'clear') {
+    // /clear [цель] — очистить инвентарь цели
+    if (args.length >= 1) {
+      if (!resolveCommandTarget(args[0], cbPrefix)) return;
+    }
     for (let i = 0; i < TOTAL_SLOTS; i++) slots[i] = null;
     for (let i = 0; i < craftSlots.length; i++) craftSlots[i] = null;
     if (cursorItem) cursorItem = null;
     for (const sl of ['helmet','chestplate','leggings','boots']) PLAYER.armor[sl] = null;
     refreshUI();
-    addChatMessage('Инвентарь очищен', 'chat-sys');
+    addChatMessage(cbPrefix + 'Инвентарь очищен', 'chat-sys');
     return;
   }
 
   if (cmd === 'gamemode') {
-    // режим выживания по умолчанию; «креатив» упрощённо: мгновенное ломание + полёт
+    // /gamemode s|c [цель] — полноценный креатив (parity MC)
     const gm = (args[0] || '').toLowerCase();
+    if (args.length >= 2 && !resolveCommandTarget(args[1], cbPrefix)) return;
     if (gm === 'c' || gm === 'creative' || gm === '1') {
-      window.__creative = true;
-      addChatMessage('Креатив-режим (упрощённый): мгновенное ломание, полёт (двойной пробел — вверх, Shift — вниз, вкл/выкл полёта — F)', 'chat-sys');
+      setGameMode(true);
     } else if (gm === 's' || gm === 'survival' || gm === '0') {
-      window.__creative = false;
-      addChatMessage('Режим выживания', 'chat-sys');
+      setGameMode(false);
     } else {
-      addChatMessage('Использование: /gamemode s|c', 'chat-sys');
+      addChatMessage(cbPrefix + 'Использование: /gamemode s|c [цель]', 'chat-sys');
     }
     return;
   }
 
-  addChatMessage('Неизвестная команда: /' + cmd + '. Введите /help', 'chat-sys');
+  addChatMessage((fromCB ? cbPrefix : '') + 'Неизвестная команда: /' + cmd + '. Введите /help', 'chat-sys');
 }
 
 function addChatMessage(text, cls) {
