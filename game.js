@@ -137,6 +137,14 @@ const ITEM = {
   REDSTONE:          241,
   // Перо (выпадает из куриц — как в Minecraft)
   FEATHER:           242,
+  // Яйца спавна мобов (креатив/читы — parity MC: не крафтятся)
+  SPAWN_EGG_SHEEP:   250,
+  SPAWN_EGG_PIG:     251,
+  SPAWN_EGG_COW:     252,
+  SPAWN_EGG_CHICKEN: 253,
+  SPAWN_EGG_FISH:    254,
+  SPAWN_EGG_ZOMBIE:  255,
+  SPAWN_EGG_PIGLIN:  256,
 };
 
 const BLOCK_NAMES = {
@@ -246,6 +254,13 @@ const BLOCK_NAMES = {
   [ITEM.SHEARS]:   'Ножницы',
   [ITEM.REDSTONE]: 'Редстоун',
   [ITEM.FEATHER]:  'Перо',
+  [ITEM.SPAWN_EGG_SHEEP]:   'Яйцо призыва овцы',
+  [ITEM.SPAWN_EGG_PIG]:     'Яйцо призыва свиньи',
+  [ITEM.SPAWN_EGG_COW]:     'Яйцо призыва коровы',
+  [ITEM.SPAWN_EGG_CHICKEN]: 'Яйцо призыва курицы',
+  [ITEM.SPAWN_EGG_FISH]:    'Яйцо призыва рыбы',
+  [ITEM.SPAWN_EGG_ZOMBIE]:  'Яйцо призыва зомби',
+  [ITEM.SPAWN_EGG_PIGLIN]:  'Яйцо призыва пиглина',
 };
 
 // Еда: сколько голода восстанавливает (ванильные значения Minecraft)
@@ -263,6 +278,18 @@ const FOOD = {
   [ITEM.ROTTEN_FLESH]:   4, // как в MC: 4 единицы, но высок шанс отравления
 };
 function isFood(id) { return FOOD[id] !== undefined; }
+
+// Яйца спавна мобов (parity MC: только креатив-инвентарь и /give, не крафтятся).
+// base — цвет скорлупы, spots — цвет крапинок (как у яиц MC).
+const SPAWN_EGGS = {
+  [ITEM.SPAWN_EGG_SHEEP]:   { mob: 'sheep',   base: '#e8e8e6', spots: '#b8b0aa' },
+  [ITEM.SPAWN_EGG_PIG]:     { mob: 'pig',     base: '#f0a8a0', spots: '#d05858' },
+  [ITEM.SPAWN_EGG_COW]:     { mob: 'cow',     base: '#5c4033', spots: '#e8e4dc' },
+  [ITEM.SPAWN_EGG_CHICKEN]: { mob: 'chicken', base: '#a8bcc8', spots: '#f0ecdc' },
+  [ITEM.SPAWN_EGG_FISH]:    { mob: 'fish',    base: '#8a7a5c', spots: '#c8b888' },
+  [ITEM.SPAWN_EGG_ZOMBIE]:  { mob: 'zombie',  base: '#3a6a9c', spots: '#7ca844' },
+  [ITEM.SPAWN_EGG_PIGLIN]:  { mob: 'piglin',  base: '#e8a8b8', spots: '#7ca844' },
+};
 
 const MAX_STACK = 64; // максимум в стопке
 
@@ -1798,73 +1825,13 @@ function carveLavaLake(blocks, ccx, ccz) {
 //  Хранилище мира (чанки)
 // ============================================================
 // Каждое измерение хранит свой набор Map'ов состояния.
-function makeDimStore() {
-  return {
-    chunks: new Map(),       // "cx,cz" -> { blocks:Uint8Array, mesh, dirty }
-    edits: new Map(),        // "x,y,z" -> blockId
-    waterLevel: new Map(),   // "x,y,z" -> уровень жидкости
-    doorState: new Map(),
-    furnaces: new Map(),
-    chests: new Map(),
-    doubleChests: new Map(),
-    facing: new Map(),
-    entMobs: [],             // снимок мобов измерения (когда оно не активно/при сохранении)
-    entDrops: [],            // снимок выпавших предметов
-    entBoats: [],            // снимок лодок измерения
-    portals: [],             // [{x,y,z}] — координаты активных порталов (для связывания/мультипорталов)
-    levers: new Map(),       // "x,y,z" -> {on:bool, facing} — состояние рычагов
-    buttons: new Map(),      // "x,y,z" -> {pressed:bool, timer:sec, facing}
-    pistons: new Set(),      // "x,y,z" выдвинутых поршней
-    cmdBlocks: new Map(),    // "x,y,z" -> {cmd:string, always:bool} — командные блоки
-    // индекс ИСТОЧНИКОВ света (факелы и пр.): "x,y,z" -> уровень 0..15.
-    // Нужен, чтобы свет факела из соседнего чанка заходил в наш чанк
-    // дальше, чем 2-блочный бордюр световой сетки.
-    lightEmitters: new Map(),
-  };
-}
-
-const World = {
-  // активные ссылки (переключаются вместе с измерением)
-  chunks: null, edits: null, waterLevel: null, doorState: null,
-  furnaces: null, chests: null, doubleChests: null, facing: null, portals: null,
-  lightEmitters: null,               // индекс источников света активного измерения
-  cmdBlocks: null,                   // командные блоки активного измерения
-  dim: 'overworld',                 // текущее измерение
-  dims: { overworld: makeDimStore(), nether: makeDimStore() },
-
-  // переключить активное измерение (меняет ссылки на Map'ы)
-  setDimension(name) {
-    if (!this.dims[name]) { console.warn('Неизвестное измерение:', name); return; }
-    this.dim = name;
-    const s = this.dims[name];
-    this.chunks = s.chunks; this.edits = s.edits; this.waterLevel = s.waterLevel;
-    this.doorState = s.doorState; this.furnaces = s.furnaces; this.chests = s.chests;
-    this.doubleChests = s.doubleChests; this.facing = s.facing;
-    this.portals = s.portals; this.lightEmitters = s.lightEmitters;
-    this.cmdBlocks = s.cmdBlocks;
-  },
-
-  key(cx, cz) { return cx + ',' + cz; },
-  ekey(x, y, z) { return x + ',' + y + ',' + z; },
-
-  // Уровень жидкости в ячейке: вода — источник=8/течение=1..7; лава — источник=4/течение=1..3; нет=0
-  getLevel(x, y, z) {
-    const b = this.getBlock(x, y, z);
-    if (b === BLOCK.LAVA) return LAVA_MAX;
-    if (b === BLOCK.LAVA_FLOW) return this.waterLevel.get(this.ekey(x, y, z)) || 1;
-    if (b === BLOCK.WATER) return WATER_MAX;
-    if (b === BLOCK.WATER_FLOW) return this.waterLevel.get(this.ekey(x, y, z)) || 1;
-    return 0;
-  },
-  setLevel(x, y, z, lvl) {
-    this.waterLevel.set(this.ekey(x, y, z), lvl);
-  },
-  clearLevel(x, y, z) {
-    this.waterLevel.delete(this.ekey(x, y, z));
-  },
-
-  generateChunk(cx, cz) {
-    if (this.dim === 'nether') return this.generateNetherChunk(cx, cz);
+// ============================================================
+//  Чистые генераторы ландшафта (БЕЗ состояния мира) — используются
+//  и на главном потоке, и в воркере генерации чанков (WorldGenPool):
+//  источник воркера собирается из этих же функций, поэтому чанки
+//  гарантированно идентичны в обоих потоках.
+// ============================================================
+function generateOverworldData(cx, cz) {
     const blocks = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
@@ -1952,11 +1919,11 @@ const World = {
       }
     }
 
-    return { blocks, mesh: null, dirty: true, cx, cz };
-  },
+    return blocks;
+}
 
-  // --- Генерация Ада: незерак, потолок/пол из бедрока, озёра лавы, светопыль ---
-  generateNetherChunk(cx, cz) {
+// --- Генерация Ада: незерак, потолок/пол из бедрока, озёра лавы, светопыль ---
+function generateNetherData(cx, cz) {
     const blocks = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
     // Ад как в Minecraft: замкнутая полость — снизу бедрок и глубинный камень,
     // сверху потолок из незерака с бедроком, между ними пещера.
@@ -1997,18 +1964,14 @@ const World = {
             b = BLOCK.LAVA;                          // мелкое лавовое море (2-3 слоя)
           } else if (y > ceilBottom) {
             b = BLOCK.NETHERRACK;                    // свод потолка
-            if (oreHash(wx + 21000, y, wz + 21000) < 0.012) b = BLOCK.GLOWSTONE;
           }
           // парящий остров из незерака
           if (hasIsland && y >= islandBottom && y <= islandTop && y > FLOOR && y <= LAVA_SEA + 30) {
             b = BLOCK.NETHERRACK;
-            // светопыль: гроздьями ближе к низу острова и редкими вкраплениями
-            if (oreHash(wx + 11000, y, wz + 11000) < 0.02) b = BLOCK.GLOWSTONE;
           }
           // стена/столб: остров дорастает до потолка (незерак от islandTop до потолка)
           if (isWall && y > islandTop && y <= ceilBottom && y > LAVA_SEA) {
             b = BLOCK.NETHERRACK;
-            if (oreHash(wx + 25000, y, wz + 25000) < 0.008) b = BLOCK.GLOWSTONE;
           }
           blocks[idx(lx, y, lz)] = b;
         }
@@ -2018,14 +1981,34 @@ const World = {
             blocks[idx(lx, y, lz)] = BLOCK.AIR;
           }
         }
-        // светящаяся «сталактитная» гроздь под потолком (как светопыль MC на своде)
-        if (oreHash(wx + 23000, 0, wz + 23000) < 0.06) {
-          const yy = ceilBottom;
-          if (blocks[idx(lx, yy, lz)] === BLOCK.NETHERRACK) blocks[idx(lx, yy, lz)] = BLOCK.GLOWSTONE;
+        // СВЕТОКАМЕНЬ — только ГРОЗДЯМИ-СГУСТКАМИ на потолке (как в MC): редкие
+        // кластеры, приросшие к нижней кромке свода и свисающие вниз. Россыпь
+        // одиночных блоков по островам/стенам/своду убрана — раньше светокамень
+        // был «повсюду», теперь — редкие красивые грозди на потолках.
+        {
+          const CELL = 6; // гнездовая ячейка грозди (6×6 колонок)
+          const gx = Math.floor(wx / CELL), gz = Math.floor(wz / CELL);
+          if (oreHash(gx + 41000, 5, gz + 41000) < 0.055) { // ~5.5% ячеек растят гроздь
+            // центр грозди — внутри ячейки (детерминированный)
+            const ccx = gx * CELL + 1 + (oreHash(gx + 42000, 6, gz + 42000) * (CELL - 2) | 0);
+            const ccz = gz * CELL + 1 + (oreHash(gx + 43000, 7, gz + 43000) * (CELL - 2) | 0);
+            const dx = wx - ccx, dz = wz - ccz;
+            const R = 1.15 + oreHash(ccx + 44000, 8, ccz + 44000) * 1.35; // радиус 1.15..2.5
+            const d2 = dx * dx + dz * dz;
+            if (d2 <= R * R) {
+              // в центре гроздь свисает глубже, по краю — один блок кромки
+              const t = 1 - Math.sqrt(d2) / R;
+              const hang = 1 + Math.round(t * 2.6 + oreHash(wx + 45000, 9, wz + 45000) * 0.8);
+              for (let k = 0; k < hang; k++) {
+                const yy = ceilBottom + 1 - k; // от нижнего слоя свода — вниз
+                if (yy > LAVA_SEA && yy < WORLD_HEIGHT - 1) blocks[idx(lx, yy, lz)] = BLOCK.GLOWSTONE;
+              }
+            }
+          }
         }
-        // светящиеся «сталактиты» снизу островов: подвесить грозди светопыли
+        // светящиеся «сталактиты» снизу островов: РЕДКИЕ подвесные грозди светопыли
         if (hasIsland && islandBottom > LAVA_SEA + 1) {
-          if (oreHash(wx + 17000, islandBottom, wz + 17000) < 0.12) {
+          if (oreHash(wx + 17000, islandBottom, wz + 17000) < 0.035) {
             const hang = 1 + (oreHash(wx + 19000, 0, wz + 19000) * 2 | 0);
             for (let k = 1; k <= hang; k++) {
               const yy = islandBottom - k;
@@ -2035,8 +2018,86 @@ const World = {
         }
       }
     }
-    return { blocks, mesh: null, dirty: true, cx, cz };
+    return blocks;
+}
+
+// единая точка входа генерации (какой мир — такой генератор)
+function generateChunkData(cx, cz, dim) {
+  return dim === 'nether' ? generateNetherData(cx, cz) : generateOverworldData(cx, cz);
+}
+
+function makeDimStore() {
+  return {
+    chunks: new Map(),       // "cx,cz" -> { blocks:Uint8Array, mesh, dirty }
+    edits: new Map(),        // "x,y,z" -> blockId
+    waterLevel: new Map(),   // "x,y,z" -> уровень жидкости
+    doorState: new Map(),
+    furnaces: new Map(),
+    chests: new Map(),
+    doubleChests: new Map(),
+    facing: new Map(),
+    entMobs: [],             // снимок мобов измерения (когда оно не активно/при сохранении)
+    entDrops: [],            // снимок выпавших предметов
+    entBoats: [],            // снимок лодок измерения
+    portals: [],             // [{x,y,z}] — координаты активных порталов (для связывания/мультипорталов)
+    levers: new Map(),       // "x,y,z" -> {on:bool, facing} — состояние рычагов
+    buttons: new Map(),      // "x,y,z" -> {pressed:bool, timer:sec, facing}
+    pistons: new Set(),      // "x,y,z" выдвинутых поршней
+    cmdBlocks: new Map(),    // "x,y,z" -> {cmd:string, always:bool} — командные блоки
+    // индекс ИСТОЧНИКОВ света (факелы и пр.): "x,y,z" -> уровень 0..15.
+    // Нужен, чтобы свет факела из соседнего чанка заходил в наш чанк
+    // дальше, чем 2-блочный бордюр световой сетки.
+    lightEmitters: new Map(),
+  };
+}
+
+const World = {
+  // активные ссылки (переключаются вместе с измерением)
+  chunks: null, edits: null, waterLevel: null, doorState: null,
+  furnaces: null, chests: null, doubleChests: null, facing: null, portals: null,
+  lightEmitters: null,               // индекс источников света активного измерения
+  cmdBlocks: null,                   // командные блоки активного измерения
+  dim: 'overworld',                 // текущее измерение
+  dims: { overworld: makeDimStore(), nether: makeDimStore() },
+
+  // переключить активное измерение (меняет ссылки на Map'ы)
+  setDimension(name) {
+    if (!this.dims[name]) { console.warn('Неизвестное измерение:', name); return; }
+    this.dim = name;
+    const s = this.dims[name];
+    this.chunks = s.chunks; this.edits = s.edits; this.waterLevel = s.waterLevel;
+    this.doorState = s.doorState; this.furnaces = s.furnaces; this.chests = s.chests;
+    this.doubleChests = s.doubleChests; this.facing = s.facing;
+    this.portals = s.portals; this.lightEmitters = s.lightEmitters;
+    this.cmdBlocks = s.cmdBlocks;
+    this._lastChunk = null; // мемо-чанк принадлежал старому измерению
   },
+
+  key(cx, cz) { return cx + ',' + cz; },
+  ekey(x, y, z) { return x + ',' + y + ',' + z; },
+
+  // Уровень жидкости в ячейке: вода — источник=8/течение=1..7; лава — источник=4/течение=1..3; нет=0
+  getLevel(x, y, z) {
+    const b = this.getBlock(x, y, z);
+    if (b === BLOCK.LAVA) return LAVA_MAX;
+    if (b === BLOCK.LAVA_FLOW) return this.waterLevel.get(this.ekey(x, y, z)) || 1;
+    if (b === BLOCK.WATER) return WATER_MAX;
+    if (b === BLOCK.WATER_FLOW) return this.waterLevel.get(this.ekey(x, y, z)) || 1;
+    return 0;
+  },
+  setLevel(x, y, z, lvl) {
+    this.waterLevel.set(this.ekey(x, y, z), lvl);
+  },
+  clearLevel(x, y, z) {
+    this.waterLevel.delete(this.ekey(x, y, z));
+  },
+
+  generateChunk(cx, cz) {
+    // тонкая обёртка: сама генерация — в чистых функциях выше (их же
+    // использует воркер WorldGenPool, см. «Пул воркеров генерации чанков»)
+    return { blocks: generateChunkData(cx, cz, this.dim), mesh: null, dirty: true, cx, cz };
+  },
+
 
   getChunk(cx, cz) {
     const k = this.key(cx, cz);
@@ -2077,6 +2138,24 @@ const World = {
     if (!c || c.cx !== cx || c.cz !== cz) {
       c = this.getChunk(cx, cz);
       this._lastChunk = c;
+    }
+    const lx = wx - cx * CHUNK_SIZE;
+    const lz = wz - cz * CHUNK_SIZE;
+    return c.blocks[idx(lx, wy, lz)];
+  },
+
+  // «Мягкое» чтение: как getBlock, но НЕ генерирует отсутствующий чанк —
+  // возвращает AIR. Нужно мешбилдеру/освечению на краю прогрузки: они не должны
+  // провоцировать синхронную генерацию (иначе — фризы). Когда чанк приедет из
+  // воркера, соседние чанки помечаются dirty и пересобираются — швы затягиваются.
+  getBlockSoft(wx, wy, wz) {
+    if (wy < 0 || wy >= WORLD_HEIGHT) return BLOCK.AIR;
+    const cx = Math.floor(wx / CHUNK_SIZE);
+    const cz = Math.floor(wz / CHUNK_SIZE);
+    let c = this._lastChunk;
+    if (!c || c.cx !== cx || c.cz !== cz) {
+      c = this.chunks.get(this.key(cx, cz)); // только уже существующие
+      if (!c) return BLOCK.AIR;
     }
     const lx = wx - cx * CHUNK_SIZE;
     const lz = wz - cz * CHUNK_SIZE;
@@ -2553,22 +2632,59 @@ const WaterSim = { touchAround: (x,y,z)=>LiquidSim.touchAround(x,y,z), get queue
 const LavaSim  = { touchAround: (x,y,z)=>LiquidSim.touchAround(x,y,z), get queue(){return LiquidSim.queue;}, get inQueue(){return LiquidSim.inQueue;}, get changedChunks(){return LiquidSim.changedChunks;}, update:()=>{} };
 
 // ============================================================
-//  Огонь — горит на горючих блоках, распространяется, гаснет
+//  Огонь — parity Minecraft: ставится сверху И СБОКУ блоков,
+//  распространяется на соседние/диагональные горючие (вбок и вверх),
+//  постепенно СЪЕДАЕТ топливо (сгоревший блок замещается огнём)
 // ============================================================
 const FLAMMABLE = {};
 [BLOCK.WOOD, BLOCK.PLANKS, BLOCK.LEAVES, BLOCK.CRAFTING_TABLE, BLOCK.CHEST,
  BLOCK.DOOR_BOTTOM, BLOCK.DOOR_TOP].forEach(b => FLAMMABLE[b] = true);
 function isFlammable(b) { return !!FLAMMABLE[b]; }
 
-const FireSim = {
-  fires: new Map(),   // "x,y,z" -> возраст (сек)
-  tickAcc: 0, tickRate: 0.5,
+// Как быстро топливо сгорает ДОТЛА за тик (0.5 с): листва вспыхивает мгновенно,
+// доски/верстак — быстро, брёвна — тлеют долго (как в MC: fire «съедает» блок).
+// Сундук горит (огонь рядом живёт), но НЕ сгорает дотла — иначе пропадал бы
+// весь лут внутри, а система выброса содержимого при сгорании не предусмотрена.
+const BURN_AWAY_CHANCE = {
+  [BLOCK.LEAVES]:        0.30,
+  [BLOCK.PLANKS]:        0.16,
+  [BLOCK.CRAFTING_TABLE]:0.14,
+  [BLOCK.WOOD]:          0.06,
+  [BLOCK.DOOR_BOTTOM]:   0.12,
+  [BLOCK.DOOR_TOP]:      0.12,
+};
 
-  add(x, y, z) {
+const FireSim = {
+  fires: new Map(),   // "x,y,z" -> { age, att }  (att — грань крепления, см. ATTACH_DIRS)
+  tickAcc: 0, tickRate: 0.5,
+  MAX_FIRES: 400,     // предохранитель производительности при лесном пожаре
+
+  // К каким граням может крепиться огонь: 0 — стоит на блоке снизу,
+  // 1..4 — «прилип» к боковой грани соседа (боковой огонь, как в MC)
+  ATTACH_DIRS: [[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]],
+
+  // автоматически определить крепление огня в этой ячейке
+  findAttach(x, y, z) {
+    if (isSolidForPlayer(x, y - 1, z)) return 0;
+    const sides = [1, 2, 3, 4];
+    // приоритет — горючая опора (огонь на топливе горит ярче/дольше)
+    for (const i of sides) {
+      const d = this.ATTACH_DIRS[i];
+      if (isFlammable(World.getBlock(x + d[0], y + d[1], z + d[2]))) return i;
+    }
+    for (const i of sides) {
+      const d = this.ATTACH_DIRS[i];
+      if (isSolidForPlayer(x + d[0], y + d[1], z + d[2])) return i;
+    }
+    return 0;
+  },
+
+  add(x, y, z, att) {
+    if (this.fires.size >= this.MAX_FIRES) return;
     if (World.getBlock(x, y, z) !== BLOCK.AIR) return;
-    // огонь держится только если под ним или рядом есть горючее
+    if (att === undefined) att = this.findAttach(x, y, z);
     World.setBlock(x, y, z, BLOCK.FIRE, true);
-    this.fires.set(x+','+y+','+z, 0);
+    this.fires.set(x+','+y+','+z, { age: 0, att });
     rebuildAround(x, z);
   },
   remove(x, y, z) {
@@ -2588,37 +2704,63 @@ const FireSim = {
     if (this.fires.size === 0) return;
     const toRemove = [];
     const toBurn = [];
-    for (const [k, age] of this.fires) {
+    for (const [k, st] of this.fires) {
       const [x,y,z] = k.split(',').map(Number);
       if (World.getBlock(x,y,z) !== BLOCK.FIRE) { toRemove.push([x,y,z]); continue; }
-      const newAge = age + this.tickRate;
-      this.fires.set(k, newAge);
-      // нет топлива рядом — гаснет
-      if (!this.hasFuel(x,y,z)) { if (newAge > 1.5) toRemove.push([x,y,z]); continue; }
-      // шанс распространиться на соседние горючие блоки (создавая огонь в воздухе над ними)
-      if (Math.random() < 0.25) {
-        const dirs = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]];
-        const [dx,dy,dz] = dirs[(Math.random()*dirs.length)|0];
-        const fx=x+dx, fy=y+dy, fz=z+dz;
-        if (isFlammable(World.getBlock(fx,fy,fz))) {
-          // зажечь воздух над горючим блоком
-          if (World.getBlock(fx,fy+1,fz) === BLOCK.AIR) toBurn.push([fx,fy+1,fz]);
+      st.age += this.tickRate;
+      // опора исчезла (сгорела/сломана) — перекрепиться или со временем погаснуть
+      const ad = this.ATTACH_DIRS[st.att];
+      if (!isSolidForPlayer(x+ad[0], y+ad[1], z+ad[2])) st.att = this.findAttach(x, y, z);
+      // вечный огонь на незераке (parity MC): не гаснет без причины
+      const eternal = World.getBlock(x, y-1, z) === BLOCK.NETHERRACK;
+      // нет топлива рядом — гаснет (кроме вечного огня на незераке)
+      if (!eternal && !this.hasFuel(x,y,z)) { if (st.age > 1.5) toRemove.push([x,y,z]); continue; }
+
+      // --- СГОРАНИЕ ТОПЛИВА: огонь съедает соседний горючий блок,
+      //     а на его месте остаётся огонь (как в MC) ---
+      const dirs6 = [[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]];
+      for (const [dx,dy,dz] of dirs6) {
+        const b = World.getBlock(x+dx, y+dy, z+dz);
+        if (BURN_AWAY_CHANCE[b] !== undefined && Math.random() < BURN_AWAY_CHANCE[b]) {
+          const bx=x+dx, by=y+dy, bz=z+dz;
+          World.setBlock(bx, by, bz, BLOCK.AIR);
+          scheduleLeafDecayAround(bx, by, bz);
+          spawnParticles(bx+0.5, by+0.6, bz+0.5, 4, '#5e5e5e'); // дым сгоревшего блока
+          // двери сгорают целиком (обе половины)
+          if (isDoor(b)) {
+            const oy = (b === BLOCK.DOOR_BOTTOM) ? by + 1 : by - 1;
+            if (isDoor(World.getBlock(bx, oy, bz))) World.setBlock(bx, oy, bz, BLOCK.AIR);
+          }
+          toBurn.push([bx, by, bz]); // пламя займёт место сгоревшего блока
+          break; // не более одного съеденного блока за тик на один огонь
         }
       }
-      // шанс сжечь горючий блок под огнём (превратить в воздух) при долгом горении
-      if (newAge > 2 && Math.random() < 0.3) {
-        const bx=x, by=y-1, bz=z;
-        if (isFlammable(World.getBlock(bx,by,bz))) {
-          World.setBlock(bx,by,bz,BLOCK.AIR);
-          rebuildAround(bx,bz);
-          scheduleLeafDecayAround(bx,by,bz);
+
+      // --- РАСПРОСТРАНЕНИЕ (умное, как в MC): пламя перебрасывается вбок/вверх
+      //     на соседние и диагональные клетки, если рядом с ними есть топливо.
+      //     Так огонь «облизывает» ствол со всех сторон и лезет по дереву вверх,
+      //     а не только сжигает блок под собой ---
+      if (Math.random() < 0.55) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const dx = ((Math.random()*3)|0) - 1;
+          const dz = ((Math.random()*3)|0) - 1;
+          // вверх и вровень — часто, вниз — редко (в MC огонь почти не идёт вниз)
+          const dy = (Math.random() < 0.7) ? ((Math.random()*2)|0) : -1;
+          const tx = x+dx, ty = y+dy, tz = z+dz;
+          if (World.getBlock(tx, ty, tz) !== BLOCK.AIR) continue;
+          let ok = false;
+          for (const [ax,ay,az] of dirs6) {
+            if (isFlammable(World.getBlock(tx+ax, ty+ay, tz+az))) { ok = true; break; }
+          }
+          if (ok) { toBurn.push([tx, ty, tz]); break; }
         }
       }
-      // огонь живёт ограниченное время
-      if (newAge > 8 + Math.random()*6) toRemove.push([x,y,z]);
+
+      // огонь живёт ограниченное время (вечный на незераке — не гаснет)
+      if (!eternal && st.age > 8 + Math.random()*6) toRemove.push([x,y,z]);
     }
-    for (const [x,y,z] of toBurn) this.add(x,y,z);
-    for (const [x,y,z] of toRemove) this.remove(x,y,z);
+    for (const [x,y,z] of toBurn) this.add(x, y, z);
+    for (const [x,y,z] of toRemove) this.remove(x, y, z);
   },
   clear() { this.fires.clear(); this.tickAcc = 0; },
 };
@@ -2841,7 +2983,7 @@ function computeChunkLight(c) {
   const overworld = World.dim === 'overworld';
   const getB = (x, y, z) => {
     if (y < 0 || y >= WORLD_HEIGHT) return BLOCK.AIR;
-    return World.getBlock(x0 + x, y, z0 + z);
+    return World.getBlockSoft(x0 + x, y, z0 + z); // без генерации соседей — нет фризов
   };
 
   const skyQueue = [];
@@ -3248,7 +3390,7 @@ function buildChunkMesh(c) {
           const blB = _slTmp[1] / 15, blS = _slTmp[0] / 15;
           // корпус — полный куб (упрощённо), но если выдвинут — лицевая грань «утоплена»
           for (const f of FACES) {
-            const nb = World.getBlock(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
+            const nb = World.getBlockSoft(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
             if (!isTransparent(nb) && !(nb === BLOCK.PISTON_HEAD)) continue;
             const material = blockMats[f.mat];
             const mi = getMatIndex(material);
@@ -3276,7 +3418,7 @@ function buildChunkMesh(c) {
           const blB = _slTmp[1] / 15, blS = _slTmp[0] / 15;
           // плита толщиной 0.4, смещённая к «лицу» (упрощённо — полный куб)
           for (const f of FACES) {
-            const nb = World.getBlock(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
+            const nb = World.getBlockSoft(wx + f.dir[0], y + f.dir[1], wz + f.dir[2]);
             if (!isTransparent(nb) && nb !== BLOCK.PISTON) continue;
             const material = blockMats[f.mat];
             const mi = getMatIndex(material);
@@ -3314,7 +3456,8 @@ function buildChunkMesh(c) {
           continue;
         }
 
-        // ---- Огонь: пара перекрещенных плоскостей (билборд-крест) ----
+        // ---- Огонь: боковой огонь — плоское пламя на грани блока-опоры (как в MC),
+        // обычный (на блоке снизу) — пара перекрещенных плоскостей-«полотен» ----
         if (b === BLOCK.FIRE) {
           const mat = MATERIALS[BLOCK.FIRE][0];
           const mi = getMatIndex(mat);
@@ -3326,9 +3469,42 @@ function buildChunkMesh(c) {
             buf.uvs.push(0,0,1,0,1,1,0,1);
             buf.indices.push(base,base+1,base+2,base,base+2,base+3);
           };
-          // два диагональных «полотна» пламени
-          addQuad([[0.08,0,0.08],[0.92,0,0.92],[0.92,1,0.92],[0.08,1,0.08]]);
-          addQuad([[0.92,0,0.08],[0.08,0,0.92],[0.08,1,0.92],[0.92,1,0.08]]);
+          // как огонь прикреплён: приоритет — живое состояние симуляции,
+          // иначе (огонь из старого сейва/без состояния) — определить по соседям
+          let att = -1;
+          const fst = FireSim.fires.get(wx + ',' + y + ',' + wz);
+          if (fst) att = fst.att;
+          else {
+            if (isSolidForPlayer(wx, y-1, wz)) att = 0;
+            else if (isFlammable(World.getBlock(wx+1,y,wz)) || isSolidForPlayer(wx+1,y,wz)) att = 1;
+            else if (isFlammable(World.getBlock(wx-1,y,wz)) || isSolidForPlayer(wx-1,y,wz)) att = 2;
+            else if (isFlammable(World.getBlock(wx,y,wz+1)) || isSolidForPlayer(wx,y,wz+1)) att = 3;
+            else if (isFlammable(World.getBlock(wx,y,wz-1)) || isSolidForPlayer(wx,y,wz-1)) att = 4;
+            else att = 0;
+          }
+          if (att >= 1 && att <= 4) {
+            // БОКОВОЙ огонь: одно вертикальное «полотно» у грани блока-опоры,
+            // чуть отступив внутрь своей ячейки (как плоское пламя в MC)
+            const OFF = 0.08;
+            let q;
+            if (att === 1)      q = [[1-OFF,0,0.06],[1-OFF,0,0.94],[1-OFF,1,0.94],[1-OFF,1,0.06]]; // опора справа (+X)
+            else if (att === 2) q = [[OFF,0,0.06],[OFF,0,0.94],[OFF,1,0.94],[OFF,1,0.06]];           // опора слева (-X)
+            else if (att === 3) q = [[0.06,0,1-OFF],[0.94,0,1-OFF],[0.94,1,1-OFF],[0.06,1,1-OFF]];   // опора за (+Z)
+            else                q = [[0.06,0,OFF],[0.94,0,OFF],[0.94,1,OFF],[0.06,1,OFF]];             // опора перед (-Z)
+            addQuad(q);
+            // второе полотно-«подпалина» чуть глубже — пламя выглядит объёмнее
+            const OFF2 = 0.28;
+            let q2;
+            if (att === 1)      q2 = [[1-OFF2,0.05,0.18],[1-OFF2,0.05,0.82],[1-OFF2,0.9,0.82],[1-OFF2,0.9,0.18]];
+            else if (att === 2) q2 = [[OFF2,0.05,0.18],[OFF2,0.05,0.82],[OFF2,0.9,0.82],[OFF2,0.9,0.18]];
+            else if (att === 3) q2 = [[0.18,0.05,1-OFF2],[0.82,0.05,1-OFF2],[0.82,0.9,1-OFF2],[0.18,0.9,1-OFF2]];
+            else                q2 = [[0.18,0.05,OFF2],[0.82,0.05,OFF2],[0.82,0.9,OFF2],[0.18,0.9,OFF2]];
+            addQuad(q2);
+          } else {
+            // огонь стоит на блоке снизу — два диагональных «полотна» пламени
+            addQuad([[0.08,0,0.08],[0.92,0,0.92],[0.92,1,0.92],[0.08,1,0.08]]);
+            addQuad([[0.92,0,0.08],[0.08,0,0.92],[0.08,1,0.92],[0.92,1,0.08]]);
+          }
           continue;
         }
 
@@ -3339,8 +3515,8 @@ function buildChunkMesh(c) {
           let buf = byMat.get(mi);
           if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
           // ось панели: вдоль X (порталы/обсидиан по ±X) -> тонкая по Z; иначе тонкая по X
-          const nbX = World.getBlock(wx+1,y,wz)===BLOCK.NETHER_PORTAL || World.getBlock(wx-1,y,wz)===BLOCK.NETHER_PORTAL ||
-                      World.getBlock(wx+1,y,wz)===BLOCK.OBSIDIAN || World.getBlock(wx-1,y,wz)===BLOCK.OBSIDIAN;
+          const nbX = World.getBlockSoft(wx+1,y,wz)===BLOCK.NETHER_PORTAL || World.getBlockSoft(wx-1,y,wz)===BLOCK.NETHER_PORTAL ||
+                      World.getBlockSoft(wx+1,y,wz)===BLOCK.OBSIDIAN || World.getBlockSoft(wx-1,y,wz)===BLOCK.OBSIDIAN;
           const TH = 0.12;
           const addQuad = (p, nrm) => {
             const base = buf.positions.length/3;
@@ -3370,7 +3546,7 @@ function buildChunkMesh(c) {
         // ВАЖНО: за границами мира по Y сосед считается НЕПРОЗРАЧНЫМ — иначе дно мира (y=0)
         // и потолок Ада (y=95) рисуют грани «в пустоту», которые никто никогда не увидит
         // (~170 лишних граней на чанк и там, и там — заметный процент полигональности).
-        const nbGet = (nx, ny, nz) => (ny < 0 || ny >= WORLD_HEIGHT) ? BLOCK.BEDROCK : World.getBlock(nx, ny, nz);
+        const nbGet = (nx, ny, nz) => (ny < 0 || ny >= WORLD_HEIGHT) ? BLOCK.BEDROCK : World.getBlockSoft(nx, ny, nz);
         _nbCache[0] = _nbCache[1] = _nbCache[2] = _nbCache[3] = _nbCache[4] = _nbCache[5] = -1;
         if (!liquid) {
           _nbCache[0] = nbGet(wx+1, y, wz);
@@ -3429,7 +3605,7 @@ function buildChunkMesh(c) {
         // высота поверхности жидкости (0..1) по уровню; если сверху та же жидкость — полная
         let waterTop = 1;
         if (liquid) {
-          const above = World.getBlock(wx, y + 1, wz);
+          const above = World.getBlockSoft(wx, y + 1, wz);
           const sameAbove = lava ? isLavaLiquid(above) : isWaterLiquid(above);
           if (sameAbove) {
             waterTop = 1; // жидкость под жидкостью — полный куб
@@ -3850,6 +4026,9 @@ const WorldManager = {
     const seed = parseSeed(seedStr);
     this.resetState();
     WORLD_SEED = seed;
+    // пул воркеров генерации — под сид нового мира (генерация в отдельном потоке)
+    WorldGenPool.setDim('overworld');
+    WorldGenPool.init();
     this.current = name;
     this.cheatsEnabled = !!cheatsEnabled; // читы для нового мира
     // правила мира: только при создании, дальше неизменны
@@ -3995,6 +4174,9 @@ const WorldManager = {
     this.resetState();
     WORLD_SEED = data.seed | 0;
     this.current = name;
+    // пул воркеров генерации — под сид загружаемого мира
+    WorldGenPool.setDim('overworld');
+    WorldGenPool.init();
     // МИГРАЦИЯ: старые миры (без поля cheatsEnabled) — читы выключены (cheatsDisabled = true).
     // Новые миры явно хранят cheatsEnabled (true/false).
     this.cheatsEnabled = (data.cheatsEnabled === true);
@@ -4015,6 +4197,7 @@ const WorldManager = {
     }
     if (data.dimReturn) { _dimReturn.overworld = data.dimReturn.overworld || null; _dimReturn.nether = data.dimReturn.nether || null; }
     World.setDimension(data.dim || 'overworld');
+    WorldGenPool.setDim(World.dim); // воркеры генерируют для активного измерения
 
     // открытые рецепты (справочник)
     discovered = new Set((data.discovered || []).map(Number));
@@ -4174,31 +4357,49 @@ function startWorldLoading() {
 
   const totalSteps = list.length * 2; // генерация + меширование
   let done = 0;
-  let i = 0;       // индекс для генерации
   let j = 0;       // индекс для меширования
   let phase = 0;   // 0 — генерируем, 1 — мешируем
 
+  // ФАЗА 0 (генерация) — теперь АСИНХРОННО: чанки делают воркеры в отдельных
+  // потоках, главный поток ждёт и лишь обновляет прогресс-бар. Фризов нет:
+  // браузер спокойно рисует экран загрузки (и анимацию в нём).
+  for (const it of list) WorldGenPool.request(it.cx, it.cz);
+
   function step() {
     if (myToken !== startWorldLoading._gen) return; // загрузка отменена — новый мир грузится
-    const t0 = performance.now();
-    // работаем кусками по времени, чтобы не было фриза (макс ~12мс за кадр)
-    while (performance.now() - t0 < 12) {
-      if (phase === 0) {
-        if (i >= list.length) { phase = 1; sub.textContent = 'Построение чанков'; continue; }
-        const it = list[i++];
-        World.getChunk(it.cx, it.cz); // генерация (кешируется)
-        done++;
-      } else {
-        if (j >= list.length) break;
-        const it = list[j++];
-        const c = World.getChunk(it.cx, it.cz);
-        const k = World.key(it.cx, it.cz);
-        if (!loadedMeshes.has(k)) {
-          const mesh = buildChunkMesh(c);
-          scene.add(mesh);
-          loadedMeshes.set(k, mesh);
-          c.dirty = false;
+    if (phase === 0) {
+      // сколько чанков уже готово (приехали из воркеров / были в кеше)
+      let ready = 0;
+      for (const it of list) if (World.chunks.has(World.key(it.cx, it.cz))) ready++;
+      done = ready;
+      bar.style.width = Math.min(100, Math.round(done / totalSteps * 100)) + '%';
+      if (ready >= list.length) { phase = 1; sub.textContent = 'Построение чанков'; }
+      else {
+        // подстраховка: воркеров нет / пали — добираем синхронно, по ~10мс за кадр
+        if (!WorldGenPool.workers.length) {
+          const t0 = performance.now();
+          while (performance.now() - t0 < 10) {
+            const it = list.find(i => !World.chunks.has(World.key(i.cx, i.cz)));
+            if (!it) break;
+            World.getChunk(it.cx, it.cz); // синхронная генерация (фолбэк)
+          }
         }
+        requestAnimationFrame(step);
+        return;
+      }
+    }
+    // ФАЗА 1 — меширование (по-прежнему кусками по ~12мс за кадр)
+    const t0 = performance.now();
+    while (performance.now() - t0 < 12) {
+      if (j >= list.length) break;
+      const it = list[j++];
+      const k = World.key(it.cx, it.cz);
+      const c = World.chunks.get(k);
+      if (c && !loadedMeshes.has(k)) {
+        const mesh = buildChunkMesh(c);
+        scene.add(mesh);
+        loadedMeshes.set(k, mesh);
+        c.dirty = false;
         done++;
       }
     }
@@ -4638,6 +4839,28 @@ function iconCanvas(id, size) {
     // контур опахала сверху
     ctx.strokeStyle = '#c2c2ba'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(6*u,10.2*u); ctx.lineTo(12.4*u,3.8*u); ctx.stroke();
+    return c;
+  }
+  // Яйца спавна мобов: форма яйца + крапинки (цвета как в MC, по типу моба)
+  if (SPAWN_EGGS[id]) {
+    const e = SPAWN_EGGS[id];
+    const u = size/16;
+    // скорлупа (основной цвет)
+    ctx.fillStyle = e.base;
+    ctx.beginPath();
+    ctx.moveTo(8*u, 2.2*u);
+    ctx.bezierCurveTo(12.2*u, 2.2*u, 13.6*u, 7.5*u, 13.6*u, 9.4*u);
+    ctx.bezierCurveTo(13.6*u, 12.6*u, 11.2*u, 14.2*u, 8*u, 14.2*u);
+    ctx.bezierCurveTo(4.8*u, 14.2*u, 2.4*u, 12.6*u, 2.4*u, 9.4*u);
+    ctx.bezierCurveTo(2.4*u, 7.5*u, 3.8*u, 2.2*u, 8*u, 2.2*u);
+    ctx.closePath(); ctx.fill();
+    // крапинки (второй цвет моба)
+    ctx.fillStyle = e.spots;
+    const dots = [[5.2,7.2,1.4],[8.4,5.4,1.2],[10.8,8.6,1.5],[6.4,10.8,1.3],[9.2,11.8,1.0],[4.6,11.4,0.9],[11.6,11.4,0.8]];
+    for (const [ddx, ddy, ddr] of dots) { ctx.beginPath(); ctx.arc(ddx*u, ddy*u, ddr*u, 0, Math.PI*2); ctx.fill(); }
+    // блик сверху-слева
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.beginPath(); ctx.ellipse(5.6*u, 5.6*u, 1.1*u, 1.7*u, -0.6, 0, Math.PI*2); ctx.fill();
     return c;
   }
   // броня — рисуем по типу куска + цвету материала
@@ -5494,6 +5717,7 @@ function renderGuide() {
   extra.className = 'guide-intro';
   extra.style.marginTop = '6px';
   extra.innerHTML = 'Не крафтится (как в Minecraft): командный блок — только <b>креатив-инвентарь (E)</b> или <code>/give command_block</code>. ' +
+    'Яйца спавна мобов — тоже только креатив: <code>/give spawn_egg_pig</code> (и т.п. — sheep, cow, chicken, fish, zombie, piglin). ' +
     'Креатив: <code>/gamemode c</code> или при создании мира — полёт, бесконечные предметы.';
   wrap.appendChild(extra);
 
@@ -5596,6 +5820,9 @@ const CREATIVE_ITEMS = [
   ITEM.PORK_RAW, ITEM.PORK_COOKED, ITEM.BEEF_RAW, ITEM.BEEF_COOKED,
   ITEM.CHICKEN_RAW, ITEM.CHICKEN_COOKED, ITEM.MUTTON_RAW, ITEM.MUTTON_COOKED,
   ITEM.FISH_RAW, ITEM.FISH_COOKED, ITEM.ROTTEN_FLESH,
+  // яйца спавна мобов (как в MC — только креатив)
+  ITEM.SPAWN_EGG_SHEEP, ITEM.SPAWN_EGG_PIG, ITEM.SPAWN_EGG_COW, ITEM.SPAWN_EGG_CHICKEN,
+  ITEM.SPAWN_EGG_FISH, ITEM.SPAWN_EGG_ZOMBIE, ITEM.SPAWN_EGG_PIGLIN,
 ];
 let creativeSearchQuery = '';
 
@@ -6434,10 +6661,16 @@ function updateDrops(dt) {
       scene.remove(d.mesh); d.mesh.geometry.dispose();
       drops.splice(i, 1); continue;
     }
-    // гравитация (в воде дропы медленно всплывают)
-    const inWater = isWaterLiquid(World.getBlock(Math.floor(d.pos.x), Math.floor(d.pos.y), Math.floor(d.pos.z)));
+    // гравитация; в воде дропы всплывают, в ЛАВЕ — тонут (в MC предмет проваливается
+    // в лаву и сгорает, а не «сидит» на её поверхности)
+    const cellBlk = World.getBlock(Math.floor(d.pos.x), Math.floor(d.pos.y + 0.1), Math.floor(d.pos.z));
+    const inWater = isWaterLiquid(cellBlk);
+    const inLavaCell = isLavaLiquid(cellBlk);
     if (inWater) {
       d.vel.y += (1.2 - d.vel.y) * Math.min(1, dt * 4); // плавучесть
+      d.vel.x *= 0.9; d.vel.z *= 0.9;
+    } else if (inLavaCell) {
+      d.vel.y += (-1.0 - d.vel.y) * Math.min(1, dt * 3); // медленно тонет в лаве
       d.vel.x *= 0.9; d.vel.z *= 0.9;
     } else {
       d.vel.y -= GRAVITY * dt;
@@ -6445,9 +6678,11 @@ function updateDrops(dt) {
     d.pos.x += d.vel.x * dt;
     d.pos.y += d.vel.y * dt;
     d.pos.z += d.vel.z * dt;
-    // приземление на поверхность
+    // приземление на поверхность — только на ТВЁРДОЕ: лава и огонь не «пол»,
+    // предмет проваливается в них и сгорает (фикс: раньше дроп лежал на лаве/огне)
     const groundY = Math.floor(d.pos.y - 0.14);
-    if (World.getBlock(Math.floor(d.pos.x), groundY, Math.floor(d.pos.z)) !== BLOCK.AIR) {
+    const groundBlk = World.getBlock(Math.floor(d.pos.x), groundY, Math.floor(d.pos.z));
+    if (groundBlk !== BLOCK.AIR && !isLiquid(groundBlk) && groundBlk !== BLOCK.FIRE) {
       if (d.vel.y < 0) {
         d.pos.y = groundY + 1 + 0.14;
         d.vel.y = 0;
@@ -6463,14 +6698,20 @@ function updateDrops(dt) {
       d.mesh.rotation.y += dt * 1.5;
     }
 
-    // предметы СГОРАЮТ в лаве/огне
+    // предметы СГОРАЮТ в лаве/огне: короткое шипение с дымом, затем исчезают
     const inBlk = World.getBlock(Math.floor(d.pos.x), Math.floor(d.pos.y + 0.1), Math.floor(d.pos.z));
     if (isLavaLiquid(inBlk) || inBlk === BLOCK.FIRE) {
-      playSound('break', BLOCK.FIRE);
-      scene.remove(d.mesh);
-      if (d.mesh.geometry) d.mesh.geometry.dispose();
-      drops.splice(i, 1);
-      continue;
+      d.burnT = (d.burnT || 0) + dt;
+      if (d.burnT > 0.3) {
+        playSound('break', BLOCK.FIRE);
+        spawnParticles(d.pos.x, d.pos.y + 0.3, d.pos.z, 6, '#8a8a84'); // дым сгоревшего предмета
+        scene.remove(d.mesh);
+        if (d.mesh.geometry) d.mesh.geometry.dispose();
+        drops.splice(i, 1);
+        continue;
+      }
+    } else {
+      d.burnT = 0;
     }
 
     // подбор
@@ -8047,15 +8288,40 @@ function useFlintAndSteel(t, slot) {
     }
     return;
   }
-  // огонь ставится только в воздух и на «опору» снизу/сбоку
+  // огонь ставится в воздух — на блоке снизу ИЛИ на боковой грани clicked-блока
+  // (parity MC: flint&steel зажигает и боковые грани — боковой огонь)
   if (World.getBlock(nx, ny, nz) !== BLOCK.AIR) return;
-  const support = World.getBlock(nx, ny - 1, nz);
-  const canLight = support !== BLOCK.AIR && !isLiquid(support);
-  if (!canLight) return;
-  FireSim.add(nx, ny, nz);
+  const belowOk = isSolidForPlayer(nx, ny - 1, nz);
+  const sideOk = isSolidForPlayer(t.x, t.y, t.z); // кликнули в бок твёрдого блока
+  if (!belowOk && !sideOk) return;
+  FireSim.add(nx, ny, nz); // крепление (сверху/сбоку) определится автоматически
   playSound('place', BLOCK.WOOD);
   // расход прочности
   if (useDurability(slot) || (slot.count <= 0)) { if (slot.count <= 0) slots[activeSlot] = null; }
+  refreshUI();
+}
+
+// Яйцо спавна: призвать моба по месту клика — на грань блока (как в MC).
+// Рыба призывается только в воду (parity MC: водные яйца требуют воду).
+function useSpawnEgg(t, slot) {
+  const egg = SPAWN_EGGS[slot.id];
+  if (!egg || !t) return;
+  const def = MOB_TYPES[egg.mob];
+  if (!def) return;
+  const nx = t.x + t.face[0], ny = t.y + t.face[1], nz = t.z + t.face[2];
+  if (ny < 0 || ny >= WORLD_HEIGHT) return;
+  const at = World.getBlock(nx, ny, nz);
+  if (def.aquatic) {
+    if (!isWaterLiquid(at)) { showToast('Рыбу можно призвать только в воду'); return; }
+    spawnMob(egg.mob, nx + 0.5, ny + 0.2, nz + 0.5);
+  } else {
+    if (at !== BLOCK.AIR && !isLiquid(at)) return; // грань занята — не спавним
+    spawnMob(egg.mob, nx + 0.5, ny, nz + 0.5);
+  }
+  // дымок призыва (цвет по мобу)
+  spawnParticles(nx + 0.5, ny + 0.7, nz + 0.5, 10, egg.mob === 'zombie' ? '#7ca844' : '#e8e8e8');
+  playSound('place', BLOCK.WOOL);
+  consumeHeldItem(slot); // в креативе не расходуется (parity MC)
   refreshUI();
 }
 
@@ -8217,6 +8483,8 @@ function placeBlock() {
   if (slot.id === ITEM.FLINT_AND_STEEL) { useFlintAndSteel(t, slot); return; }
   // лодка — спустить на воду
   if (slot.id === ITEM.BOAT) { placeBoat(t, slot); return; }
+  // яйцо спавна — призвать моба по месту клика
+  if (SPAWN_EGGS[slot.id]) { useSpawnEgg(t, slot); return; }
   // броня — надеть по ПКМ
   if (isArmor(slot.id)) { equipArmor(slot); return; }
   // еда — съедаем по ПКМ
@@ -9302,68 +9570,195 @@ function rebuildAround(wx, wz) {
 // ============================================================
 const loadedMeshes = new Map(); // key -> group
 
-const MAX_REBUILDS_PER_FRAME = 2; // бюджет перестроений за кадр — против лагов
 let _evictTimer = 0; // троттлинг эвикции чанков (раз в ~5 с)
 let _chunkScanAcc = 0;               // троттлинг полного скана области прорисовки
 let _lastScanPcx = 1e9, _lastScanPcz = 1e9; // чанк игрока на момент прошлого скана
+
+// ============================================================
+//  Пул воркеров генерации чанков — ГЕНЕРАЦИЯ В ОТДЕЛЬНОМ ПОТОКЕ.
+//  Раньше чанки генерировались на главном потоке (скопом, при входе
+//  в мир / переходе границы чанка) — картинка фризилась. Теперь главный
+//  поток лишь ПРОСИТ воркер «сгенерируй чанк» и продолжает рендер/физику;
+//  готовый массив блоков приезжает асинхронно и встраивается в мир.
+//
+//  Источник воркера собирается из ТЕХ ЖЕ функций, что работают на главном
+//  потоке (Function.prototype.toString) — генераторы физически не могут
+//  разойтись, чанки в обоих потоках побайтово идентичны.
+//  Фолбэк: если Worker недоступен — синхронная генерация по 2 чанка за скан.
+// ============================================================
+const WorldGenPool = {
+  workers: [],
+  next: 0,
+  pending: new Set(),     // ключи "cx,cz" в работе
+  dim: 'overworld',       // измерение, для которого сейчас генерируем
+
+  // собрать исходник воркера из живых функций генерации
+  buildWorkerSrc() {
+    const fns = [smooth, hash2, valueNoise, hash3i, valueNoise3D, isCave, oreVeinAt,
+                 terrainHeight, netherHeight, netherCeilBottom, oreHash, treeHash, treeAt,
+                 idx, generateOverworldData, generateNetherData, generateChunkData];
+    return "'use strict';\n" +
+      // константы мира (те же значения, что на главном потоке)
+      `const BLOCK = ${JSON.stringify(BLOCK)};\n` +
+      `const CHUNK_SIZE = ${CHUNK_SIZE}, WORLD_HEIGHT = ${WORLD_HEIGHT}, DEPTH = ${DEPTH},` +
+      ` DEEPSLATE_LEVEL = ${DEEPSLATE_LEVEL}, SEA_LEVEL = ${SEA_LEVEL}, NETHER_CEIL_MIN = ${NETHER_CEIL_MIN};\n` +
+      // лерп из THREE — единственная внешняя зависимость шумов
+      'const THREE = { MathUtils: { lerp: (a, b, t) => a + (b - a) * t } };\n' +
+      'let WORLD_SEED = 0;\n' +
+      fns.map(f => f.toString()).join('\n') + '\n' +
+      'onmessage = (e) => {\n' +
+      '  const d = e.data;\n' +
+      "  if (d.type === 'init') { WORLD_SEED = d.seed | 0; return; }\n" +
+      "  if (d.type === 'gen') {\n" +
+      '    const blocks = generateChunkData(d.cx, d.cz, d.dim);\n' +
+      // буфер передаётся нулевой копией (transferable) — без лишнего GC;
+      // tag — метка поколения пула (защита от ответов старого мира)
+      '    postMessage({ cx: d.cx, cz: d.cz, dim: d.dim, tag: d.tag, blocks }, [blocks.buffer]);\n' +
+      '  }\n' +
+      '};\n';
+  },
+
+  // (пере)создать воркеры под текущий сид (при входе в мир)
+  init() {
+    this.terminate();
+    this.gen = (this.gen || 0) + 1; // метка поколения: ответы старого пула игнорируются
+    if (typeof Worker === 'undefined') return; // древний браузер — фолбэк
+    try {
+      const src = this.buildWorkerSrc();
+      const url = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+      for (let i = 0; i < 2; i++) { // два воркера — вдвое быстрее прогрузка
+        const w = new Worker(url);
+        w.onmessage = (e) => this._onMsg(e.data);
+        w.onerror = () => { this.terminate(); }; // любая ошибка — тихий фолбэк
+        w.postMessage({ type: 'init', seed: WORLD_SEED });
+        this.workers.push(w);
+      }
+    } catch (err) { this.terminate(); }
+  },
+  terminate() {
+    for (const w of this.workers) { try { w.terminate(); } catch (e) {} }
+    this.workers = []; this.pending.clear();
+  },
+  setDim(d) {
+    this.dim = d;
+    this.pending.clear(); // запросы старого измерения больше неактуальны
+  },
+  // попросить воркер сгенерировать чанк (неблокирующе); false — пула нет
+  request(cx, cz) {
+    if (!this.workers.length) return false;
+    const k = cx + ',' + cz;
+    if (this.pending.has(k) || World.chunks.has(k)) return true; // уже делаем/есть
+    this.pending.add(k);
+    const w = this.workers[this.next++ % this.workers.length];
+    w.postMessage({ type: 'gen', cx, cz, dim: this.dim, tag: this.gen });
+    return true;
+  },
+  // чанк приехал из воркера — встроить в мир
+  _onMsg(d) {
+    this.pending.delete(d.cx + ',' + d.cz);
+    if (!this.workers.length) return;            // пул уже терминирован — игнор
+    if (d.tag !== this.gen) return;               // ответ от предыдущего мира — игнор
+    if (d.dim !== this.dim) return;               // ответ из другого измерения
+    const k = d.cx + ',' + d.cz;
+    if (World.chunks.has(k)) return;             // синхронный фолбэк успел раньше
+    const c = { blocks: d.blocks, mesh: null, dirty: true, cx: d.cx, cz: d.cz };
+    World.chunks.set(k, c);
+    World.applyEditsToChunk(c);                  // правки игрока из сейва поверх
+    World._lastChunk = null;
+    // пометить СОСЕДЕЙ dirty: их краевые грани/свет строились в расчете на
+    // «за краем пусто» — теперь надо перерисовать со швом встык
+    World.markDirty(d.cx + 1, d.cz); World.markDirty(d.cx - 1, d.cz);
+    World.markDirty(d.cx, d.cz + 1); World.markDirty(d.cx, d.cz - 1);
+    _lastScanPcx = 1e9; // форсировать скан — построить меш
+  },
+};
+
+// бюджет построения мешей за кадр: рамка НЕ фризится, недостроенное
+// добирается в следующих кадрах (вместо старых «8 мешей разом за скан»)
+const MESH_TIME_BUDGET_MS = 6;
+const MESH_MAX_PER_FRAME = 3;
+let _meshTodo = []; // очередь на (пере)строение, обновляется сканом
 
 function updateChunks(dt) {
   const pcx = Math.floor(PLAYER.pos.x / CHUNK_SIZE);
   const pcz = Math.floor(PLAYER.pos.z / CHUNK_SIZE);
 
-  // эвикция дальних чанков из памяти (не чаще раза в 5 с — защита от утечки памяти)
+  // эвикция дальних чанков из памяти (не чаще раза в 5 с — защита от утечки)
   _evictTimer += dt || 0;
   if (_evictTimer > 5) { _evictTimer = 0; World.evictFarChunks(pcx, pcz); }
 
-  // ОПТИМИЗАЦИЯ: полный скан области прорисовки (строковые ключи + Map.get на каждый
-  // чанк — при RD=6 это 169 итераций) раньше шёл КАЖДЫЙ кадр. Теперь — только когда
-  // игрок перешёл границу чанка либо раз в ~0.12 с. Правки блоков помечают чанки
-  // dirty, они подхватятся ближайшим сканом — задержка незаметна.
+  // полный скан области прорисовки — только при пересечении границы чанка
+  // либо раз в ~0.12 с (правки блоков помечают чанки dirty — их подхватит скан)
   _chunkScanAcc += dt || 0;
-  if (_chunkScanAcc < 0.12 && pcx === _lastScanPcx && pcz === _lastScanPcz) return;
-  _chunkScanAcc = 0;
-  _lastScanPcx = pcx; _lastScanPcz = pcz;
+  if (_chunkScanAcc >= 0.12 || pcx !== _lastScanPcx || pcz !== _lastScanPcz) {
+    _chunkScanAcc = 0; _lastScanPcx = pcx; _lastScanPcz = pcz;
+    const todo = [];
+    let missing = false;
+    for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
+      for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
+        const cx = pcx + dx, cz = pcz + dz;
+        const k = World.key(cx, cz);
+        // ВАЖНО: только УЖЕ существующие чанки — никаких синхронных генераций!
+        const c = World.chunks.get(k);
+        if (!c) {
+          // попросить воркер (асинхронно, отдельный поток)
+          if (!WorldGenPool.request(cx, cz)) missing = true; // пула нет — фолбэк
+          continue;
+        }
+        const isNew = !loadedMeshes.has(k);
+        if (c.dirty || isNew) {
+          todo.push({ c, k, isNew, dist: dx * dx + dz * dz });
+        }
+      }
+    }
+    // новые чанки и ближние — в первую очередь
+    todo.sort((a, b) => (a.isNew === b.isNew ? a.dist - b.dist : (a.isNew ? -1 : 1)));
+    _meshTodo = todo;
 
-  // собрать кандидатов на (пере)строение, отсортировать по близости к игроку
-  const todo = [];
-  for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
-    for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
-      const cx = pcx + dx, cz = pcz + dz;
-      const c = World.getChunk(cx, cz);
-      const k = World.key(cx, cz);
-      const isNew = !loadedMeshes.has(k);
-      if (c.dirty || isNew) {
-        todo.push({ c, k, isNew, dist: dx * dx + dz * dz });
+    // ФОЛБЭК (воркеров нет): синхронная генерация по 2 ближних чанка за скан —
+    // медленнее, но гладко; вместо старого «сгенерировать всё разом и фризнуть»
+    if (missing) {
+      let gen = 0;
+      const cand = [];
+      for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++)
+        for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++)
+          cand.push({ cx: pcx + dx, cz: pcz + dz, d: dx*dx + dz*dz });
+      cand.sort((a, b) => a.d - b.d);
+      for (const it of cand) {
+        if (gen >= 2) break;
+        if (!World.chunks.has(World.key(it.cx, it.cz))) { World.getChunk(it.cx, it.cz); gen++; }
+      }
+      if (gen > 0) _lastScanPcx = 1e9; // на следующем кадре снова скан
+    }
+
+    // выгрузить дальние меши
+    for (const [k, mesh] of loadedMeshes) {
+      const [cx, cz] = k.split(',').map(Number);
+      if (Math.abs(cx - pcx) > RENDER_DISTANCE + 1 || Math.abs(cz - pcz) > RENDER_DISTANCE + 1) {
+        scene.remove(mesh);
+        disposeGroup(mesh);
+        loadedMeshes.delete(k);
       }
     }
   }
-  // новые чанки и ближние — в первую очередь
-  todo.sort((a, b) => (a.isNew === b.isNew ? a.dist - b.dist : (a.isNew ? -1 : 1)));
 
-  // при первичной загрузке (много новых чанков) строим быстрее
-  const newCount = todo.reduce((n, t) => n + (t.isNew ? 1 : 0), 0);
-  // скан теперь редкий (~8/с вместо 60/с), поэтому бюджет на СКАН выше —
-  // иначе поток построения новых чанков при беге/полёте заметно бы просел
-  let budget = newCount > 4 ? 8 : 4;
-  for (const item of todo) {
-    if (budget <= 0) break;
-    const old = loadedMeshes.get(item.k);
-    if (old) { scene.remove(old); disposeGroup(old); }
-    const mesh = buildChunkMesh(item.c);
-    scene.add(mesh);
-    loadedMeshes.set(item.k, mesh);
-    item.c.dirty = false;
-    budget--;
-    shadowNeedsUpdate = true; // геометрия изменилась — обновить тени
-  }
-
-  // выгрузить дальние
-  for (const [k, mesh] of loadedMeshes) {
-    const [cx, cz] = k.split(',').map(Number);
-    if (Math.abs(cx - pcx) > RENDER_DISTANCE + 1 || Math.abs(cz - pcz) > RENDER_DISTANCE + 1) {
-      scene.remove(mesh);
-      disposeGroup(mesh);
-      loadedMeshes.delete(k);
+  // построение мешей — КАЖДЫЙ кадр, но с бюджетом по времени и количеству:
+  // из-за загрузки чанков прорисовка больше не встаёт на паузу
+  if (_meshTodo.length) {
+    const t0 = performance.now();
+    let built = 0;
+    while (_meshTodo.length && built < MESH_MAX_PER_FRAME && performance.now() - t0 < MESH_TIME_BUDGET_MS) {
+      const item = _meshTodo.shift();
+      const c = World.chunks.get(item.k);
+      if (!c || (!c.dirty && loadedMeshes.has(item.k))) continue; // уже неактуально
+      const old = loadedMeshes.get(item.k);
+      if (old) { scene.remove(old); disposeGroup(old); }
+      const mesh = buildChunkMesh(c);
+      scene.add(mesh);
+      loadedMeshes.set(item.k, mesh);
+      c.dirty = false;
+      built++;
+      shadowNeedsUpdate = true; // геометрия изменилась — обновить тени
     }
   }
 }
@@ -9614,6 +10009,24 @@ function updatePlayer(dt) {
     if (PLAYER.vel.y < maxDown) PLAYER.vel.y = maxDown;
     // лёгкое всплытие, если игрок не нажимает вниз
     if (!keys['ShiftLeft'] && !keys['Space']) PLAYER.vel.y += buoyancy * dt;
+
+    // ВЫХОД НА БЕРЕГ (фикс «не выбраться из воды/лавы»): в MC из жидкости всегда
+    // можно выбраться на уступ высотой 1 блок. Если плывём к стенке и держим
+    // прыжок, а перед нами уступ со свободным пространством над ним — резкий
+    // вертикальный импульс, чтобы выскочить на берег.
+    if (keys['Space'] && (move.x !== 0 || move.z !== 0)) {
+      const fy = Math.floor(PLAYER.pos.y + 0.05);
+      for (const probe of [0.6, 1.1]) {
+        const fx = Math.floor(PLAYER.pos.x + move.x * probe);
+        const fz = Math.floor(PLAYER.pos.z + move.z * probe);
+        if (isSolidForPlayer(fx, fy, fz) &&
+            !isSolidForPlayer(fx, fy + 1, fz) && !isSolidForPlayer(fx, fy + 2, fz)) {
+          // импульс как прыжок: в воде — бодрый, в вязкой лаве — послабее
+          PLAYER.vel.y = Math.max(PLAYER.vel.y, inLava ? 5.4 : 7.0);
+          break;
+        }
+      }
+    }
   } else {
     // ---- обычная физика ----
     PLAYER.vel.x = move.x * speed;
@@ -10055,12 +10468,18 @@ function teleportDimension(target) {
 
   showToast(target === 'nether' ? 'Добро пожаловать в Ад!' : 'Вы вернулись в обычный мир');
 
-  // предзагрузить чанки вокруг и перестроить меши, затем снять флаг
+  // прогрузить чанки вокруг НОВОГО места — АСИНХРОННО через пул воркеров:
+  // главный поток не фризится (раньше здесь синхронно генерировалась вся
+  // область — секундный затык при телепортации). Ближние чанки под ногами
+  // уже построены (поиск площадки/портала выше); остальные доедут от воркеров,
+  // а меши доберёт обычный updateChunks с бюджетом на кадр.
   const pcx = Math.floor(PLAYER.pos.x / CHUNK_SIZE), pcz = Math.floor(PLAYER.pos.z / CHUNK_SIZE);
+  WorldGenPool.setDim(World.dim); // воркеры переключаются на новое измерение
   for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++)
     for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++)
-      World.getChunk(pcx+dx, pcz+dz);
+      WorldGenPool.request(pcx+dx, pcz+dz);
   _lastScanPcx = 1e9; // форсировать полный скан (троттлинг мог бы пропустить этот вызов)
+  _meshTodo = [];
   updateChunks(0);
   _teleporting = false;
   // синхронизировать редстоун в новом измерении (поршни/пыль/двери)
@@ -10732,6 +11151,13 @@ const GIVE_ALIASES = {
   bread: null, apple: null, feather: ITEM.FEATHER, leather: ITEM.LEATHER,
   wool: BLOCK.WOOL, bed: BLOCK.BED_FOOT, redstone: ITEM.REDSTONE, obsidian: BLOCK.OBSIDIAN,
   command_block: BLOCK.COMMAND_BLOCK, cmd_block: BLOCK.COMMAND_BLOCK,
+  spawn_egg_sheep: ITEM.SPAWN_EGG_SHEEP, sheep_spawn_egg: ITEM.SPAWN_EGG_SHEEP,
+  spawn_egg_pig: ITEM.SPAWN_EGG_PIG, pig_spawn_egg: ITEM.SPAWN_EGG_PIG,
+  spawn_egg_cow: ITEM.SPAWN_EGG_COW, cow_spawn_egg: ITEM.SPAWN_EGG_COW,
+  spawn_egg_chicken: ITEM.SPAWN_EGG_CHICKEN, chicken_spawn_egg: ITEM.SPAWN_EGG_CHICKEN,
+  spawn_egg_fish: ITEM.SPAWN_EGG_FISH, fish_spawn_egg: ITEM.SPAWN_EGG_FISH,
+  spawn_egg_zombie: ITEM.SPAWN_EGG_ZOMBIE, zombie_spawn_egg: ITEM.SPAWN_EGG_ZOMBIE,
+  spawn_egg_piglin: ITEM.SPAWN_EGG_PIGLIN, piglin_spawn_egg: ITEM.SPAWN_EGG_PIGLIN,
   sword: ITEM.WOODEN_SWORD, pickaxe: ITEM.WOODEN_PICKAXE, axe: ITEM.WOODEN_AXE, shovel: ITEM.WOODEN_SHOVEL,
   shears: ITEM.SHEARS,
   // инструменты по префиксам
