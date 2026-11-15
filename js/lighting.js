@@ -172,6 +172,21 @@ function blockLightAt(x, y, z) {
   if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) return -1;
   return c._lightBlk[lgIdx(lx, y, lz)];
 }
+// Уровень НЕБЕСНОГО света (0..15) в мировых координатах — для враждебности
+// паука: MC считает ЭФФЕКТИВНЫЙ свет max(блокСвет, небСвет·факторДня) и
+// паук нейтрален при >= 12. Небесный свет проходит сквозь листву/стекло
+// (в отличие от грубого hasSkyAccess). Возвращает -1, если сетка ещё
+// не построена — вызывающий должен считать «неизвестно».
+function skyLightAt(x, y, z) {
+  if (y >= WORLD_HEIGHT) return 15;   // над миром — полное небо
+  if (y < 0) return 0;
+  const cx = Math.floor(x / CHUNK_SIZE), cz = Math.floor(z / CHUNK_SIZE);
+  const c = World.chunks.get(World.key(cx, cz));
+  if (!c || !c._lightSky) return -1;  // света ещё нет
+  const lx = x - cx * CHUNK_SIZE, lz = z - cz * CHUNK_SIZE;
+  if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) return -1;
+  return c._lightSky[lgIdx(lx, y, lz)];
+}
 // Есть ли прямой доступ к небу из ячейки (для дневного спавна в пещерах:
 // днём на открытой поверхности монстры не спавнятся, в тёмной пещере — да)
 function hasSkyAccess(x, y, z) {

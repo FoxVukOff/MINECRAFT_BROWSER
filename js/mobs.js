@@ -582,14 +582,24 @@ function passiveCount() {
   return n;
 }
 
-// Паук враждебен только в темноте (как в MC): днём под открытым небом —
-// нейтрален (небесный свет 15), ночью/в сумерках — нападает; под крышей/в
-// пещере решает блок-свет (факелы с светом >= 12 отпугивают)
+// Паук враждебен только в темноте (parity MC): эффективный свет
+// max(блокСвет, небСвет·факторДня) >= 12 — паук НЕЙТРАЛЕН (днём на
+// поверхности, у факелов/светокамня/лавы). Фикс «hostile днём у кровати»:
+// раньше решал грубый hasSkyAccess (прямое небо) + только блок-свет,
+// и под крышей/без сетки (bl = -1 < 12) паук ошибочно был враждебен.
+// Теперь — честный расчёт через skyLightAt (свет сквозь листву/стекло)
+// с фактором времени суток: ночь ~4, день 15 (как в MC).
 function spiderAngryAtLight(p) {
-  const x = Math.floor(p.pos.x), y = Math.floor(p.pos.y), z = Math.floor(p.pos.z);
-  if (hasSkyAccess(x, y, z)) return daylight() < 0.5; // под небом: солнце село/садится
+  const x = Math.floor(p.pos.x), y = Math.floor(p.pos.y + 0.3), z = Math.floor(p.pos.z);
   const bl = blockLightAt(x, y, z);
-  return bl < 12; // под крышей/в пещере: блок-свет >= 12 (факелы) — нейтрален
+  if (bl >= 12) return false;   // факелы/светокамень/лава >= 12 — паук спокоен
+  const sl = (typeof skyLightAt === 'function') ? skyLightAt(x, y, z) : -1;
+  if (bl < 0 || sl < 0) {
+    // сетки света ещё нет (чанк не меширован) — грубая оценка по прямому небу
+    return hasSkyAccess(x, y, z) ? daylight() < 0.5 : true;
+  }
+  const effSky = sl * (4 + daylight() * 11) / 15; // ночь ~4, день 15 (как в MC)
+  return Math.max(bl, effSky) < 12;
 }
 
 // ============================================================
@@ -1132,10 +1142,15 @@ function updateMobs(dt) {
       // паническое стремление к ближайшей суше
       if (p.flee <= 0) { p.state = 'walk'; p.stateT = Math.max(p.stateT, 0.5); }
     } else if (p.climbing) {
-      // ПАУК НА СТЕНЕ: гравитация не действует — ползёт вверх с постоянной
-      // скоростью (независимо от FPS: на низких кадрах гравитация успевала
-      // гасить импульс подъёма за один кадр и паук «залипал» у подножия)
-      p.vel.y = 3.0;
+      // ПАУК НА СТЕНЕ: гравитация не действует — ползёт по стене
+      // с постоянной скоростью (независимо от FPS: на низких кадрах
+      // гравитация успевала гасить импульс подъёма за один кадр и паук
+      // «залипал» у подножия). Направление — по ВЕЙПОЙНТУ маршрута:
+      // выше — лезет вверх, ниже — плавно СПЛЫВАЕТ вниз (раньше паук
+      // всегда лез вверх и не мог слезть со стены к цели ниже)
+      const cwp = (p.path && p.pathIdx < p.path.length) ? p.path[p.pathIdx] : null;
+      const cty = cwp ? (cwp.y + 0.5) : PLAYER.pos.y;
+      p.vel.y = (cty < p.pos.y - 0.6) ? -2.8 : 3.0; // ниже — сползает, выше — лезет
     } else {
       p.vel.y -= GRAVITY * dt;
       // курица медленно падает, размахивая крыльями (без урона от падения, как в MC)
@@ -1190,10 +1205,25 @@ function updateMobs(dt) {
     }
 
     p.onGround = false;
-    // паук ЛЕЗЕТ по стене: вертикаль — по узкой колонне (иначе блоки стены
-    // над головой «бьют» каждый кадр и срывают подъём)
-    if (p.climbing && p.vel.y > 0) mobCollideY(p, p.vel.y * dt, 0.5);
+    // паук ЛЕЗЕТ/СПЛЗАЕТ по стене: вертикаль — по узкой колонне (иначе блоки
+    // стены «бьют» каждый кадр и срывают подъём, а при сползании полная
+    // ширина хитбокса цепляется за кромку стены сверху и не даёт спуститься)
+    const climbUp = p.climbing && p.vel.y > 0;
+    let climbHit = false;
+    if (p.climbing) climbHit = mobCollideY(p, p.vel.y * dt, 0.5);
     else mobCollide(p, 'y', p.vel.y * dt);
+    // ПАУК: упёрся ГОЛОВОЙ в козырёк/листву, вися на стене — не висеть
+    // вечно (стагнат-детектор ниже требует onGround и тут не срабатывает):
+    // через 0.7 с отпускаем стену и сразу пересчитываем маршрут
+    if (climbUp && climbHit) {
+      p._climbBlockT = (p._climbBlockT || 0) + dt;
+      if (p._climbBlockT > 0.7) {
+        p._climbBlockT = 0; p.climbing = false;
+        p.path = null; p.pathT = 0;
+      }
+    } else if (p.climbing) {
+      p._climbBlockT = 0;
+    }
     const hitX = mobCollide(p, 'x', p.vel.x * dt);
     const hitZ = mobCollide(p, 'z', p.vel.z * dt);
 
@@ -1309,6 +1339,9 @@ function sleepInBed(bx, by, bz) {
     let monster = null;
     for (const m of mobs) {
       if (!m.def.hostile) continue;
+      // нейтральный паук НЕ мешает сну (parity MC: мешают только враждебные
+      // прямо сейчас монстры; спокойный паук у кровати днём спать не мешает)
+      if (m.type === 'spider' && (m.aggro || 0) <= 0) continue;
       const dx = m.pos.x - (bx !== undefined ? bx + 0.5 : PLAYER.pos.x);
       const dy = m.pos.y - (by !== undefined ? by : PLAYER.pos.y);
       const dz = m.pos.z - (bz !== undefined ? bz + 0.5 : PLAYER.pos.z);
