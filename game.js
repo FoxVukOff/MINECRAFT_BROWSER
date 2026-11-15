@@ -137,6 +137,8 @@ const ITEM = {
   REDSTONE:          241,
   // Перо (выпадает из куриц — как в Minecraft)
   FEATHER:           242,
+  // Фантомная мембрана (выпадает с фантомов — как в Minecraft)
+  PHANTOM_MEMBRANE:  243,
   // Яйца спавна мобов (креатив/читы — parity MC: не крафтятся)
   SPAWN_EGG_SHEEP:   250,
   SPAWN_EGG_PIG:     251,
@@ -145,6 +147,7 @@ const ITEM = {
   SPAWN_EGG_FISH:    254,
   SPAWN_EGG_ZOMBIE:  255,
   SPAWN_EGG_PIGLIN:  256,
+  SPAWN_EGG_PHANTOM: 257,
 };
 
 const BLOCK_NAMES = {
@@ -254,13 +257,15 @@ const BLOCK_NAMES = {
   [ITEM.SHEARS]:   'Ножницы',
   [ITEM.REDSTONE]: 'Редстоун',
   [ITEM.FEATHER]:  'Перо',
+  [ITEM.PHANTOM_MEMBRANE]: 'Фантомная мембрана',
   [ITEM.SPAWN_EGG_SHEEP]:   'Яйцо призыва овцы',
   [ITEM.SPAWN_EGG_PIG]:     'Яйцо призыва свиньи',
   [ITEM.SPAWN_EGG_COW]:     'Яйцо призыва коровы',
   [ITEM.SPAWN_EGG_CHICKEN]: 'Яйцо призыва курицы',
   [ITEM.SPAWN_EGG_FISH]:    'Яйцо призыва рыбы',
   [ITEM.SPAWN_EGG_ZOMBIE]:  'Яйцо призыва зомби',
-  [ITEM.SPAWN_EGG_PIGLIN]:  'Яйцо призыва пиглина',
+  [ITEM.SPAWN_EGG_PIGLIN]:  'Яйцо призыва зомби-пиглина',
+  [ITEM.SPAWN_EGG_PHANTOM]: 'Яйцо призыва фантома',
 };
 
 // Еда: сколько голода восстанавливает (ванильные значения Minecraft)
@@ -289,6 +294,7 @@ const SPAWN_EGGS = {
   [ITEM.SPAWN_EGG_FISH]:    { mob: 'fish',    base: '#8a7a5c', spots: '#c8b888' },
   [ITEM.SPAWN_EGG_ZOMBIE]:  { mob: 'zombie',  base: '#3a6a9c', spots: '#7ca844' },
   [ITEM.SPAWN_EGG_PIGLIN]:  { mob: 'piglin',  base: '#e8a8b8', spots: '#7ca844' },
+  [ITEM.SPAWN_EGG_PHANTOM]: { mob: 'phantom', base: '#4a6472', spots: '#a8c8c0' },
 };
 
 const MAX_STACK = 64; // максимум в стопке
@@ -666,28 +672,35 @@ function buildTextures() {
     ctx.fillStyle = '#666666';
     ctx.fillRect(7,3,5,2); ctx.fillRect(1,6,5,2); ctx.fillRect(8,9,6,2); ctx.fillRect(2,1,4,2); ctx.fillRect(11,13,5,2);
   });
-  // глубинный камень — тёмный слоистый (горизонтальные напластования, как MC deepslate)
+  // глубинный камень — тёмный зернистый с ВЕРТИКАЛЬНЫМИ бороздами (как MC deepslate;
+  // раньше были горизонтальные напластования — выглядело как доски, переделано)
   TEX.deepslate = makeTex(ctx => {
-    pixelFill(ctx, ['#4a4a52','#42424a','#52525c','#38383f'], [4,4,3,2], 3434);
-    // горизонтальные слои: светлый гребень + тёмная борозда
-    for (const y of [2,6,10,14]) {
-      ctx.fillStyle = '#5a5a64'; ctx.fillRect(0, y, 16, 1);
-      ctx.fillStyle = '#303038'; ctx.fillRect(0, y + 1, 16, 1);
+    pixelFill(ctx, ['#4c4c53','#45454c','#53535b','#3d3d44','#57575f'], [4,4,3,2,2], 3434);
+    // вертикальные борозды-штрихи (грубая шероховатость, короткие прерывистые)
+    ctx.fillStyle = '#33333a';
+    for (const [gx,gy,h] of [[1,1,5],[3,6,4],[5,2,3],[7,8,6],[9,0,4],[11,5,5],[13,9,4],[14,3,3],[0,10,5],[6,12,4],[12,13,3]]) {
+      ctx.fillRect(gx, gy, 1, h);
     }
-    // обрывы слоёв (не сплошные)
-    ctx.fillStyle = '#42424a';
-    ctx.fillRect(3,2,4,1); ctx.fillRect(10,6,5,1); ctx.fillRect(5,10,4,1); ctx.fillRect(12,14,4,1);
-    // редкие светлые вкрапления
-    ctx.fillStyle = '#5e5e68';
-    for (const [gx,gy] of [[4,4],[9,8],[13,5],[2,12]]) ctx.fillRect(gx,gy,1,1);
+    // светлые гребни рядом с бороздами (объём)
+    ctx.fillStyle = '#5e5e66';
+    for (const [gx,gy,h] of [[2,2,4],[6,3,2],[8,9,5],[10,6,4],[13,4,3],[1,11,4]]) {
+      ctx.fillRect(gx, gy, 1, h);
+    }
+    // редкие крапинки слюды
+    ctx.fillStyle = '#68686f';
+    for (const [gx,gy] of [[4,4],[9,7],[13,12],[2,8],[11,1]]) ctx.fillRect(gx,gy,1,1);
+    ctx.fillStyle = '#2c2c32';
+    for (const [gx,gy] of [[5,10],[12,8],[0,5],[8,13]]) ctx.fillRect(gx,gy,1,1);
   });
   TEX.water   = makeTex(ctx => {
     pixelFill(ctx, ['#3a6ea5','#3566a0','#4078b0','#315f96'], [5,4,3,2], 606);
-    // лёгкие волны-блики
+    // волны-блики (длинные штрихи с изломом, как блики на воде MC)
     ctx.fillStyle = '#5a90c8';
-    ctx.fillRect(1,3,5,1); ctx.fillRect(9,5,5,1); ctx.fillRect(4,11,6,1); ctx.fillRect(12,13,3,1);
+    ctx.fillRect(1,3,5,1); ctx.fillRect(5,4,3,1); ctx.fillRect(9,5,5,1); ctx.fillRect(4,11,4,1); ctx.fillRect(8,12,3,1); ctx.fillRect(12,13,3,1);
+    ctx.fillStyle = '#7ab0e0';
+    ctx.fillRect(2,3,2,1); ctx.fillRect(10,5,2,1); ctx.fillRect(5,11,2,1);
     ctx.fillStyle = '#2a5288';
-    ctx.fillRect(2,4,3,1); ctx.fillRect(10,9,4,1); ctx.fillRect(5,12,4,1);
+    ctx.fillRect(2,4,3,1); ctx.fillRect(10,9,4,1); ctx.fillRect(5,12,4,1); ctx.fillRect(0,7,4,1);
   });
   // лава — раскалённая, тёмно-красная основа с ярко-оранжевыми «жилами» магмы
   TEX.lava    = makeTex(ctx => {
@@ -754,20 +767,27 @@ function buildTextures() {
   });
   // дерево: торец — годовые кольца с корой по краю
   TEX.wood_top = makeTex(ctx => {
-    pixelFill(ctx, ['#9c7842','#8a6a38','#a8854c'], [5,4,2], 909);
-    // кора по периметру
-    ctx.strokeStyle = '#5e4424'; ctx.lineWidth = 1;
+    // спил с КОНТРАСТНЫМИ кольцами и сучком (как в MC)
+    pixelFill(ctx, ['#b08a50','#a8854c','#ba9458','#9c7842'], [4,4,3,2], 909);
+    // кора по периметру (толстая, с трещинами)
+    ctx.strokeStyle = '#5e4424'; ctx.lineWidth = 1.5;
     ctx.strokeRect(0.5, 0.5, 15, 15);
-    // кольца (чередование тонов — как спил)
+    ctx.fillStyle = '#4a3418';
+    ctx.fillRect(2,0,1,2); ctx.fillRect(12,1,1,2); ctx.fillRect(0,10,2,1); ctx.fillRect(14,7,1,2);
+    // кольца — чередование тёмных/светлых с шагом 2 (контрастные)
     for (let r = 2; r < 8; r += 2) {
-      ctx.strokeStyle = r % 4 === 0 ? '#6b4f2a' : '#8a6a38';
+      ctx.strokeStyle = (r % 4 === 0) ? '#6b4a22' : '#c8a668';
       ctx.beginPath(); ctx.arc(8, 8, r, 0, Math.PI*2); ctx.stroke();
     }
-    // трещины от центра
+    // сердцевина и трещины от центра
+    ctx.fillStyle = '#5e4628'; ctx.fillRect(7,7,2,2);
+    ctx.fillStyle = '#caa868'; ctx.fillRect(8,8,1,1);
     ctx.strokeStyle = '#7a5c30';
-    ctx.beginPath(); ctx.moveTo(8,8); ctx.lineTo(12,3); ctx.moveTo(8,8); ctx.lineTo(3,11); ctx.stroke();
-    ctx.fillStyle = '#5e4628'; ctx.fillRect(7,7,2,2); // сердцевина
-    ctx.fillStyle = '#b09055'; ctx.fillRect(8,8,1,1); // блик сердцевины
+    ctx.beginPath(); ctx.moveTo(8,8); ctx.lineTo(12,3); ctx.moveTo(8,8); ctx.lineTo(3,11); ctx.moveTo(8,8); ctx.lineTo(13,12); ctx.stroke();
+    // сучок (небольшое тёмное колечко)
+    ctx.strokeStyle = '#6b4a22';
+    ctx.beginPath(); ctx.arc(11, 11, 1.2, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = '#4a3418'; ctx.fillRect(11,11,1,1);
   });
   // листва — двухъярусная зелень: тёмный низ кроны + светлые листья поверх, с дырками
   TEX.leaves = makeTex(ctx => {
@@ -862,13 +882,18 @@ function buildTextures() {
   // медная руда — камень с оранжево-рыжими вкраплениями
   TEX.copper_ore = makeTex(ctx => {
     pixelFill(ctx, ['#8a8a8a','#7f7f7f','#949494','#757575'], [4,4,3,2], 404);
-    const blobs = [[4,3,3,2],[9,4,3,3],[3,9,3,3],[10,10,3,2],[6,12,2,2]];
-    ctx.fillStyle = '#c87038';                 // насыщенная медь
-    for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx,by,bw,bh);
-    ctx.fillStyle = '#e89a5a';                 // блик
-    for (const [bx,by] of blobs) ctx.fillRect(bx,by,1,1);
-    ctx.fillStyle = '#8a4620';                 // тень
-    for (const [bx,by,bw,bh] of blobs) ctx.fillRect(bx+bw-1,by+bh-1,1,1);
+    // медные кластеры с НЕРОВНЫМИ краями: несколько смещённых пятен + 3 тона объёма
+    const blob = (x, y) => {
+      ctx.fillStyle = '#8a4620';                                 // тёмный ободок
+      ctx.fillRect(x-1, y, 4, 3); ctx.fillRect(x, y-1, 3, 4);
+      ctx.fillStyle = '#c87038';                                 // основная медь
+      ctx.fillRect(x, y, 3, 2); ctx.fillRect(x+1, y+1, 2, 2);
+      ctx.fillStyle = '#e89a5a';                                 // блик
+      ctx.fillRect(x, y, 1, 1); ctx.fillRect(x+1, y+1, 1, 1);
+      ctx.fillStyle = '#6e3818';                                 // глубокая тень
+      ctx.fillRect(x+2, y+2, 1, 1);
+    };
+    blob(3,3); blob(10,2); blob(2,10); blob(9,9); blob(12,12); blob(6,7);
   });
   // алмазная руда — камень с огранёнными бирюзовыми кристаллами
   TEX.diamond_ore = makeTex(ctx => {
@@ -1015,9 +1040,19 @@ function buildTextures() {
     // ручка только на нижней половине (как в MC)
   });
   TEX.door_bottom = makeTex(ctx => {
-    noiseFill(ctx, 0x9c6b35, 14);
-    ctx.strokeStyle='#6e4a22'; ctx.strokeRect(1.5,0.5,13,15);
-    ctx.fillStyle = '#3a2712'; ctx.fillRect(12,7,2,2);             // ручка
+    // нижняя половина двери: рама + филёнка-панель (как двери MC)
+    noiseFill(ctx, 0x9c6b35, 12);
+    ctx.strokeStyle = '#6e4a22'; ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, 15, 15);         // внешняя рама
+    // панель-филёнка с объёмом (тень сверху, блик снизу)
+    ctx.fillStyle = '#8a5c2c'; ctx.fillRect(2, 1, 12, 13);
+    ctx.fillStyle = '#6e4a22'; ctx.fillRect(2, 1, 12, 1); ctx.fillRect(2, 1, 1, 13);   // верх/лево тень
+    ctx.fillStyle = '#b98e4d'; ctx.fillRect(2, 13, 12, 1); ctx.fillRect(13, 1, 1, 13); // низ/право блик
+    ctx.fillStyle = '#7a5326';
+    ctx.fillRect(4, 4, 8, 1); ctx.fillRect(4, 10, 8, 1);    // внутренние каннелюры
+    // ручка
+    ctx.fillStyle = '#3a2712'; ctx.fillRect(12,7,2,2);
+    ctx.fillStyle = '#5a3d1d'; ctx.fillRect(12,7,1,1);
   });
   // сундук: доски с тёмной обвязкой по краям и фактурой древесины
   const woodGrain = (ctx, base) => {
@@ -1095,20 +1130,25 @@ function buildTextures() {
   });
   // шерсть (белая по умолчанию) — вязаное плетение «v-стежками»
   TEX.wool = makeTex(ctx => {
+    // шерсть с выраженным плетением: волнистые ряды стежков (как в MC)
     pixelFill(ctx, ['#e9e9ec','#dedee2','#f2f2f4','#d2d2d6'], [5,4,3,2], 3333);
-    // диагональные стежки вязки (чередующиеся v)
-    for (let y = 1; y < 16; y += 2) {
+    // диагональная вязка «ёлочкой» — чёткие стежки по всей площади
+    for (let y = 0; y < 16; y += 2) {
+      const off = (y % 4 === 0) ? 0 : 2;
       for (let x = 0; x < 16; x += 4) {
-        const ox = (y % 4 === 1) ? 0 : 2;
-        ctx.fillStyle = '#c8c8cd';
-        ctx.fillRect((x + ox) % 16, y, 1, 1);
-        ctx.fillRect((x + ox + 1) % 16, y + 1, 1, 1);
-        ctx.fillRect((x + ox + 2) % 16, y, 1, 1);
+        ctx.fillStyle = '#c2c2c8';
+        ctx.fillRect((x + off) % 16, y, 1, 1);
+        ctx.fillRect((x + off + 1) % 16, y + 1, 1, 1);
+        ctx.fillRect((x + off + 2) % 16, y, 1, 1);
+        ctx.fillStyle = '#f8f8fa';
+        ctx.fillRect((x + off + 1) % 16, y - 0 < 0 ? 0 : y, 1, 1);
       }
     }
-    // светлые точки ворса
-    ctx.fillStyle = '#fafafc';
-    for (const [gx,gy] of [[2,2],[9,1],[13,6],[5,8],[11,11],[3,13]]) ctx.fillRect(gx,gy,1,1);
+    // вмятины-завитки ворса
+    ctx.fillStyle = '#c8c8cd';
+    for (const [gx,gy] of [[1,1],[7,3],[13,5],[4,7],[10,9],[2,11],[8,13],[14,14]]) {
+      ctx.fillRect(gx,gy,1,1); ctx.fillRect(gx+1,gy+1,1,1);
+    }
   });
   // факел — палочка с пламенем (для предметной иконки/билборда)
   TEX.torch = makeTex(ctx => {
@@ -1125,25 +1165,66 @@ function buildTextures() {
   });
   // кровать: верх (одеяло + подушка), бок, торец
   TEX.bed_top_head = makeTex(ctx => {
-    pixelFill(ctx, ['#c0352f','#aa2a25','#d04a44'], [5,4,2], 3131);
-    // подушка
-    ctx.fillStyle = '#f2f2f4'; ctx.fillRect(2,1,12,5);
-    ctx.fillStyle = '#dadade'; ctx.fillRect(2,5,12,1);
+    // изголовье сверху: красное одеяло + БЕЛАЯ подушка с объёмом (как в MC)
+    pixelFill(ctx, ['#b5342e','#a52a24','#c2443d'], [5,4,2], 3131);
+    // подушка — пухлая: блик сверху, тень снизу, вертикальные складки
+    ctx.fillStyle = '#f4f4f6'; ctx.fillRect(3,2,10,5);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(3,2,10,1);          // блик кромки
+    ctx.fillStyle = '#d8d8dc'; ctx.fillRect(3,6,10,1);          // тень снизу
+    ctx.fillRect(6,3,1,3); ctx.fillRect(9,3,1,3);               // складки ткани
+    // валик-оголовник у стены
+    ctx.fillStyle = '#8e211d'; ctx.fillRect(0,0,16,1);
+    // тёмный стык одеяла с половиной ножки
+    ctx.fillStyle = '#8e211d'; ctx.fillRect(0,15,16,1);
+    // блик на одеяле
+    ctx.fillStyle = '#d0544d';
+    for (const [gx,gy] of [[4,9],[10,10],[6,12],[12,13]]) ctx.fillRect(gx,gy,2,1);
   });
   TEX.bed_top_foot = makeTex(ctx => {
-    pixelFill(ctx, ['#c0352f','#aa2a25','#d04a44'], [5,4,2], 3132);
-    // складки одеяла
-    ctx.fillStyle = '#922420'; ctx.fillRect(0,7,16,1); ctx.fillRect(0,12,16,1);
+    // ножка сверху: одеяло с поперечными складками и загибом у торца (как в MC)
+    pixelFill(ctx, ['#b5342e','#a52a24','#c2443d'], [5,4,2], 3132);
+    // тёмный стык с изголовьем
+    ctx.fillStyle = '#8e211d'; ctx.fillRect(0,0,16,1);
+    // поперечные складки одеяла (свет+тень парами)
+    for (const y of [4, 8, 12]) {
+      ctx.fillStyle = '#8e211d'; ctx.fillRect(0, y, 16, 1);
+      ctx.fillStyle = '#d0544d'; ctx.fillRect(0, y + 1, 16, 1);
+    }
+    // загиб одеяла у торца (отогнутый угол)
+    ctx.fillStyle = '#e8776f'; ctx.fillRect(0,14,16,2);
+    ctx.fillStyle = '#c2443d'; ctx.fillRect(0,13,16,1);
   });
   TEX.bed_side = makeTex(ctx => {
-    pixelFill(ctx, ['#c0352f','#aa2a25','#d04a44'], [5,4,2], 3133);
-    ctx.fillStyle = '#6b4a24'; ctx.fillRect(0,11,16,5);   // деревянная рама снизу
-    ctx.fillStyle = '#5a3d1d'; ctx.fillRect(0,11,16,1);
+    // бок: красный матрас сверху + деревянная рама с ножками (как в MC)
+    pixelFill(ctx, ['#b5342e','#a52a24','#c2443d'], [5,4,2], 3133);
+    // блик и кромка матраса
+    ctx.fillStyle = '#d0544d'; ctx.fillRect(0,1,16,1);
+    ctx.fillStyle = '#8e211d'; ctx.fillRect(0,8,16,1);
+    // деревянная рама (доски с волокнами)
+    ctx.fillStyle = '#7a5326'; ctx.fillRect(0,9,16,4);
+    ctx.fillStyle = '#8f6533'; ctx.fillRect(0,10,16,1);         // блик доски
+    ctx.fillStyle = '#5e401d'; ctx.fillRect(0,12,16,1);         // тень доски
+    // ножки по краям (чуть темнее, стоят до низа)
+    ctx.fillStyle = '#6b4a24'; ctx.fillRect(0,9,3,7); ctx.fillRect(13,9,3,7);
+    ctx.fillStyle = '#523618'; ctx.fillRect(2,9,1,7); ctx.fillRect(13,9,1,7);
+    ctx.fillStyle = '#3d2a11'; ctx.fillRect(0,15,3,1); ctx.fillRect(13,15,3,1); // тень под ножками
   });
   TEX.bed_end = makeTex(ctx => {
-    pixelFill(ctx, ['#c0352f','#aa2a25','#d04a44'], [5,4,2], 3134);
-    ctx.fillStyle = '#6b4a24'; ctx.fillRect(0,11,16,5);
-    ctx.fillStyle = '#5a3d1d'; ctx.fillRect(0,11,16,1);
+    // торец: матрас + подушка видна срезом сверху + рама с ножками
+    pixelFill(ctx, ['#b5342e','#a52a24','#c2443d'], [5,4,2], 3134);
+    // срез подушки сверху
+    ctx.fillStyle = '#f4f4f6'; ctx.fillRect(1,0,14,2);
+    ctx.fillStyle = '#d8d8dc'; ctx.fillRect(1,2,14,1);
+    // блик матраса
+    ctx.fillStyle = '#d0544d'; ctx.fillRect(0,4,16,1);
+    ctx.fillStyle = '#8e211d'; ctx.fillRect(0,8,16,1);
+    // деревянная рама
+    ctx.fillStyle = '#7a5326'; ctx.fillRect(0,9,16,4);
+    ctx.fillStyle = '#8f6533'; ctx.fillRect(0,10,16,1);
+    ctx.fillStyle = '#5e401d'; ctx.fillRect(0,12,16,1);
+    // ножки по углам
+    ctx.fillStyle = '#6b4a24'; ctx.fillRect(0,9,3,7); ctx.fillRect(13,9,3,7);
+    ctx.fillStyle = '#3d2a11'; ctx.fillRect(0,15,3,1); ctx.fillRect(13,15,3,1);
   });
   // редстоуновая руда: камень с красными вкраплениями
   TEX.redstone_ore = makeTex(ctx => {
@@ -1167,23 +1248,52 @@ function buildTextures() {
   // редстоуновая пыль: плоский крест/линия на прозрачном фоне
   TEX.redstone_dust = makeTex(ctx => {
     ctx.clearRect(0,0,16,16);
-    // фон слегка виден (серый — как «на камне»), но пыль ярко-красная
-    ctx.fillStyle = '#b81818';
-    // центральный крест (соединяется с соседями)
-    ctx.fillRect(6,7,4,2); ctx.fillRect(7,6,2,4);
-    // «капли» по краям
-    ctx.fillRect(2,7,3,2); ctx.fillRect(11,7,3,2);
-    ctx.fillRect(7,2,2,3); ctx.fillRect(7,11,2,3);
-    ctx.fillStyle = '#ff3830'; // блик
-    ctx.fillRect(7,7,2,2);
+    // рассыпанная пыль: дорожки с РВАНЫМИ краями и россыпь крапинок (не «прицел»)
+    const dk = '#8e1414', md = '#b81818', lt = '#d82820';
+    // горизонтальная дорожка (извилистая: чуть смещаем строки)
+    ctx.fillStyle = md;
+    ctx.fillRect(1,7,14,2);
+    ctx.fillStyle = dk;                                   // рваный нижний край
+    for (let x = 0; x < 16; x++) if ((x*7+3)%3) ctx.fillRect(x, 9, 1, 1);
+    ctx.fillStyle = lt;                                   // рваный верхний край
+    for (let x = 1; x < 15; x++) if ((x*5)%4 < 2) ctx.fillRect(x, 6, 1, 1);
+    // вертикальная дорожка
+    ctx.fillStyle = md;
+    ctx.fillRect(7,1,2,14);
+    ctx.fillStyle = dk;
+    for (let y = 0; y < 16; y++) if ((y*11+5)%3) ctx.fillRect(9, y, 1, 1);
+    ctx.fillStyle = lt;
+    for (let y = 1; y < 15; y++) if ((y*3)%4 < 2) ctx.fillRect(6, y, 1, 1);
+    // россыпь крупинок вокруг (как просыпанная пыль)
+    ctx.fillStyle = dk;
+    for (const [gx,gy] of [[2,5],[5,10],[12,4],[13,10],[3,13],[11,12],[1,11],[14,7]]) ctx.fillRect(gx,gy,1,1);
+    ctx.fillStyle = md;
+    for (const [gx,gy] of [[4,6],[10,9],[12,12],[3,4],[13,3],[6,13]]) ctx.fillRect(gx,gy,1,1);
+    // блик в центре
+    ctx.fillStyle = '#ff4838'; ctx.fillRect(7,7,2,1); ctx.fillRect(7,8,1,1);
   });
   TEX.redstone_dust_on = makeTex(ctx => {
     ctx.clearRect(0,0,16,16);
-    ctx.fillStyle = '#ff2018';
-    ctx.fillRect(6,7,4,2); ctx.fillRect(7,6,2,4);
-    ctx.fillRect(2,7,3,2); ctx.fillRect(11,7,3,2);
-    ctx.fillRect(7,2,2,3); ctx.fillRect(7,11,2,3);
-    ctx.fillStyle = '#ff8050'; ctx.fillRect(7,7,2,2);
+    // горящая пыль — ярче, с раскалённым ядром
+    const dk = '#c01010', md = '#f02818', lt = '#ff6840';
+    ctx.fillStyle = md;
+    ctx.fillRect(1,7,14,2);
+    ctx.fillStyle = dk;
+    for (let x = 0; x < 16; x++) if ((x*7+3)%3) ctx.fillRect(x, 9, 1, 1);
+    ctx.fillStyle = lt;
+    for (let x = 1; x < 15; x++) if ((x*5)%4 < 2) ctx.fillRect(x, 6, 1, 1);
+    ctx.fillStyle = md;
+    ctx.fillRect(7,1,2,14);
+    ctx.fillStyle = dk;
+    for (let y = 0; y < 16; y++) if ((y*11+5)%3) ctx.fillRect(9, y, 1, 1);
+    ctx.fillStyle = lt;
+    for (let y = 1; y < 15; y++) if ((y*3)%4 < 2) ctx.fillRect(6, y, 1, 1);
+    ctx.fillStyle = dk;
+    for (const [gx,gy] of [[2,5],[5,10],[12,4],[13,10],[3,13],[11,12],[1,11],[14,7]]) ctx.fillRect(gx,gy,1,1);
+    ctx.fillStyle = md;
+    for (const [gx,gy] of [[4,6],[10,9],[12,12],[3,4],[13,3],[6,13]]) ctx.fillRect(gx,gy,1,1);
+    ctx.fillStyle = '#ffa890'; ctx.fillRect(7,7,2,1); ctx.fillRect(7,8,1,1);
+    ctx.fillStyle = '#ffd0b8'; ctx.fillRect(7,7,1,1);
   });
   // редстоуновый факел: красная палочка с огоньком
   TEX.redstone_torch = makeTex(ctx => {
@@ -1211,30 +1321,48 @@ function buildTextures() {
   // кнопка: каменное основание + выступающая круглая кнопка (нажата/отпущена)
   TEX.button = makeTex(ctx => {
     ctx.clearRect(0,0,16,16);
-    // основание (камень)
-    ctx.fillStyle = '#7a7a7a'; ctx.fillRect(3,3,10,10);
-    ctx.fillStyle = '#5a5a5a'; ctx.fillRect(3,12,10,1); ctx.fillRect(12,3,1,10);
-    ctx.fillStyle = '#9a9a9a'; ctx.fillRect(3,3,10,1); ctx.fillRect(3,3,1,10);
-    // кнопка (выступающий круг)
-    ctx.fillStyle = '#3a3a3e'; ctx.fillRect(5,5,6,6);
-    ctx.fillStyle = '#56565c'; ctx.fillRect(6,6,4,4);
-    ctx.fillStyle = '#7a7a80'; ctx.fillRect(6,6,2,2); // блик
+    // каменное основание с фактурой (крошка как у stone)
+    pixelFill(ctx, ['#7f7f7f','#8a8a8a','#757575','#949494'], [4,4,3,2], 7171);
+    ctx.fillStyle = '#5e5e5e';
+    ctx.fillRect(1,13,14,1); ctx.fillRect(14,1,1,14);          // тень граней
+    ctx.fillStyle = '#a2a2a2';
+    ctx.fillRect(1,1,14,1); ctx.fillRect(1,1,1,14);            // блик граней
+    // выпуклая кнопка-камень (как в MC — небольшой прямоугольный выступ)
+    ctx.fillStyle = '#8a8a8a'; ctx.fillRect(4,6,8,5);
+    ctx.fillStyle = '#a8a8a8'; ctx.fillRect(4,6,8,1); ctx.fillRect(4,6,1,5);   // блик
+    ctx.fillStyle = '#5a5a5a'; ctx.fillRect(4,10,8,1); ctx.fillRect(11,6,1,5); // тень
+    ctx.fillStyle = '#707070'; ctx.fillRect(5,7,6,3);           // сглаженная грань
+    ctx.fillStyle = '#b8b8b8'; ctx.fillRect(5,7,2,1);           // искра
   });
   TEX.button_pressed = makeTex(ctx => {
     ctx.clearRect(0,0,16,16);
-    ctx.fillStyle = '#7a7a7a'; ctx.fillRect(3,3,10,10);
-    ctx.fillStyle = '#5a5a5a'; ctx.fillRect(3,12,10,1); ctx.fillRect(12,3,1,10);
-    ctx.fillStyle = '#9a9a9a'; ctx.fillRect(3,3,10,1); ctx.fillRect(3,3,1,10);
-    // кнопка вдавлена
-    ctx.fillStyle = '#2a2a2e'; ctx.fillRect(5,5,6,6);
-    ctx.fillStyle = '#3a3a3e'; ctx.fillRect(6,6,4,4);
+    pixelFill(ctx, ['#7f7f7f','#8a8a8a','#757575','#949494'], [4,4,3,2], 7172);
+    ctx.fillStyle = '#5e5e5e';
+    ctx.fillRect(1,13,14,1); ctx.fillRect(14,1,1,14);
+    ctx.fillStyle = '#a2a2a2';
+    ctx.fillRect(1,1,14,1); ctx.fillRect(1,1,1,14);
+    // кнопка ВДАВЛЕНА: тёмное углубление вместо выступа
+    ctx.fillStyle = '#3e3e3e'; ctx.fillRect(4,7,8,5);
+    ctx.fillStyle = '#2a2a2a'; ctx.fillRect(4,11,8,1); ctx.fillRect(11,7,1,5);
+    ctx.fillStyle = '#565656'; ctx.fillRect(4,7,8,1);           // кромка ямки
   });
   // поршень: корпус + лицевая панель
   TEX.piston_side = makeTex(ctx => {
-    pixelFill(ctx, ['#8a7a5a','#7a6a4a','#9a8a6a','#6a5a3a'], [5,4,3,2], 4040);
+    // бок поршня как в MC: деревянная планка сверху + каменный низ
+    pixelFill(ctx, ['#8a8a8a','#7d7d7d','#969696','#717171'], [4,4,3,2], 4040);
+    // каменные трещинки
+    ctx.fillStyle = '#5e5e5e';
+    for (const [gx,gy] of [[3,9],[10,8],[6,12],[12,11],[1,7]]) ctx.fillRect(gx,gy,1,1);
+    // деревянная планка сверху (доска с волокнами)
+    ctx.fillStyle = '#9c7842'; ctx.fillRect(0,0,16,4);
+    ctx.fillStyle = '#b08c50'; ctx.fillRect(0,1,16,1);          // блик доски
+    ctx.fillStyle = '#7a5c30';
+    for (const gx of [3, 8, 13]) ctx.fillRect(gx,0,1,4);        // швы доски
+    // тень от планки на камне
+    ctx.fillStyle = '#4a4a4a'; ctx.fillRect(0,4,16,1);
     // болты по углам
-    ctx.fillStyle = '#3a3a3e'; ctx.fillRect(2,2,2,2); ctx.fillRect(12,2,2,2); ctx.fillRect(2,12,2,2); ctx.fillRect(12,12,2,2);
-    ctx.fillStyle = '#56565c'; ctx.fillRect(2,2,1,1); ctx.fillRect(12,2,1,1); ctx.fillRect(2,12,1,1); ctx.fillRect(12,12,1,1);
+    ctx.fillStyle = '#3a3a3e'; ctx.fillRect(1,6,2,2); ctx.fillRect(13,6,2,2);
+    ctx.fillStyle = '#56565c'; ctx.fillRect(1,6,1,1); ctx.fillRect(13,6,1,1);
   });
   TEX.piston_top = makeTex(ctx => {
     pixelFill(ctx, ['#8a7a5a','#7a6a4a','#9a8a6a','#6a5a3a'], [5,4,3,2], 4041);
@@ -1251,28 +1379,36 @@ function buildTextures() {
     pixelFill(ctx, ['#b98e4d','#a87e3d','#c99e5d','#976e2d'], [5,4,3,2], 4043);
   });
   TEX.piston_head_side = makeTex(ctx => {
-    // шток (каменный стержень) + деревянная голова сверху
-    ctx.fillStyle = '#7a7a7e'; ctx.fillRect(6,0,4,8);  // шток
-    ctx.fillStyle = '#5a5a5e'; ctx.fillRect(6,0,1,8); ctx.fillStyle = '#9a9a9e'; ctx.fillRect(9,0,1,8);
-    ctx.fillStyle = '#b98e4d'; ctx.fillRect(2,8,12,8); // голова-плита
-    ctx.fillStyle = '#a87e3d'; ctx.fillRect(2,14,12,2);
+    // деревянная плита-голова на металлическом штоке (как в MC)
+    ctx.fillStyle = '#8f8f94'; ctx.fillRect(6,0,4,7);           // шток
+    ctx.fillStyle = '#6a6a70'; ctx.fillRect(6,0,1,7);           // тень штока
+    ctx.fillStyle = '#b8b8c0'; ctx.fillRect(9,0,1,7);           // блик штока
+    ctx.fillStyle = '#4a4a4e'; ctx.fillRect(5,0,1,7); ctx.fillRect(10,0,1,7); // канавки штока
+    // голова — доска с волокнами и кромкой
+    ctx.fillStyle = '#b98e4d'; ctx.fillRect(2,7,12,9);
+    ctx.fillStyle = '#c99e5d'; ctx.fillRect(2,8,12,1);          // блик
+    ctx.fillStyle = '#a87e3d'; ctx.fillRect(2,14,12,2);         // низ темнее
+    ctx.fillStyle = '#8a6a34'; ctx.fillRect(2,7,1,9); ctx.fillRect(13,7,1,9); // торцы
+    ctx.fillStyle = '#9c7842';
+    for (const gy of [10, 13]) ctx.fillRect(3,gy,10,1);         // волокна
   });
   // ---- Командный блок (импульсный, как в MC: тёмный с оранжевым узором) ----
   TEX.cmd_side = makeTex(ctx => {
-    // тёмная база (зеленовато-коричневая, как командный блок MC)
-    pixelFill(ctx, ['#4a4238','#3e382e','#544c40','#35302a'], [5,4,3,2], 5051);
+    // корпус КБ: тёмная однородная база + «экран» со строками команды (как в MC)
+    pixelFill(ctx, ['#3f3a30','#38332b','#463f35','#332e27'], [5,4,3,2], 5051);
     // оранжевая рамка-кайма по краю (фирменный узор КБ)
     ctx.fillStyle = '#c87f0e';
     ctx.fillRect(0,0,16,1); ctx.fillRect(0,15,16,1); ctx.fillRect(0,0,1,16); ctx.fillRect(15,0,1,16);
     ctx.fillStyle = '#8a5a10'; // тень рамки
     ctx.fillRect(1,1,14,1); ctx.fillRect(1,14,14,1); ctx.fillRect(1,1,1,14); ctx.fillRect(14,1,1,14);
-    // угловые «пины»
-    ctx.fillStyle = '#e8a020';
-    ctx.fillRect(2,2,2,2); ctx.fillRect(12,2,2,2); ctx.fillRect(2,12,2,2); ctx.fillRect(12,12,2,2);
-    // центральные тёмные шестерёнки-намёки
-    ctx.fillStyle = '#2a2620';
-    ctx.fillRect(5,5,2,2); ctx.fillRect(9,5,2,2); ctx.fillRect(5,9,2,2); ctx.fillRect(9,9,2,2);
-    ctx.fillRect(7,7,2,2);
+    // «экран» — тёмная вставка с зелёными строками команды (как консоль)
+    ctx.fillStyle = '#23201b'; ctx.fillRect(3,3,10,10);
+    ctx.fillStyle = '#57b04a';                                  // строки кода
+    ctx.fillRect(4,4,6,1); ctx.fillRect(4,6,8,1); ctx.fillRect(4,8,5,1);
+    ctx.fillStyle = '#9ad48a';                                  // яркая строка (курсор)
+    ctx.fillRect(4,10,3,1); ctx.fillRect(8,10,1,1);
+    ctx.fillStyle = '#c87f0e';                                  // жёлтая ошибка-строка
+    ctx.fillRect(11,8,1,1);
   });
   TEX.cmd_front = makeTex(ctx => {
     // перед с оранжевой стрелкой «команда» (импульсный КБ)
@@ -1925,8 +2061,8 @@ function generateOverworldData(cx, cz) {
 // --- Генерация Ада: незерак, потолок/пол из бедрока, озёра лавы, светопыль ---
 function generateNetherData(cx, cz) {
     const blocks = new Uint8Array(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE);
-    // Ад как в Minecraft: замкнутая полость — снизу бедрок и глубинный камень,
-    // сверху потолок из незерака с бедроком, между ними пещера.
+    // Ад как в Minecraft: замкнутая полость — снизу бедрок и незерак (deepslate
+    // в Незере НЕ генерируется — parity MC), сверху потолок из незерака с бедроком.
     // Внизу НЕГЛУБОКОЕ лавовое море (2-3 блока лавы над каменным дном, как в MC —
     // раньше лава занимала ~38 слоёв, что грузило свет/меширование/симуляцию),
     // над морём — острова незерака, а где шум рельефа высокий — СТЕНЫ/СТОЛБЫ,
@@ -1957,9 +2093,11 @@ function generateNetherData(cx, cz) {
           } else if (y === CEIL_BEDROCK) {
             b = BLOCK.BEDROCK;                       // потолок Ада — бедрок (как в MC)
           } else if (y < FLOOR) {
-            b = BLOCK.DEEPSLATE;                     // дно под лавой из глубинного камня
+            // дно под лавой — НЕЗАРАК (parity MC: в Незере нет глубинного камня;
+            // в нижних слоях бедрок вперемешку с незераком, как в MC)
+            b = oreHash(wx, y + 31000, wz) < 0.45 ? BLOCK.BEDROCK : BLOCK.NETHERRACK;
           } else if (y <= LAVA_BED) {
-            b = BLOCK.DEEPSLATE;                     // толща дна — камень вместо 38 слоёв лавы
+            b = BLOCK.NETHERRACK;                    // толща дна — незерак (никакого deepslate в Аду)
           } else if (y <= LAVA_SEA) {
             b = BLOCK.LAVA;                          // мелкое лавовое море (2-3 слоя)
           } else if (y > ceilBottom) {
@@ -2930,7 +3068,10 @@ function skyFactor() {
   return Math.min(1, (4 + daylight() * 11) / 15);
 }
 function updateDayNight(dt) {
-  if (World.dim === 'overworld') DAY.time = (DAY.time + dt / DAY.length) % 1; // в Аду суток нет
+  if (World.dim === 'overworld') {
+    DAY.time = (DAY.time + dt / DAY.length) % 1; // в Аду суток нет
+    timeSinceRest += dt;                          // счётчик бессонницы (для фантомов)
+  }
   // День/ночь теперь меняет ОДИН юниформ на GPU — чанки перестраивать не нужно.
   // (Раньше каждый «щелчок» уровня неба перестраивал ВСЕ чанки — постоянные лаги
   // на рассвете/закате + ступенчатое затемнение.)
@@ -4139,6 +4280,7 @@ const WorldManager = {
         spawn: PLAYER.spawnPoint || null,
       },
       dayTime: DAY.time,
+      timeSinceRest: timeSinceRest, // бессонница (для спавна фантомов)
       armor: armorOut,
       slots: slots.map(s => s ? { id: s.id, count: s.count, dur: s.dur } : null),
       // предметы в сетке крафта и на курсоре тоже сохраняем (фикс: раньше терялись при автосейве)
@@ -4243,6 +4385,7 @@ const WorldManager = {
 
     // время суток
     DAY.time = (typeof data.dayTime === 'number') ? data.dayTime : 0.30;
+    timeSinceRest = (typeof data.timeSinceRest === 'number') ? data.timeSinceRest : 0;
     DAY_LIGHT_UNIFORM.value = World.dim === 'overworld' ? skyFactor() : 1;
 
     // восстановить сущности текущего измерения
@@ -4839,6 +4982,32 @@ function iconCanvas(id, size) {
     // контур опахала сверху
     ctx.strokeStyle = '#c2c2ba'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(6*u,10.2*u); ctx.lineTo(12.4*u,3.8*u); ctx.stroke();
+    return c;
+  }
+  // фантомная мембрана — серо-бирюзовая кожистая плёнка с прожилками (как в MC)
+  if (id === ITEM.PHANTOM_MEMBRANE) {
+    const u = size/16;
+    // тело плёнки — неровный многоугольник
+    ctx.fillStyle = '#5d7a82';
+    ctx.beginPath();
+    ctx.moveTo(3.6*u,6.8*u); ctx.lineTo(6.2*u,3.8*u); ctx.lineTo(11*u,3.2*u);
+    ctx.lineTo(13.4*u,6.4*u); ctx.lineTo(12.4*u,11.2*u); ctx.lineTo(8.6*u,13.6*u);
+    ctx.lineTo(4.4*u,12.4*u); ctx.lineTo(2.8*u,9.4*u); ctx.closePath(); ctx.fill();
+    // светлая кромка сверху
+    ctx.fillStyle = '#7e9ba3';
+    ctx.beginPath();
+    ctx.moveTo(6.2*u,3.8*u); ctx.lineTo(11*u,3.2*u); ctx.lineTo(13.4*u,6.4*u);
+    ctx.lineTo(10.4*u,6.2*u); ctx.lineTo(6.8*u,5.2*u); ctx.closePath(); ctx.fill();
+    // прожилки (тёмные ветвящиеся линии)
+    ctx.strokeStyle = '#3d565e'; ctx.lineWidth = Math.max(1, u*0.8);
+    ctx.beginPath();
+    ctx.moveTo(5*u,11.6*u); ctx.quadraticCurveTo(7.4*u,9*u,7.2*u,6.2*u);
+    ctx.moveTo(7.4*u,9.4*u); ctx.quadraticCurveTo(10*u,8.6*u,12.2*u,6.8*u);
+    ctx.moveTo(6*u,10.6*u); ctx.quadraticCurveTo(9.4*u,11.4*u,11.4*u,10.4*u);
+    ctx.stroke();
+    // блик
+    ctx.fillStyle = '#9cb8be';
+    ctx.fillRect(5.4*u,4.6*u,1.4*u,1.4*u);
     return c;
   }
   // Яйца спавна мобов: форма яйца + крапинки (цвета как в MC, по типу моба)
@@ -5717,8 +5886,9 @@ function renderGuide() {
   extra.className = 'guide-intro';
   extra.style.marginTop = '6px';
   extra.innerHTML = 'Не крафтится (как в Minecraft): командный блок — только <b>креатив-инвентарь (E)</b> или <code>/give command_block</code>. ' +
-    'Яйца спавна мобов — тоже только креатив: <code>/give spawn_egg_pig</code> (и т.п. — sheep, cow, chicken, fish, zombie, piglin). ' +
-    'Креатив: <code>/gamemode c</code> или при создании мира — полёт, бесконечные предметы.';
+    'Яйца спавна мобов — тоже только креатив: <code>/give spawn_egg_pig</code> (и т.п. — sheep, cow, chicken, fish, zombie, zombie_piglin, phantom). ' +
+    'Креатив: <code>/gamemode c</code> или при создании мира — полёт, бесконечные предметы.<br>' +
+    '<b>Бессонница:</b> если не спать 3 ночи подряд, на 4-ю ночь прилетят <b>фантомы</b> (кучкой, горят на рассвете). Сон в кровати или смерть сбрасывает счётчик.';
   wrap.appendChild(extra);
 
   // строка рецепта (сетка -> стрелка -> результат)
@@ -5822,7 +5992,9 @@ const CREATIVE_ITEMS = [
   ITEM.FISH_RAW, ITEM.FISH_COOKED, ITEM.ROTTEN_FLESH,
   // яйца спавна мобов (как в MC — только креатив)
   ITEM.SPAWN_EGG_SHEEP, ITEM.SPAWN_EGG_PIG, ITEM.SPAWN_EGG_COW, ITEM.SPAWN_EGG_CHICKEN,
-  ITEM.SPAWN_EGG_FISH, ITEM.SPAWN_EGG_ZOMBIE, ITEM.SPAWN_EGG_PIGLIN,
+  ITEM.SPAWN_EGG_FISH, ITEM.SPAWN_EGG_ZOMBIE, ITEM.SPAWN_EGG_PIGLIN, ITEM.SPAWN_EGG_PHANTOM,
+  // мембрана фантома (трофей с фантомов)
+  ITEM.PHANTOM_MEMBRANE,
 ];
 let creativeSearchQuery = '';
 
@@ -6215,6 +6387,10 @@ function playSound(kind, block) {
     zombieGroan(false);
   } else if (kind === 'zombie_hurt') {
     zombieGroan(true);
+  } else if (kind === 'phantom') {
+    phantomScreech(false);
+  } else if (kind === 'phantom_hurt') {
+    phantomScreech(true);
   } else if (kind === 'hurt') {
     playerHurt();
   } else if (kind === 'burp') {
@@ -6326,6 +6502,30 @@ function playCaveDrips() {
   drop(2.1, 800);
 }
 
+// визг фантома — резкий нисходящий «свист пике» (hurt — короткий вскрик)
+function phantomScreech(hurt) {
+  if (!AudioEngine.ctx) return;
+  const ctx = AudioEngine.ctx;
+  const t0 = ctx.currentTime;
+  const dur = hurt ? 0.22 : 0.7;
+  const base = (hurt ? 640 : 430) + Math.random() * 90;
+  const osc = ctx.createOscillator(); osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(base, t0);
+  // резкий нисходящий визг пикирующей твари
+  osc.frequency.exponentialRampToValueAtTime(base * 0.42, t0 + dur);
+  const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 24;
+  const lfoG = ctx.createGain(); lfoG.gain.value = base * 0.07;
+  lfo.connect(lfoG); lfoG.connect(osc.frequency);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(hurt ? 0.24 : 0.16, t0 + dur * 0.2);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  // «кожистый» тембр — полосовой фильтр
+  const filt = ctx.createBiquadFilter(); filt.type = 'bandpass'; filt.frequency.value = 950; filt.Q.value = 1.4;
+  osc.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
+  osc.start(t0); osc.stop(t0 + dur + 0.05);
+  lfo.start(t0); lfo.stop(t0 + dur + 0.05);
+}
 // стон зомби — низкий «раскисший» рык с вибрато (hurt — короткий вскрик-рык)
 function zombieGroan(hurt) {
   if (!AudioEngine.ctx) return;
@@ -7006,7 +7206,7 @@ function updateBoats(dt) {
     const tryMove = (axis, amt) => {
       b.pos[axis] += amt;
       const nbx = Math.floor(b.pos.x), nby = Math.floor(b.pos.y), nbz = Math.floor(b.pos.z);
-      const solid = (X,Y,Z)=>{const bb=World.getBlock(X,Y,Z); return bb!==BLOCK.AIR && !isLiquid(bb);};
+      const solid = (X,Y,Z)=>{const bb=World.getBlock(X,Y,Z); return bb!==BLOCK.AIR && !isLiquid(bb) && bb!==BLOCK.FIRE;};
       if (solid(nbx, nby, nbz)) {
         b.pos[axis] -= amt;
         if (axis==='y' && amt<0) b.vel.y = 0;
@@ -7117,6 +7317,23 @@ function buildMobMaterials() {
     noiseFill(ctx, 0x3a5a8a, 7);
     ctx.fillStyle = '#2c4468'; for (let i=0;i<5;i++) ctx.fillRect((Math.random()*14)|0,(Math.random()*14)|0,2,2);
     ctx.fillStyle = '#486aa0'; ctx.fillRect(3,3,4,3); ctx.fillRect(9,10,4,3);
+  }));
+  // --- Фантом ---
+  MOB_MAT.phantom_body = mobTex(makeTex(ctx => {          // тёмная сине-бирюзовая мембрана
+    pixelFill(ctx, ['#3d5860','#354e56','#46636b','#2e454c'], [5,4,3,2], 4747);
+    ctx.fillStyle = '#52717a';                              // светлые разводы по кромке
+    for (const [gx,gy] of [[1,1],[7,2],[12,4],[4,7],[10,9],[2,12],[13,12]]) ctx.fillRect(gx,gy,2,1);
+    ctx.fillStyle = '#243a40';                              // тёмные пятна-полосы
+    for (const [gx,gy,w,h] of [[3,3,2,3],[9,5,2,3],[5,11,3,2],[12,1,2,2]]) ctx.fillRect(gx,gy,w,h);
+  }));
+  MOB_MAT.phantom_wing = mobTex(makeTex(ctx => {          // крылья: мембрана с прожилками
+    pixelFill(ctx, ['#4a6a72','#42626a','#547580','#3a565e'], [5,4,3,2], 4748);
+    ctx.strokeStyle = '#2c454c';
+    for (const y of [4, 8, 12]) {                           // прожилки-рёбра
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(15, y - 2); ctx.stroke();
+    }
+    ctx.fillStyle = '#5d7f88';
+    for (const [gx,gy] of [[2,2],[8,6],[13,10],[4,13]]) ctx.fillRect(gx,gy,2,1);
   }));
 }
 
@@ -7301,6 +7518,55 @@ const MOB_TYPES = {
     },
     width: 0.6, height: 1.9, hp: 20,
   },
+  phantom: {
+    // Фантом (parity MC): летающий кошмар бессонницы — кружит над жертвой и
+    // пикирует. Приходит группой, если игрок не спал 3 ночи (см. trySpawnPhantoms).
+    drop: ITEM.PHANTOM_MEMBRANE, dropCount: () => (Math.random()*2|0), // 0-1 мембраны
+    idleSound: 'phantom', hurtSound: 'phantom_hurt',
+    hostile: true,        // враждебен
+    flying: true,         // ЛЕТАЮЩИЙ: своя ИИ-логика (круги -> пике -> взлёт)
+    burnsInSun: true,     // горит на солнце (как нежить, parity MC)
+    name: 'фантом',
+    dmg: 6,               // урон пике (Normal, как в MC)
+    build() {
+      const g = new THREE.Group();
+      const box = (w,h,d,mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat||MOB_MAT.phantom_body); if (SHADOWS_ON) m.castShadow=true; return m; };
+      // плоское широкое тело-«крыло» (длиннее — читаемый силуэт)
+      const body = box(0.9, 0.14, 0.62); body.position.set(0, 0.25, 0); g.add(body);
+      // блик-хребет сверху
+      const crest = box(0.5, 0.05, 0.24, MOB_MAT.phantom_wing); crest.position.set(0, 0.34, 0.05); g.add(crest);
+      // голова спереди + СВЕТЯЩИЕСЯ глаза (MeshBasic — видны в темноте)
+      const head = new THREE.Group();
+      head.add(box(0.46, 0.32, 0.36));
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xd8f060 });
+      const eL = new THREE.Mesh(new THREE.BoxGeometry(0.13,0.09,0.02), eyeMat); eL.position.set(-0.13,0.05,0.19); head.add(eL);
+      const eR = eL.clone(); eR.position.x = 0.13; head.add(eR);
+      // «зубы» пасти — светлая кромка снизу
+      const jaw = box(0.3, 0.06, 0.06, MOB_MAT.phantom_wing); jaw.position.set(0,-0.14,0.14); head.add(jaw);
+      head.position.set(0, 0.26, 0.38); g.add(head); g.userData.head = head;
+      // крылья по бокам — ШИРОКИЕ (размах ~2 блока: главный маркер силуэта), машут по Z
+      const wingL = box(0.5, 0.06, 0.42, MOB_MAT.phantom_wing);
+      wingL.geometry.translate(-0.25, 0, 0); wingL.position.set(-0.45, 0.26, 0); g.add(wingL);
+      const wingR = box(0.5, 0.06, 0.42, MOB_MAT.phantom_wing);
+      wingR.geometry.translate(0.25, 0, 0); wingR.position.set(0.45, 0.26, 0); g.add(wingR);
+      g.userData.wings = [wingL, wingR];
+      // хвост из 3 сегментов — ДЛИННЫЙ с волной (шаг 0.36)
+      const tail = [];
+      let tz = -0.31;
+      const tsize = [[0.52,0.1],[0.4,0.08],[0.28,0.06]];
+      for (let ti = 0; ti < 3; ti++) {
+        const [tw,th] = tsize[ti];
+        const seg = box(tw, th, 0.34);
+        seg.geometry.translate(0, 0, -0.17);   // петля в передней кромке сегмента
+        seg.position.set(0, 0.25, tz);
+        g.add(seg); tail.push(seg);
+        tz -= 0.38;
+      }
+      g.userData.tail = tail;
+      return g;
+    },
+    width: 0.9, height: 0.55, hp: 20,
+  },
 };
 
 function spawnMob(type, x, y, z) {
@@ -7318,6 +7584,11 @@ function spawnMob(type, x, y, z) {
     attackCd: 0,        // кулдаун атаки
     sheared: false,     // острижена ли овца (нет шерсти)
     landTimer: 0,       // для рыбы — таймер удушья на суше
+    ...(def.flying ? {  // летающим (фантом) — состояние полёта
+      flyState: 'circle', orbitA: Math.random()*Math.PI*2,
+      orbitDir: Math.random() < 0.5 ? 1 : -1, swoopT: 3+Math.random()*4,
+      sunCheckT: 0, sunExposed: false,
+    } : {}),
   });
 }
 
@@ -7326,7 +7597,55 @@ let mobSpawnTimer = 4;
 const MAX_ZOMBIES = 2; // зомби куда меньше, чем в MC (там их десятки за ночь)
 function zombieCount() { let n = 0; for (const m of mobs) if (m.type === 'zombie') n++; return n; }
 // мирные животные/пиглины — без зомби (у нежити СВОЙ кап, как в MC)
-function passiveCount() { return mobs.length - zombieCount(); }
+function passiveCount() { return mobs.length - zombieCount() - phantomCount(); }
+
+// ============================================================
+//  ФАНТОМЫ (parity MC): кошмар бессонницы.
+//  В MC фантомы прилетают ночью группой 1-4, если игрок не спал
+//  3 полных игровых суток (72000 тиков); сон или смерть сбрасывают
+//  счётчик. Днём не спавнятся и горят на солнце. Только верхний мир.
+// ============================================================
+let timeSinceRest = 0;            // игрового времени (сек) с последнего сна/смерти
+const MAX_PHANTOMS = 5;           // отдельный кап летающих (как у зомби)
+let phantomSpawnTimer = 20;
+function phantomCount() { let n = 0; for (const m of mobs) if (m.type === 'phantom') n++; return n; }
+function trySpawnPhantoms(dt) {
+  if (World.dim !== 'overworld' || PLAYER.dead) return;
+  // в креативе фантомы не приходят (parity MC — креативных игроков не таргетят)
+  if (window.__creative) return;
+  // только НОЧЬЮ и только после 3 суток без сна (4-я ночь — первая с фантомами)
+  if (daylight() >= 0.25 || timeSinceRest < 3 * DAY.length) return;
+  phantomSpawnTimer -= dt;
+  if (phantomSpawnTimer > 0) return;
+  phantomSpawnTimer = 24 + Math.random() * 20; // волны раз в ~25-45с
+  if (phantomCount() >= MAX_PHANTOMS) return;
+  // над игроком открытое небо (в пещере/под крышей бессонница не карается)
+  const px = Math.floor(PLAYER.pos.x), pz = Math.floor(PLAYER.pos.z);
+  for (let y = Math.floor(PLAYER.pos.y + 2); y < WORLD_HEIGHT; y++) {
+    if (OPAQUE[World.getBlock(px, y, pz)]) return;
+  }
+  // кучка 1-4 высоко над игроком (в MC — 20-34 блока над опорой)
+  const ang = Math.random() * Math.PI * 2;
+  const dist = 10 + Math.random() * 8;
+  const bx = PLAYER.pos.x + Math.cos(ang) * dist;
+  const bz = PLAYER.pos.z + Math.sin(ang) * dist;
+  const by = Math.min(WORLD_HEIGHT - 6, PLAYER.pos.y + 18 + Math.random() * 10);
+  const pack = 1 + (Math.random() * 4 | 0);
+  let spawned = 0;
+  for (let i = 0; i < pack; i++) {
+    const sx = Math.floor(bx + (Math.random() - 0.5) * 8);
+    const sz = Math.floor(bz + (Math.random() - 0.5) * 8);
+    const sy = Math.floor(by + (Math.random() - 0.5) * 6);
+    if (sy < 1 || sy > WORLD_HEIGHT - 3) continue;
+    if (World.getBlock(sx, sy, sz) !== BLOCK.AIR || World.getBlock(sx, sy + 1, sz) !== BLOCK.AIR) continue;
+    spawnMob('phantom', sx + 0.5, sy + 0.2, sz + 0.5);
+    spawned++;
+  }
+  if (spawned > 0) {
+    showToast('Фантомы почуяли вашу бессонницу…');
+    playSound('phantom');
+  }
+}
 function trySpawnMobs(dt) {
   mobSpawnTimer -= dt;
   if (mobSpawnTimer > 0) return;
@@ -7414,6 +7733,7 @@ function mobSolid(x, y, z) {
   const b = World.getBlock(x, y, z);
   if (b === BLOCK.AIR || isLiquid(b)) return false;
   if (b === BLOCK.NETHER_PORTAL) return false;
+  if (b === BLOCK.FIRE) return false; // огонь проходим и для мобов (нет хитбокса, как в MC)
   if (b === BLOCK.TORCH) return false;
   // тонкие редстоун-компоненты — мобы проходят сквозь них (как в MC)
   if (b === BLOCK.REDSTONE_DUST || b === BLOCK.REDSTONE_TORCH ||
@@ -7441,6 +7761,7 @@ function mobCollide(p, axis, amount) {
 
 function updateMobs(dt) {
   trySpawnMobs(dt);
+  trySpawnPhantoms(dt);
   const pcx = Math.floor(PLAYER.pos.x / CHUNK_SIZE);
   const pcz = Math.floor(PLAYER.pos.z / CHUNK_SIZE);
 
@@ -7507,6 +7828,115 @@ function updateMobs(dt) {
       p.mesh.rotation.y += dyf * Math.min(1, dt*8);
       if (p.mesh.userData.tail) p.mesh.userData.tail.rotation.y = Math.sin(p.walkPhase) * 0.6;
       p.mesh.scale.setScalar(p.hurtT > 0 ? 1.1 : 1.0);
+      continue;
+    }
+
+    // --- Фантом: летающая логика — КРУЖИТ над жертвой, ПИКИРУЕТ, ВЗЛЕТАЕТ (как в MC) ---
+    if (p.def.flying) {
+      // плавный доворот скорости к точке
+      const steer = (tx, ty, tz, speed, turn) => {
+        const dx = tx - p.pos.x, dy = ty - p.pos.y, dz = tz - p.pos.z;
+        const len = Math.hypot(dx, dy, dz) || 1;
+        const k = Math.min(1, dt * turn);
+        p.vel.x += (dx/len*speed - p.vel.x) * k;
+        p.vel.y += (dy/len*speed - p.vel.y) * k;
+        p.vel.z += (dz/len*speed - p.vel.z) * k;
+        return len;
+      };
+      p.stateT -= dt;
+      if (p.flyState === 'circle') {
+        // орбита вокруг игрока на высоте ~12 блоков
+        p.orbitA += p.orbitDir * dt * 0.55;
+        const tx = PLAYER.pos.x + Math.cos(p.orbitA) * 11;
+        const tz = PLAYER.pos.z + Math.sin(p.orbitA) * 11;
+        const ty = PLAYER.pos.y + 12 + Math.sin(p.orbitA * 2) * 2.5;
+        steer(tx, ty, tz, 4.4, 2.2);
+        p.swoopT -= dt;
+        if (p.swoopT <= 0 && !PLAYER.dead) { p.flyState = 'swoop'; p.stateT = 6; }
+      } else if (p.flyState === 'swoop') {
+        // ПИКЕ на игрока: быстрый бросок вниз
+        const d = steer(PLAYER.pos.x, PLAYER.pos.y + 0.9, PLAYER.pos.z, 9.5, 3.4);
+        if (d < 1.8 && p.attackCd <= 0 && !PLAYER.dead) {
+          p.attackCd = 1.2;
+          damagePlayer(p.def.dmg || 6, 'Вас убил фантом');
+          // отбросить игрока (как в MC при укусе пике)
+          const ax = PLAYER.pos.x - p.pos.x, az = PLAYER.pos.z - p.pos.z;
+          const len = Math.hypot(ax, az) || 1;
+          PLAYER.vel.x += (ax/len)*4; PLAYER.vel.z += (az/len)*4; PLAYER.vel.y = 4;
+          p.flyState = 'climb'; p.stateT = 1.6 + Math.random();
+        } else if (p.stateT <= 0 || p.pos.y < PLAYER.pos.y - 4) {
+          // прошёл мимо или упал ниже цели — вверх
+          p.flyState = 'climb'; p.stateT = 1.4 + Math.random();
+        }
+      } else {
+        // ВЗЛЁТ после атаки: свеча вверх с торможением по горизонтали
+        p.vel.x *= (1 - Math.min(1, dt * 1.6));
+        p.vel.z *= (1 - Math.min(1, dt * 1.6));
+        p.vel.y += (6.5 - p.vel.y) * Math.min(1, dt * 3);
+        if (p.stateT <= 0) { p.flyState = 'circle'; p.swoopT = 4 + Math.random() * 5; }
+      }
+      // столкновения (при пике об стену — уходим вверх, не застреваем)
+      const hitY = mobCollide(p, 'y', p.vel.y * dt);
+      const hitX = mobCollide(p, 'x', p.vel.x * dt);
+      const hitZ = mobCollide(p, 'z', p.vel.z * dt);
+      if ((hitX || hitZ || hitY) && p.flyState === 'swoop') { p.flyState = 'climb'; p.stateT = 1.2; }
+      // вода — всплываем (мембрана не тонет), лава/огонь — горим
+      const fB = World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y + 0.2), Math.floor(p.pos.z));
+      const hB = World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y + 0.4), Math.floor(p.pos.z));
+      if (isWaterLiquid(fB)) { p.vel.y += (3 - p.vel.y) * Math.min(1, dt * 4); p.burnTimer = 0; }
+      if (isLavaLiquid(fB) || isLavaLiquid(hB) || fB === BLOCK.FIRE || hB === BLOCK.FIRE) p.burnTimer = Math.max(p.burnTimer || 0, 1.2);
+      // СОЛНЦЕ: горит под открытым небом днём (parity MC, как зомби)
+      if (World.dim === 'overworld' && daylight() > 0.4) {
+        p.sunCheckT = (p.sunCheckT || 0) + dt;
+        if (p.sunCheckT >= 0.5) {
+          p.sunCheckT = 0; p.sunExposed = true;
+          const hx = Math.floor(p.pos.x), hz = Math.floor(p.pos.z);
+          for (let sy = Math.floor(p.pos.y + p.height); sy < WORLD_HEIGHT; sy++) {
+            if (OPAQUE[World.getBlock(hx, sy, hz)]) { p.sunExposed = false; break; }
+          }
+        }
+        if (p.sunExposed) p.burnTimer = Math.max(p.burnTimer || 0, 1.0);
+      } else p.sunCheckT = 0;
+      // горение
+      if ((p.burnTimer || 0) > 0 && !isWaterLiquid(fB)) {
+        p.burnTimer -= dt;
+        p.burnTick = (p.burnTick || 0) + dt;
+        if (p.burnTick >= 1.0) {
+          p.burnTick = 0;
+          p.hp -= 1;
+          p.hurtT = 0.3;
+          if (p.hp <= 0) {
+            const n = p.def.dropCount();
+            for (let k = 0; k < n; k++) spawnDrop(p.def.drop, p.pos.x + (Math.random()-0.5)*0.4, p.pos.y + 0.3, p.pos.z + (Math.random()-0.5)*0.4);
+            scene.remove(p.mesh); disposeGroup(p.mesh); mobs.splice(i, 1); continue;
+          }
+        }
+      }
+      if (p.pos.y < -8) { scene.remove(p.mesh); disposeGroup(p.mesh); mobs.splice(i, 1); continue; }
+      // --- Анимация: нос по вектору скорости, наклон при пике, машущие крылья, хвост-волна ---
+      p.mesh.position.copy(p.pos);
+      const hsp = Math.hypot(p.vel.x, p.vel.z);
+      if (hsp > 0.25) {
+        const tYaw = Math.atan2(p.vel.x, p.vel.z);
+        let dyaw = tYaw - p.mesh.rotation.y;
+        while (dyaw > Math.PI) dyaw -= Math.PI*2;
+        while (dyaw < -Math.PI) dyaw += Math.PI*2;
+        p.mesh.rotation.y += dyaw * Math.min(1, dt * 4);
+        // тангаж: нос вниз при пике, вверх при взлёте
+        const pitch = Math.max(-0.9, Math.min(0.9, -Math.atan2(p.vel.y, hsp) * 0.8));
+        p.mesh.rotation.x += (pitch - p.mesh.rotation.x) * Math.min(1, dt * 4);
+      }
+      p.walkPhase += dt * 9;                     // частые взмахи
+      const flap = Math.sin(p.walkPhase) * 0.75; // амплитуда побольше — видно издалека
+      if (p.mesh.userData.wings) {
+        p.mesh.userData.wings[0].rotation.z =  flap;
+        p.mesh.userData.wings[1].rotation.z = -flap;
+      }
+      if (p.mesh.userData.tail) {
+        const tl = p.mesh.userData.tail;
+        for (let ti = 0; ti < tl.length; ti++) tl[ti].rotation.x = Math.sin(p.walkPhase * 0.8 - ti * 0.9) * 0.26;
+      }
+      p.mesh.scale.setScalar(p.hurtT > 0 ? 1.0 + Math.sin(p.hurtT*40)*0.06 : 1.0);
       continue;
     }
 
@@ -7802,6 +8232,8 @@ function updateSleepTransition(dt) {
   if (k >= 1) {
     DAY.time = 0.25; // рассвет (daylight = 0.5)
     DAY_LIGHT_UNIFORM.value = skyFactor();
+    timeSinceRest = 0;              // ВЫСПАЛСЯ: бессонница сброшена, фантомы уйдут (parity MC)
+    phantomSpawnTimer = 20;
     // Встать в безопасную клетку РЯДОМ с кроватью (фикс: раньше игрок
     // просыпался в точке кровати и мог застрять в блоке над ней)
     let woke = false;
@@ -8319,7 +8751,7 @@ function useSpawnEgg(t, slot) {
     spawnMob(egg.mob, nx + 0.5, ny, nz + 0.5);
   }
   // дымок призыва (цвет по мобу)
-  spawnParticles(nx + 0.5, ny + 0.7, nz + 0.5, 10, egg.mob === 'zombie' ? '#7ca844' : '#e8e8e8');
+  spawnParticles(nx + 0.5, ny + 0.7, nz + 0.5, 10, egg.mob === 'zombie' ? '#7ca844' : (egg.mob === 'phantom' ? '#7ea8b0' : '#e8e8e8'));
   playSound('place', BLOCK.WOOL);
   consumeHeldItem(slot); // в креативе не расходуется (parity MC)
   refreshUI();
@@ -8497,12 +8929,15 @@ function placeBlock() {
   const nz = t.z + t.face[2];
   if (ny < 0 || ny >= WORLD_HEIGHT) return;
   const target = World.getBlock(nx, ny, nz);
-  if (target !== BLOCK.AIR && !isLiquid(target)) return; // можно ставить только в воздух/воду
+  // Замещаемые блоки (parity MC «replaceable»): воздух, жидкости и ОГОНЬ —
+  // блок ставится прямо на место огня, как в Minecraft
+  const replaceable = (b) => b === BLOCK.AIR || isLiquid(b) || b === BLOCK.FIRE;
+  if (!replaceable(target)) return;
 
   // ---- Дверь: два блока в высоту ----
   if (slot.id === ITEM.DOOR) {
     const aboveOk = World.getBlock(nx, ny + 1, nz);
-    if (ny + 1 >= WORLD_HEIGHT || (aboveOk !== BLOCK.AIR && !isLiquid(aboveOk))) return;
+    if (ny + 1 >= WORLD_HEIGHT || !replaceable(aboveOk)) return;
     if (intersectsPlayer(nx, ny, nz) || intersectsPlayer(nx, ny + 1, nz)) return;
     // нужна опора снизу
     if (canFallInto(World.getBlock(nx, ny - 1, nz))) return;
@@ -8604,7 +9039,7 @@ function placeBlock() {
     else { dx2 = 0; dz2 = lookD.z > 0 ? 1 : -1; footFront = lookD.z > 0 ? FACE_PZ : FACE_NZ; }
     const hx = nx + dx2, hz = nz + dz2;
     const hb = World.getBlock(hx, ny, hz);
-    if (hb !== BLOCK.AIR && !isLiquid(hb)) return;        // место под изголовье
+    if (!replaceable(hb)) return;                      // место под изголовье
     if (canFallInto(World.getBlock(nx, ny - 1, nz)) || canFallInto(World.getBlock(hx, ny - 1, hz))) return; // нужна опора
     if (intersectsPlayer(nx, ny, nz) || intersectsPlayer(hx, ny, hz)) return;
     consumeHeldItem(slot);
@@ -8623,7 +9058,7 @@ function placeBlock() {
     if (t.face[1] !== 1) return; // только на верхнюю грань
     const support = World.getBlock(t.x, t.y, t.z);
     if (isTransparent(support) || isLiquid(support)) return;
-    if (target !== BLOCK.AIR && !isLiquid(target)) return;
+    if (!replaceable(target)) return;
     consumeHeldItem(slot);
     refreshUI();
     World.setBlock(nx, ny, nz, BLOCK.REDSTONE_DUST);
@@ -9775,6 +10210,7 @@ function isSolidForPlayer(x, y, z) {
   const bb = World.getBlock(x, y, z);
   if (bb === BLOCK.AIR || isLiquid(bb)) return false;
   if (bb === BLOCK.NETHER_PORTAL) return false; // сквозь портал можно пройти
+  if (bb === BLOCK.FIRE) return false;         // огонь не имеет хитбокса (parity MC): стоять на нём нельзя
   if (bb === BLOCK.TORCH) return false;         // факел не мешает движению
   if (isDoor(bb)) return false; // двери обрабатываются отдельно (тонкая AABB)
   if (isBed(bb)) return false;  // кровать низкая — отдельная коллизия (как плита)
@@ -10226,6 +10662,7 @@ function respawnPlayer() {
   PLAYER.burnTimer = 0;
   PLAYER.vel.set(0,0,0);
   PLAYER.fallStart = undefined;
+  timeSinceRest = 0;   // смерть обнуляет бессонницу (parity MC: rest при смерти)
   // умерли в Аду — возврат в обычный мир (фикс: раньше respawn использовал
   // генератор рельефа оверворлда внутри Ада и ставил игрока в незерак/лаву)
   if (World.dim !== 'overworld') {
@@ -11158,6 +11595,9 @@ const GIVE_ALIASES = {
   spawn_egg_fish: ITEM.SPAWN_EGG_FISH, fish_spawn_egg: ITEM.SPAWN_EGG_FISH,
   spawn_egg_zombie: ITEM.SPAWN_EGG_ZOMBIE, zombie_spawn_egg: ITEM.SPAWN_EGG_ZOMBIE,
   spawn_egg_piglin: ITEM.SPAWN_EGG_PIGLIN, piglin_spawn_egg: ITEM.SPAWN_EGG_PIGLIN,
+  spawn_egg_zombie_piglin: ITEM.SPAWN_EGG_PIGLIN, zombie_piglin_spawn_egg: ITEM.SPAWN_EGG_PIGLIN,
+  spawn_egg_phantom: ITEM.SPAWN_EGG_PHANTOM, phantom_spawn_egg: ITEM.SPAWN_EGG_PHANTOM,
+  phantom_membrane: ITEM.PHANTOM_MEMBRANE, membrane: ITEM.PHANTOM_MEMBRANE,
   sword: ITEM.WOODEN_SWORD, pickaxe: ITEM.WOODEN_PICKAXE, axe: ITEM.WOODEN_AXE, shovel: ITEM.WOODEN_SHOVEL,
   shears: ITEM.SHEARS,
   // инструменты по префиксам
