@@ -152,6 +152,8 @@ const ITEM = {
   FEATHER:           242,
   // Фантомная мембрана (выпадает с фантомов — как в Minecraft)
   PHANTOM_MEMBRANE:  243,
+  // Нить (выпадает с пауков — как в Minecraft)
+  STRING:            244,
   // Яйца спавна мобов (креатив/читы — parity MC: не крафтятся)
   SPAWN_EGG_SHEEP:   250,
   SPAWN_EGG_PIG:     251,
@@ -161,6 +163,7 @@ const ITEM = {
   SPAWN_EGG_ZOMBIE:  255,
   SPAWN_EGG_PIGLIN:  256,
   SPAWN_EGG_PHANTOM: 257,
+  SPAWN_EGG_SPIDER:  258,
 };
 
 const BLOCK_NAMES = {
@@ -271,6 +274,7 @@ const BLOCK_NAMES = {
   [ITEM.REDSTONE]: 'Редстоун',
   [ITEM.FEATHER]:  'Перо',
   [ITEM.PHANTOM_MEMBRANE]: 'Фантомная мембрана',
+  [ITEM.STRING]:           'Нить',
   [ITEM.SPAWN_EGG_SHEEP]:   'Яйцо призыва овцы',
   [ITEM.SPAWN_EGG_PIG]:     'Яйцо призыва свиньи',
   [ITEM.SPAWN_EGG_COW]:     'Яйцо призыва коровы',
@@ -279,6 +283,7 @@ const BLOCK_NAMES = {
   [ITEM.SPAWN_EGG_ZOMBIE]:  'Яйцо призыва зомби',
   [ITEM.SPAWN_EGG_PIGLIN]:  'Яйцо призыва зомби-пиглина',
   [ITEM.SPAWN_EGG_PHANTOM]: 'Яйцо призыва фантома',
+  [ITEM.SPAWN_EGG_SPIDER]:  'Яйцо призыва паука',
 };
 
 // Еда: сколько голода восстанавливает (ванильные значения Minecraft)
@@ -308,6 +313,7 @@ const SPAWN_EGGS = {
   [ITEM.SPAWN_EGG_ZOMBIE]:  { mob: 'zombie',  base: '#3a6a9c', spots: '#7ca844' },
   [ITEM.SPAWN_EGG_PIGLIN]:  { mob: 'piglin',  base: '#e8a8b8', spots: '#7ca844' },
   [ITEM.SPAWN_EGG_PHANTOM]: { mob: 'phantom', base: '#4a6472', spots: '#a8c8c0' },
+  [ITEM.SPAWN_EGG_SPIDER]:  { mob: 'spider',  base: '#2b241d', spots: '#a8302a' },
 };
 
 const MAX_STACK = 64; // максимум в стопке
@@ -453,7 +459,10 @@ const MAX_DURABILITY = {
   [ITEM.DIAMOND_HELMET]:363,  [ITEM.DIAMOND_CHESTPLATE]:528, [ITEM.DIAMOND_LEGGINGS]:495, [ITEM.DIAMOND_BOOTS]:462,
 };
 function hasDurability(id) { return MAX_DURABILITY[id] !== undefined; }
-// израсходовать 1 заряд прочности у предмета в слоте; вернуть true если предмет сломался
+// израсходовать 1 заряд прочности у предмета в слоте; вернуть true если предмет сломался.
+// Слот может лежать в ЛЮБОМ контейнере: активная рука, вторая рука или слот брони —
+// контейнер определяется по ссылке на объект (фикс: раньше при поломке предмета
+// из второй руки вызывающий код мог удалить предмет из ОСНОВНОЙ руки).
 function useDurability(slot) {
   if (!slot || !hasDurability(slot.id)) return false;
   // Креатив: инструменты не изнашиваются (как в MC)
@@ -465,12 +474,17 @@ function useDurability(slot) {
   if (slot.dur === undefined) slot.dur = MAX_DURABILITY[slot.id];
   slot.dur--;
   if (slot.dur <= 0) {
-    // сломалось — убрать одну единицу
-    slot.count--;
+    // сломалось — убрать одну единицу (броня хранится без count — считаем её за 1)
+    slot.count = (slot.count === undefined) ? 0 : slot.count - 1;
     if (slot.count <= 0) {
-      // очистить контейнер предмета (рука ИЛИ вторая рука — по объекту)
-      if (PLAYER.offhand && slot === PLAYER.offhand) PLAYER.offhand = null;
-      else if (slots && slots[activeSlot] && slot === slots[activeSlot]) slots[activeSlot] = null;
+      // очистить контейнер предмета (рука / вторая рука / броня — по объекту)
+      if (PLAYER.offhand === slot) PLAYER.offhand = null;
+      else if (typeof slots !== 'undefined' && slots[activeSlot] === slot) slots[activeSlot] = null;
+      else if (PLAYER.armor) {
+        for (const sl of ['helmet','chestplate','leggings','boots']) {
+          if (PLAYER.armor[sl] === slot) { PLAYER.armor[sl] = null; break; }
+        }
+      }
       return true;
     }
     slot.dur = MAX_DURABILITY[slot.id]; // следующая в стопке (хотя обычно стопка=1)

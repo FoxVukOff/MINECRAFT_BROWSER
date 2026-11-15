@@ -78,6 +78,30 @@ function collide(axis, amount) {
           }
           return true;
         }
+        // ---- Кровать: низкая коробка 9/16 высотой (как плита, parity MC) ----
+        // Сквозь кровать пройти нельзя, стоять на ней — можно.
+        if (isBed(bb)) {
+          const bedTop = y + 0.5625;
+          // пересечение по XZ (кровать занимает всю клетку)
+          if (PLAYER.pos.x + hw <= x || PLAYER.pos.x - hw >= x + 1) continue;
+          if (PLAYER.pos.z + hw <= z || PLAYER.pos.z - hw >= z + 1) continue;
+          // по Y: тело игрока против низкой коробки [y, bedTop]
+          if (PLAYER.pos.y >= bedTop || PLAYER.pos.y + h <= y) continue;
+          if (amount === 0) return true;
+          if (axis === 'y') {
+            if (amount > 0) { PLAYER.pos.y = y - h - 1e-3; PLAYER.vel.y = 0; }
+            else { PLAYER.pos.y = bedTop + 1e-3; PLAYER.vel.y = 0; PLAYER.onGround = true; }
+          } else if (axis === 'x') {
+            if (amount > 0) PLAYER.pos.x = x - hw - 1e-3;
+            else PLAYER.pos.x = x + 1 + hw + 1e-3;
+            PLAYER.vel.x = 0;
+          } else {
+            if (amount > 0) PLAYER.pos.z = z - hw - 1e-3;
+            else PLAYER.pos.z = z + 1 + hw + 1e-3;
+            PLAYER.vel.z = 0;
+          }
+          return true;
+        }
         if (!isSolidForPlayer(x, y, z)) continue;
         if (amount === 0) return true;
         if (axis === 'x') {
@@ -139,14 +163,8 @@ const _tmpRight = new THREE.Vector3();
 const _tmpMove = new THREE.Vector3();
 
 function updatePlayer(dt) {
-  // креатив: F — переключить полёт
-  if (window.__creative && keys['KeyF'] && !PLAYER._fKeyLock) {
-    PLAYER._fKeyLock = true;
-    PLAYER.flying = !PLAYER.flying;
-    if (PLAYER.flying) PLAYER.vel.y = 0;
-    showToast(PLAYER.flying ? 'Полёт включён' : 'Полёт выключен');
-  }
-  if (!keys['KeyF']) PLAYER._fKeyLock = false;
+  // Полёт в креативе: ТОЛЬКО двойной пробел (как в MC). Клавиша F занята
+  // обменом предметов между руками — отдельного F-переключателя полёта нет.
   PLAYER.crouching = !!keys['ShiftLeft'] && !(window.__creative && PLAYER.flying);
 
   // --- В лодке: физикой управляет лодка; выходим по Space/Shift ---
@@ -208,7 +226,7 @@ function updatePlayer(dt) {
   if (inLava) {
     PLAYER.burnTimer = Math.max(PLAYER.burnTimer || 0, 15); // после лавы горишь 15 с (как в MC)
     PLAYER.lavaTick = (PLAYER.lavaTick || 0) + dt;
-    if (PLAYER.lavaTick >= 0.5) { PLAYER.lavaTick = 0; damagePlayer(4, "Вы сгорели в лаве", true); } // лава жжёт сильно
+    if (PLAYER.lavaTick >= 0.5) { PLAYER.lavaTick = 0; damagePlayer(4, "Вы сгорели в лаве"); } // лава жжёт сильно (броня защищает — как в MC)
   } else if (inFire) {
     PLAYER.burnTimer = Math.max(PLAYER.burnTimer || 0, 0.8);
   }
@@ -216,7 +234,7 @@ function updatePlayer(dt) {
   if (PLAYER.burnTimer > 0 && !inLava) {
     PLAYER.burnTimer -= dt;
     PLAYER.fireTick = (PLAYER.fireTick || 0) + dt;
-    if (PLAYER.fireTick >= 1.0) { PLAYER.fireTick = 0; if (PLAYER.hp > 0) damagePlayer(1, "Вы сгорели", true); }
+    if (PLAYER.fireTick >= 1.0) { PLAYER.fireTick = 0; if (PLAYER.hp > 0) damagePlayer(1, "Вы сгорели"); } // огонь тоже поглощается бронёй (как в MC)
     // вода тушит огонь
     if (PLAYER.inWater) PLAYER.burnTimer = 0;
   }
@@ -386,7 +404,7 @@ function updateSurvival(dt) {
     PLAYER.starveTimer += dt;
     if (PLAYER.starveTimer >= 4) {
       PLAYER.starveTimer = 0;
-      if (PLAYER.hp > 1) damagePlayer(1, "Вы умерли от голода"); // голод не убивает до 1 hp (как в normal)
+      if (PLAYER.hp > 1) damagePlayer(1, "Вы умерли от голода", true); // голод не убивает до 1 hp и обходит броню (как в MC)
     }
   } else { PLAYER.starveTimer = 0; }
 
@@ -409,11 +427,25 @@ function totalArmorPoints() {
 function damagePlayer(amount, reason, ignoreArmor) {
   if (PLAYER.dead) return;             // уже мертвы — больше не получаем урон (фикс лишнего догорания)
   if (window.__creative) return;       // креатив: игрок неуязвим (как в MC)
-  // броня поглощает часть урона (как в MC: каждое очко ~4% защиты),
-  // но НЕ защищает от лавы/огня/падения/утопления (как в MC)
+  // броня поглощает часть урона (как в MC: каждое очко ~4% защиты)
+  // и теряет прочность. НЕ защищает от падения/утопления/голода (как в MC);
+  // огонь/лава/взрывы/атаки мобов броня поглощает (vanilla parity).
   if (!ignoreArmor) {
     const ap = totalArmorPoints();
-    if (ap > 0) amount = amount * (1 - Math.min(0.8, ap * 0.04));
+    if (ap > 0) {
+      amount = amount * (1 - Math.min(0.8, ap * 0.04));
+      // износ брони: каждая часть теряет 1 прочность за полученный удар
+      // (как в MC для урона, который броня поглощает). Сломалась — звук + слот пуст.
+      let brokeAny = false;
+      for (const sl of ['helmet','chestplate','leggings','boots']) {
+        if (PLAYER.armor[sl] && useDurability(PLAYER.armor[sl])) brokeAny = true;
+      }
+      if (brokeAny) {
+        playSound('break', BLOCK.STONE);
+        showToast('Броня сломалась!');
+        refreshUI();
+      }
+    }
   }
   amount = Math.max(0, amount);
   PLAYER.hp = Math.max(0, PLAYER.hp - amount);

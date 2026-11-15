@@ -245,6 +245,29 @@ function iconCanvas(id, size) {
     ctx.beginPath(); ctx.moveTo(6*u,10.2*u); ctx.lineTo(12.4*u,3.8*u); ctx.stroke();
     return c;
   }
+  // НИТЬ (выпадает с пауков — как в MC): моток светло-серых волокон
+  if (id === ITEM.STRING) {
+    const u = size/16;
+    // моток: три наложенных «кольца»
+    const rings = [
+      { cx: 8, cy: 8, rx: 4.6, ry: 2.6, rot: -0.5, main: '#e8e4da', dark: '#b8b2a4' },
+      { cx: 8, cy: 8, rx: 3.4, ry: 4.4, rot:  0.6, main: '#dcd6c8', dark: '#a8a294' },
+      { cx: 8, cy: 8, rx: 2.2, ry: 3.2, rot: -0.2, main: '#f2efe6', dark: '#c4beb0' },
+    ];
+    for (const r of rings) {
+      ctx.save();
+      ctx.translate(r.cx*u, r.cy*u); ctx.rotate(r.rot);
+      ctx.strokeStyle = r.main; ctx.lineWidth = Math.max(2, u*1.6);
+      ctx.beginPath(); ctx.ellipse(0, 0, r.rx*u, r.ry*u, 0, 0, Math.PI*2); ctx.stroke();
+      ctx.strokeStyle = r.dark; ctx.lineWidth = Math.max(1, u*0.6);
+      ctx.beginPath(); ctx.ellipse(0, 0, r.rx*u, r.ry*u, 0, Math.PI*0.15, Math.PI*1.05); ctx.stroke();
+      ctx.restore();
+    }
+    // свисающий кончик нити
+    ctx.strokeStyle = '#dcd6c8'; ctx.lineWidth = Math.max(1, u*0.9);
+    ctx.beginPath(); ctx.moveTo(11.6*u, 9.2*u); ctx.quadraticCurveTo(13*u, 11*u, 12.2*u, 13.4*u); ctx.stroke();
+    return c;
+  }
   // фантомная мембрана — серо-бирюзовая кожистая плёнка с прожилками (как в MC)
   if (id === ITEM.PHANTOM_MEMBRANE) {
     const u = size/16;

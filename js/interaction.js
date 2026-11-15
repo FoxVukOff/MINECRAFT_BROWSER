@@ -165,9 +165,10 @@ function finishBreak(t) {
   // свечение руды при ломании (визуальный эффект перед удалением)
   if (broken === BLOCK.REDSTONE_ORE) glowRedstoneOre(t.x, t.y, t.z);
 
-  // износ инструмента за сломанный блок (в MC — 1 прочность за блок)
+  // износ инструмента за сломанный блок (в MC — 1 прочность за блок).
+  // useDurability сам очищает нужный контейнер (рука/вторая рука) — ничего не дублируем
   if (held && hasDurability(held.id) && !(broken === BLOCK.LEAVES && held.id === ITEM.SHEARS) && broken !== BLOCK.WOOL) {
-    if (useDurability(held)) slots[activeSlot] = null;
+    useDurability(held);
   }
   addExhaustion(0.005); // ломание блоков тратит голод (ванильное значение MC)
   rebuildAround(t.x, t.z);
@@ -362,7 +363,9 @@ function useFlintAndSteel(t, slot) {
     if (activateNetherPortal(nx, ny, nz)) {
       showToast('Портал активирован');
       playSound('place', BLOCK.WOOD);
-      if (useDurability(slot) || (slot.count <= 0)) { if (slot.count <= 0) slots[activeSlot] = null; }
+      // износ зажигалки: useDurability сам чистит контейнер (рука ИЛИ вторая рука —
+      // фикс: раньше при поломке предмета из ВТОРОЙ руки удалялся предмет из основной)
+      useDurability(slot);
       refreshUI();
     }
     return;
@@ -375,8 +378,8 @@ function useFlintAndSteel(t, slot) {
   if (!belowOk && !sideOk) return;
   FireSim.add(nx, ny, nz); // крепление (сверху/сбоку) определится автоматически
   playSound('place', BLOCK.WOOD);
-  // расход прочности
-  if (useDurability(slot) || (slot.count <= 0)) { if (slot.count <= 0) slots[activeSlot] = null; }
+  // расход прочности (контейнер — рука или вторая рука — чистится внутри useDurability)
+  useDurability(slot);
   refreshUI();
 }
 
@@ -545,7 +548,7 @@ function placeBlock() {
         if (m.mesh.userData.wool) m.mesh.userData.wool.scale.set(0.8, 0.7, 0.85); // визуально «голая»
         playSound('shear');
         // ножницы теряют прочность (через useDurability — действует правило мира)
-        if (useDurability(slot0)) { slots[activeSlot] = null; playSound('break', BLOCK.IRON_ORE); }
+        if (useDurability(slot0)) playSound('break', BLOCK.IRON_ORE);
         refreshUI();
         return;
       } else {

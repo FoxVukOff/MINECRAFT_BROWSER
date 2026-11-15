@@ -241,6 +241,14 @@ function buildMobMaterials() {
     ctx.fillStyle = '#5d7f88';
     for (const [gx,gy] of [[2,2],[8,6],[13,10],[4,13]]) ctx.fillRect(gx,gy,2,1);
   }));
+  // --- Паук ---
+  MOB_MAT.spider_body = mobTex(makeTex(ctx => {          // тёмно-бурый мохнатый хитин
+    noiseFill(ctx, 0x35281e, 9);
+    ctx.fillStyle = '#241a12'; for (let i=0;i<8;i++) ctx.fillRect((Math.random()*14)|0,(Math.random()*14)|0,2,2);
+    ctx.fillStyle = '#4a382a'; ctx.fillRect(2,2,3,2); ctx.fillRect(10,9,3,2); ctx.fillRect(6,12,2,2);
+    ctx.fillStyle = '#171008'; ctx.fillRect(9,3,2,2); ctx.fillRect(4,10,2,2);
+  }));
+  MOB_MAT.spider_leg = mobTex(makeTex(ctx => noiseFill(ctx, 0x2b2018, 8))); // почти чёрные ноги-суставы
 }
 
 const EYE_MAT = () => new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
@@ -341,6 +349,7 @@ const MOB_TYPES = {
     idleSound: 'oink', hurtSound: 'oink_hurt',
     hostile: true,      // может атаковать игрока (после агра)
     pack: true,         // вся стая агрится при ударе по одному
+    pathfind: true,     // A*-навигация (в Аду обходят лаву и стены)
     name: 'зомби-пиглин',
     dmg: 3,
     build() {
@@ -393,6 +402,7 @@ const MOB_TYPES = {
     idleSound: 'zombie', hurtSound: 'zombie_hurt',
     hostile: true,        // враждебен: преследует и атакует игрока
     burnsInSun: true,     // горит на солнце (MC-парити)
+    pathfind: true,       // A*-навигация в обход препятствий (не застревает)
     name: 'зомби',        // имя для сообщения о смерти
     dmg: 3,               // урон по игроку (ваниль normal)
     chaseSpeed: 2.7,      // медленнее игрока — можно убежать (MC-парити)
@@ -423,6 +433,64 @@ const MOB_TYPES = {
       return g;
     },
     width: 0.6, height: 1.9, hp: 20,
+  },
+  spider: {
+    // Паук (parity MC): 16 HP, нейтрален при свете >= 12 (днём на поверхности —
+    // мирный, если его не трогать), в темноте — враждебен. НЕ горит на солнце.
+    // ЛЕЗЕТ ПО СТЕНАМ (climbing) и делает прыжки-атаки с разбега (leap).
+    drop: ITEM.STRING, dropCount: () => (Math.random()*3|0), // 0-2 нити (как в MC)
+    idleSound: 'spider', hurtSound: 'spider_hurt',
+    hostile: true,        // враждебен (в темноте или если ударить)
+    pathfind: true,       // A*-навигация
+    climbs: true,         // лазает по стенам — фирменная способность MC-паука
+    leaps: true,          // прыжок-атака с разбега (~3 блока)
+    name: 'паук',
+    dmg: 2,               // урон (Normal, как в MC)
+    chaseSpeed: 3.5,      // пауки заметно быстрее зомби
+    build() {
+      const g = new THREE.Group();
+      const box = (w,h,d,mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat||MOB_MAT.spider_body); if (SHADOWS_ON) m.castShadow=true; return m; };
+      // головогрудь (перед) — отдельный сегмент, приподнят
+      const head = box(0.5, 0.4, 0.45); head.position.set(0, 0.48, 0.45); g.add(head);
+      // брюшко (зад) — большое, мохнатое, ЧЁТКО отделено от головогруди
+      const abd = box(0.82, 0.56, 0.85); abd.position.set(0, 0.5, -0.42); g.add(abd);
+      // СВЕТЯЩИЕСЯ красные глаза (MeshBasic — видны в темноте, как в MC)
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xc02020 });
+      const eL = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.075,0.02), eyeMat); eL.position.set(-0.12,0.55,0.68); g.add(eL);
+      const eR = eL.clone(); eR.position.x = 0.12; g.add(eR);
+      const eL2 = new THREE.Mesh(new THREE.BoxGeometry(0.07,0.05,0.02), eyeMat); eL2.position.set(-0.21,0.5,0.66); g.add(eL2);
+      const eR2 = eL2.clone(); eR2.position.x = 0.21; g.add(eR2);
+      // «жвала» — две тёмные мандибулы спереди
+      const fL = box(0.06, 0.1, 0.12, MOB_MAT.spider_leg); fL.position.set(-0.09, 0.4, 0.66); g.add(fL);
+      const fR = fL.clone(); fR.position.x = 0.09; g.add(fR);
+      // 8 ДВУХСЕГМЕНТНЫХ ног с «коленом» выше тела — фирменный силуэт MC-паука:
+      // бедро уходит вверх-в сторону, голень спускается к земле
+      const legs = [];
+      const zPos = [0.40, 0.20, 0.0, -0.22];
+      const UPPER = 0.5, TILT = 0.85, LOWER = 0.85, LOWER_TILT = 0.35;
+      for (let s = -1; s <= 1; s += 2) {
+        for (let i = 0; i < 4; i++) {
+          const hip = new THREE.Group();
+          hip.position.set(s * 0.26, 0.48, zPos[i]);
+          hip.rotation.y = s * (0.6 - i * 0.4);   // веер: передние вперёд, задние назад
+          // бедро (вверх-наружу, колено ВЫШЕ тела)
+          const upper = box(0.07, UPPER, 0.07, MOB_MAT.spider_leg);
+          upper.geometry.translate(0, UPPER / 2, 0);
+          upper.rotation.z = -s * TILT;
+          hip.add(upper);
+          // голень (от колена вниз-наружу до земли)
+          const lower = box(0.07, LOWER, 0.07, MOB_MAT.spider_leg);
+          lower.geometry.translate(0, -LOWER / 2, 0);
+          lower.position.set(s * Math.sin(TILT) * UPPER, Math.cos(TILT) * UPPER, 0);
+          lower.rotation.z = s * LOWER_TILT;
+          hip.add(lower);
+          g.add(hip); legs.push(hip);
+        }
+      }
+      g.userData.legs = legs;
+      return g;
+    },
+    width: 1.4, height: 0.9, hp: 16,
   },
   phantom: {
     // Фантом (parity MC): летающий кошмар бессонницы — кружит над жертвой и
@@ -505,13 +573,23 @@ let hostileSpawnTimer = 1.5;    // цикл монстров (свой, част
 // занижение (макс. 2 зомби, шанс 22%) убрано — плотность задаёт сам алгоритм MC.
 const MAX_HOSTILES = 70;
 function zombieCount() { let n = 0; for (const m of mobs) if (m.type === 'zombie') n++; return n; }
-// монстры: зомби (верхний мир) + зомби-пиглины (Ад); фантомы — отдельный кап
-function hostileCount() { let n = 0; for (const m of mobs) if (m.type === 'zombie' || m.type === 'piglin') n++; return n; }
-// мирные животные (без зомби/пиглинов/фантомов)
+// монстры: зомби + пауки (верхний мир) + зомби-пиглины (Ад); фантомы — отдельный кап
+function hostileCount() { let n = 0; for (const m of mobs) if (m.type === 'zombie' || m.type === 'piglin' || m.type === 'spider') n++; return n; }
+// мирные животные (без зомби/пауков/пиглинов/фантомов)
 function passiveCount() {
   let n = 0;
-  for (const m of mobs) if (m.type !== 'zombie' && m.type !== 'piglin' && m.type !== 'phantom') n++;
+  for (const m of mobs) if (m.type !== 'zombie' && m.type !== 'piglin' && m.type !== 'phantom' && m.type !== 'spider') n++;
   return n;
+}
+
+// Паук враждебен только в темноте (как в MC): днём под открытым небом —
+// нейтрален (небесный свет 15), ночью/в сумерках — нападает; под крышей/в
+// пещере решает блок-свет (факелы с светом >= 12 отпугивают)
+function spiderAngryAtLight(p) {
+  const x = Math.floor(p.pos.x), y = Math.floor(p.pos.y), z = Math.floor(p.pos.z);
+  if (hasSkyAccess(x, y, z)) return daylight() < 0.5; // под небом: солнце село/садится
+  const bl = blockLightAt(x, y, z);
+  return bl < 12; // под крышей/в пещере: блок-свет >= 12 (факелы) — нейтрален
 }
 
 // ============================================================
@@ -561,7 +639,9 @@ function spawnHostilePack(type, x, y, z, opts) {
 // дальше 56 — за пределами прорисовки, зомби были бы невидимыми).
 function hostileSpawnAttempt(type) {
   const night = daylight() < 0.25;
-  const opts = (type === 'zombie') ? { light0: true, night } : { light0: false };
+  // зомби и пауки спавнятся «в темноте» (свет блока 0, ночью — и на поверхности);
+  // пиглины в Аду — на любой светлоте (как в MC)
+  const opts = (type === 'piglin') ? { light0: false } : { light0: true, night };
   const maxDist = Math.max(32, Math.min(RENDER_DISTANCE * CHUNK_SIZE - 8, 56));
   const ang = Math.random() * Math.PI * 2;
   const dist = 24 + Math.random() * (maxDist - 24);
@@ -580,6 +660,7 @@ function hostileSpawnAttempt(type) {
 }
 function trySpawnZombiePack() { return hostileSpawnAttempt('zombie'); }
 function trySpawnPiglinPack() { return hostileSpawnAttempt('piglin'); }
+function trySpawnSpiderPack() { return hostileSpawnAttempt('spider'); }
 
 // ============================================================
 //  ФАНТОМЫ (parity MC): кошмар бессонницы.
@@ -632,11 +713,13 @@ function trySpawnMobs(dt) {
   // --- Цикл монстров (свой таймер, как в MC у категории monster).
   // Каждые ~1.5-2.5с — одна колонка-кандидат; ночью большинство колонок
   // тёмные => пачка спавнится, за ночь область насыщается до капа (как в MC).
+  // В верхнем мире зомби и пауки спавнятся 50/50 (в MC веса почти равны). ---
   hostileSpawnTimer -= dt;
   if (hostileSpawnTimer <= 0) {
     hostileSpawnTimer = 1.5 + Math.random();
     if (hostileCount() < MAX_HOSTILES) {
-      const fn = World.dim === 'overworld' ? trySpawnZombiePack : trySpawnPiglinPack;
+      const fn = (World.dim !== 'overworld') ? trySpawnPiglinPack
+        : (Math.random() < 0.5 ? trySpawnZombiePack : trySpawnSpiderPack);
       fn();
     }
   }
@@ -708,15 +791,48 @@ function mobSolid(x, y, z) {
 // коллизия AABB для моба по одной оси
 function mobCollide(p, axis, amount) {
   const hw = p.width/2, h = p.height;
+  const oldPos = p.pos[axis];        // позиция ДО сдвига (для отсева «старых» клеток)
   p.pos[axis] += amount;
   const minX = Math.floor(p.pos.x - hw), maxX = Math.floor(p.pos.x + hw);
   const minY = Math.floor(p.pos.y), maxY = Math.floor(p.pos.y + h);
   const minZ = Math.floor(p.pos.z - hw), maxZ = Math.floor(p.pos.z + hw);
   for (let x=minX;x<=maxX;x++) for (let y=minY;y<=maxY;y++) for (let z=minZ;z<=maxZ;z++) {
     if (!mobSolid(x,y,z)) continue;
+    // ФИКС телепортов у широких мобов (паук 1.4): клетка, которую AABB
+    // пересекал ЕЩЁ ДО сдвига по этой оси (упёрлись углом), — не наша
+    // коллизия. Раньше такой «натянутый угол» выталкивал моба на целый
+    // блок вбок (паука швыряло вдоль стены, срывая лазание).
+    const oMin = axis === 'y' ? oldPos : oldPos - hw;
+    const oMax = axis === 'y' ? oldPos + h : oldPos + hw;
+    const cc = axis === 'x' ? x : (axis === 'y' ? y : z);
+    const wasOverlap = (cc < oMax - 1e-4) && (cc + 1 > oMin + 1e-4);
+    if (wasOverlap) continue;
     if (axis==='x'){ p.pos.x = amount>0 ? x-hw-1e-3 : x+1+hw+1e-3; p.vel.x=0; }
     else if (axis==='y'){ if(amount>0){p.pos.y=y-h-1e-3;p.vel.y=0;} else {p.pos.y=y+1+1e-3;p.vel.y=0;p.onGround=true;} }
     else { p.pos.z = amount>0 ? z-hw-1e-3 : z+1+hw+1e-3; p.vel.z=0; }
+    return true;
+  }
+  return false;
+}
+
+// вертикальная коллизия с УЗКИМ хитбоксом (для лазания паука по стене):
+// широкие бока (паук 1.4) обхватывают 1-блочную стену/башню, и обычная проверка
+// ловила бы «удар головой» о каждый блок стены НАД собой, срывая подъём.
+// Узкая центральная колонна (ширина × widthScale) — как в MC: паук прижимается
+// к стене и скользит вверх, потолок ловится только по центру.
+function mobCollideY(p, amount, widthScale) {
+  const hw = p.width / 2 * (widthScale || 1), h = p.height;
+  const oldPos = p.pos.y;
+  p.pos.y += amount;
+  const minX = Math.floor(p.pos.x - hw), maxX = Math.floor(p.pos.x + hw);
+  const minY = Math.floor(p.pos.y), maxY = Math.floor(p.pos.y + h);
+  const minZ = Math.floor(p.pos.z - hw), maxZ = Math.floor(p.pos.z + hw);
+  for (let x = minX; x <= maxX; x++) for (let y = minY; y <= maxY; y++) for (let z = minZ; z <= maxZ; z++) {
+    if (!mobSolid(x, y, z)) continue;
+    const wasOverlap = (y < oldPos + h - 1e-4) && (y + 1 > oldPos + 1e-4);
+    if (wasOverlap) continue;
+    if (amount > 0) { p.pos.y = y - h - 1e-3; p.vel.y = 0; }
+    else { p.pos.y = y + 1 + 1e-3; p.vel.y = 0; p.onGround = true; }
     return true;
   }
   return false;
@@ -918,22 +1034,48 @@ function updateMobs(dt) {
     if (p.type === 'zombie' && (p.aggro || 0) <= 0 && !PLAYER.dead) {
       if (dist2ToPlayer(p) < 35*35) p.aggro = 12; // MC: радиус обнаружения зомби 35 блоков
     }
+    // Паук: в MC нейтрален при свете >= 12 и враждебен в темноте (16 блоков)
+    if (p.type === 'spider' && (p.aggro || 0) <= 0 && !PLAYER.dead) {
+      if (dist2ToPlayer(p) < 16*16 && spiderAngryAtLight(p)) p.aggro = 14;
+    }
     if ((p.aggro || 0) > 0) {
       // --- Агрессия: преследуем игрока и атакуем вблизи ---
       p.aggro -= dt;
       const d2 = dist2ToPlayer(p);
-      if (d2 > 40*40) { p.aggro = 0; } // слишком далеко — теряем цель
+      if (d2 > 40*40) { p.aggro = 0; p.path = null; } // слишком далеко — теряем цель
       else {
-        const ax = PLAYER.pos.x - p.pos.x, az = PLAYER.pos.z - p.pos.z;
-        p.yaw = Math.atan2(ax, az);
         chasing = true; moving = true;
+        // --- НАВИГАЦИЯ: A* в обход стен/оврагов (фикс застреваний) ---
+        if (p.def.pathfind && typeof mobUpdateChasePath === 'function') {
+          mobUpdateChasePath(p, PLAYER.pos.x, PLAYER.pos.y, PLAYER.pos.z, dt);
+          const ang = mobSteerAlongPath(p);
+          p.yaw = (ang !== null) ? ang : Math.atan2(PLAYER.pos.x - p.pos.x, PLAYER.pos.z - p.pos.z);
+        } else {
+          p.yaw = Math.atan2(PLAYER.pos.x - p.pos.x, PLAYER.pos.z - p.pos.z);
+        }
+        // ПАУК: прыжок-атака с разбега (как в MC — leap attack). Только по БЛИЗКОЙ
+        // ГОРИЗОНТАЛЬНО цели на том же уровне (иначе башню/стену надо ЛЕЗТЬ,
+        // а не прыгать у подножия)
+        if (p.def.leaps && p.onGround && !p.climbing && d2 > 1.5*1.5) {
+          const dxh = PLAYER.pos.x - p.pos.x, dzh = PLAYER.pos.z - p.pos.z;
+          const dh2 = dxh*dxh + dzh*dzh;
+          const dyv = Math.abs(PLAYER.pos.y - p.pos.y);
+          if (dh2 > 1.5*1.5 && dh2 < 4.0*4.0 && dyv < 1.5 && Math.random() < dt * 1.4) {
+            const llen = Math.hypot(dxh, dzh) || 1;
+            p.vel.x = (dxh / llen) * (p.def.chaseSpeed || 3.5) * 1.6;
+            p.vel.z = (dzh / llen) * (p.def.chaseSpeed || 3.5) * 1.6;
+            p.vel.y = 5.2;
+            p.onGround = false;
+            p.leapT = 0.8; // летим по инерции — скорость не переназначаем
+          }
+        }
         // атака при контакте
         if (d2 < 2.0*2.0 && p.attackCd <= 0 && !PLAYER.dead) {
           p.attackCd = 1.0;
           damagePlayer(p.def.dmg || 3, 'Вас убил ' + (p.def.name || 'моб'));
           // отбросить игрока
-          const len = Math.hypot(ax, az) || 1;
-          PLAYER.vel.x += (ax/len)*3; PLAYER.vel.z += (az/len)*3; PLAYER.vel.y = 4;
+          const len = Math.hypot(PLAYER.pos.x - p.pos.x, PLAYER.pos.z - p.pos.z) || 1;
+          PLAYER.vel.x += ((PLAYER.pos.x - p.pos.x)/len)*3; PLAYER.vel.z += ((PLAYER.pos.z - p.pos.z)/len)*3; PLAYER.vel.y = 4;
         }
       }
     }
@@ -955,7 +1097,10 @@ function updateMobs(dt) {
 
     // зомби заметно медленнее игрока (2.7), пиглин шустрее (3.6) — от зомби можно убежать
     const speed = chasing ? (p.def.chaseSpeed || 3.6) : (p.flee > 0 ? 3.2 : 1.4);
-    if (moving) {
+    if (moving && (p.leapT || 0) > 0) {
+      // в полёте прыжка-атаки — не переназначаем скорость, летим по инерции
+      p.leapT -= dt;
+    } else if (moving) {
       const dirx = Math.sin(p.yaw), dirz = Math.cos(p.yaw);
       // избегать захода в воду: если впереди вода — развернуться (мобы реже сидят в воде)
       const ahx = Math.floor(p.pos.x + dirx*0.8), ahz = Math.floor(p.pos.z + dirz*0.8);
@@ -982,10 +1127,15 @@ function updateMobs(dt) {
     if (inWater) {
       // плавучесть ПЕРЕКРЫВАЕТ гравитацию: задаём целевую скорость всплытия,
       // чтобы моб поднимался к поверхности и держался на ней (не тонул, не «дышал под водой»).
-      const target = headInWater ? 3.2 : 1.4;   // под водой — всплывать быстрее
+      const target = headInWater ? 3.2 : 1.4;   // под воде — всплывать быстрее
       p.vel.y += (target - p.vel.y) * Math.min(1, dt * 8); // плавно к целевой
       // паническое стремление к ближайшей суше
       if (p.flee <= 0) { p.state = 'walk'; p.stateT = Math.max(p.stateT, 0.5); }
+    } else if (p.climbing) {
+      // ПАУК НА СТЕНЕ: гравитация не действует — ползёт вверх с постоянной
+      // скоростью (независимо от FPS: на низких кадрах гравитация успевала
+      // гасить импульс подъёма за один кадр и паук «залипал» у подножия)
+      p.vel.y = 3.0;
     } else {
       p.vel.y -= GRAVITY * dt;
       // курица медленно падает, размахивая крыльями (без урона от падения, как в MC)
@@ -1040,12 +1190,35 @@ function updateMobs(dt) {
     }
 
     p.onGround = false;
-    mobCollide(p, 'y', p.vel.y * dt);
-    mobCollide(p, 'x', p.vel.x * dt);
-    mobCollide(p, 'z', p.vel.z * dt);
+    // паук ЛЕЗЕТ по стене: вертикаль — по узкой колонне (иначе блоки стены
+    // над головой «бьют» каждый кадр и срывают подъём)
+    if (p.climbing && p.vel.y > 0) mobCollideY(p, p.vel.y * dt, 0.5);
+    else mobCollide(p, 'y', p.vel.y * dt);
+    const hitX = mobCollide(p, 'x', p.vel.x * dt);
+    const hitZ = mobCollide(p, 'z', p.vel.z * dt);
 
-    if (moving && Math.abs(p.vel.x) < 0.01 && Math.abs(p.vel.z) < 0.01 && p.onGround && p.flee <= 0) {
-      p.yaw = Math.random()*Math.PI*2; p.stateT = Math.min(p.stateT, 0.4);
+    // ПАУК: упёрся в стену на погоне/побеге — ЛЕЗЕТ ВВЕРХ (climbing, parity MC).
+    // Пока жмётся к стене — не прыгает (прыжок мешает лазанию у подножия)
+    if (p.def.climbs && (hitX || hitZ) && ((p.aggro || 0) > 0 || p.flee > 0)) {
+      p.onGround = false;
+      p.climbing = true;
+    } else {
+      p.climbing = false;
+    }
+
+    // застревание: идём, но скорости нет (упёрся в стену/углы)
+    if (moving && Math.abs(p.vel.x) < 0.05 && Math.abs(p.vel.z) < 0.05 && p.onGround) {
+      p._stuckT = (p._stuckT || 0) + dt;
+      if (p._stuckT > 0.45) {
+        p._stuckT = 0;
+        if (chasing && p.def.pathfind) {
+          p.path = null; p.pathT = 0; // форсируем пересчёт маршрута
+        } else if ((p.flee || 0) <= 0) {
+          p.yaw = Math.random()*Math.PI*2; p.stateT = Math.min(p.stateT, 0.4);
+        }
+      }
+    } else {
+      p._stuckT = 0;
     }
 
     if (p.pos.y < -8) { scene.remove(p.mesh); disposeGroup(p.mesh); mobs.splice(i, 1); continue; }
@@ -1285,9 +1458,10 @@ function hurtMob(p) {
   p.hurtT = 0.3;
   addExhaustion(0.1); // атака тратит голод
   playSound(p.def.hurtSound);
-  // износ инструмента при ударе (в MC оружие тоже теряет прочность)
+  // износ инструмента при ударе (в MC оружие тоже теряет прочность;
+  // useDurability сам чистит нужный контейнер)
   if (held && hasDurability(held.id)) {
-    if (useDurability(held)) slots[activeSlot] = null;
+    useDurability(held);
     refreshUI();
   }
   // Враждебные пачные мобы (пиглины): при ударе агрятся сами + вся стая (пока кто-то жив)

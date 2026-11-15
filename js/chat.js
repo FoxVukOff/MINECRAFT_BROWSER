@@ -38,6 +38,8 @@ const GIVE_ALIASES = {
   spawn_egg_piglin: ITEM.SPAWN_EGG_PIGLIN, piglin_spawn_egg: ITEM.SPAWN_EGG_PIGLIN,
   spawn_egg_zombie_piglin: ITEM.SPAWN_EGG_PIGLIN, zombie_piglin_spawn_egg: ITEM.SPAWN_EGG_PIGLIN,
   spawn_egg_phantom: ITEM.SPAWN_EGG_PHANTOM, phantom_spawn_egg: ITEM.SPAWN_EGG_PHANTOM,
+  spawn_egg_spider: ITEM.SPAWN_EGG_SPIDER, spider_spawn_egg: ITEM.SPAWN_EGG_SPIDER,
+  string: ITEM.STRING, thread: ITEM.STRING, нить: ITEM.STRING,
   phantom_membrane: ITEM.PHANTOM_MEMBRANE, membrane: ITEM.PHANTOM_MEMBRANE,
   sword: ITEM.WOODEN_SWORD, pickaxe: ITEM.WOODEN_PICKAXE, axe: ITEM.WOODEN_AXE, shovel: ITEM.WOODEN_SHOVEL,
   shears: ITEM.SHEARS,
@@ -110,6 +112,90 @@ function setGameMode(creative, announce) {
   if (typeof refreshUI === 'function') refreshUI();
 }
 
+// Алиасы мобов для /summon: английские (как в MC) + русские имена.
+// Русские без «ё» и через подчёркивания — удобно набирать в чате.
+const SUMMON_ALIASES = {
+  pig: 'pig', свинья: 'pig',
+  cow: 'cow', корова: 'cow',
+  chicken: 'chicken', курица: 'chicken',
+  sheep: 'sheep', овца: 'sheep',
+  fish: 'fish', рыба: 'fish',
+  zombie: 'zombie', зомби: 'zombie',
+  piglin: 'piglin', zombie_piglin: 'piglin', зомби_пиглин: 'piglin', пиглин: 'piglin',
+  phantom: 'phantom', фантом: 'phantom',
+  spider: 'spider', паук: 'spider',
+};
+function resolveMobName(tok) {
+  if (tok === undefined || tok === null) return null;
+  return SUMMON_ALIASES[String(tok).toLowerCase()] || null;
+}
+// найти пригодную позицию для спавна моба у (x,y,z): воздух для тела и опора
+function summonSpawnSpot(type, x, y, z) {
+  const def = MOB_TYPES[type];
+  const hCells = def.height > 1.05 ? 2 : 1;
+  const fits = (bx, by, bz) => {
+    for (let i = 0; i < hCells; i++) {
+      if (World.getBlock(bx, by + i, bz) !== BLOCK.AIR) return false;
+    }
+    return true;
+  };
+  const bx = Math.floor(x), bz = Math.floor(z);
+  let by = Math.max(1, Math.min(WORLD_HEIGHT - 2, Math.floor(y)));
+  // ищем свободное место: вверх до 4, потом вниз до 8
+  for (let dy = 0; dy <= 4; dy++) {
+    if (fits(bx, by + dy, bz)) { by = by + dy; return { x: bx + 0.5, y: by, z: bz + 0.5 }; }
+  }
+  for (let dy = 1; dy <= 8; dy++) {
+    if (by - dy < 1) break;
+    if (fits(bx, by - dy, bz)) { by = by - dy; return { x: bx + 0.5, y: by, z: bz + 0.5 }; }
+  }
+  return null;
+}
+
+// /summon — призыв моба. Наш вариант (чуть отходит от MC):
+//   /summon <моб>                     — у себя
+//   /summon <x> <y> <z> <моб>         — в координатах (~ — относительно себя)
+//   /summon <цель> <моб>              — у игрока (@-селектор или ник)
+function handleSummonCommand(args, cbPrefix, fromCB) {
+  if (args.length < 1) {
+    addChatMessage(cbPrefix + 'Использование: /summon <моб> · /summon <x> <y> <z> <моб> · /summon <цель> <моб>', 'chat-sys');
+    addChatMessage('Мобы: ' + Object.keys(MOB_TYPES).join(', ') + ' (можно по-русски: зомби, паук, свинья…)', 'chat-sys');
+    return;
+  }
+  let tx = PLAYER.pos.x, ty = PLAYER.pos.y, tz = PLAYER.pos.z;
+  let mobTok;
+  const isCoordTok = (t) => t !== undefined && /^~?-?\d*\.?\d*$/.test(String(t));
+  if (args.length === 1) {
+    // /summon <моб> — у себя
+    mobTok = args[0];
+  } else if (isTargetToken(args[0])) {
+    // /summon <цель> <моб> — у игрока (single-player: цель = игрок)
+    if (!resolveCommandTarget(args[0], cbPrefix)) return;
+    mobTok = args[1];
+  } else if (isCoordTok(args[0]) && isCoordTok(args[1]) && isCoordTok(args[2]) && args.length >= 4) {
+    // /summon <x> <y> <z> <моб>
+    const rel = (a, cur) => a === '~' ? cur : (String(a).startsWith('~') ? cur + parseFloat(a.slice(1) || '0') : parseFloat(a));
+    const nx = rel(args[0], PLAYER.pos.x), ny = rel(args[1], PLAYER.pos.y), nz = rel(args[2], PLAYER.pos.z);
+    if (![nx, ny, nz].every(Number.isFinite)) { addChatMessage(cbPrefix + 'Неверные координаты', 'chat-sys'); return; }
+    tx = nx; ty = ny; tz = nz;
+    mobTok = args[3];
+  } else {
+    addChatMessage(cbPrefix + 'Использование: /summon <моб> · /summon <x> <y> <z> <моб> · /summon <цель> <моб>', 'chat-sys');
+    return;
+  }
+  const type = resolveMobName(mobTok);
+  if (!type) {
+    addChatMessage(cbPrefix + 'Неизвестный моб: ' + mobTok + '. Доступны: ' + Object.keys(MOB_TYPES).join(', ') +
+      ' (и по-русски: зомби, паук, свинья, корова, курица, овца, рыба, пиглин, фантом)', 'chat-sys');
+    return;
+  }
+  const spot = summonSpawnSpot(type, tx, ty, tz);
+  if (!spot) { addChatMessage(cbPrefix + 'Нет места для спавна (все клетки заняты?)', 'chat-sys'); return; }
+  spawnMob(type, spot.x, spot.y, spot.z);
+  addChatMessage(cbPrefix + 'Призван: ' + (MOB_TYPES[type].name || type) +
+    ` (${spot.x.toFixed(1)}, ${spot.y.toFixed(1)}, ${spot.z.toFixed(1)})`, 'chat-sys');
+}
+
 function handleChatCommand(msg, opts) {
   opts = opts || {};
   const fromCB = !!opts.fromCmdBlock; // выполняется командным блоком — чит-флаг не нужен
@@ -120,8 +206,9 @@ function handleChatCommand(msg, opts) {
 
   const helpText = () => {
     addChatMessage('Команды (нужны читы в мире): /time set day|night|noon|midnight|<0-1>, ' +
-      '/tp [цель] <x> <y> <z> (~ — относительно), /give [цель] <имя|id> [кол-во], /seed, /kill [цель], /clear [цель], /gamemode s|c [цель]', 'chat-sys');
-    addChatMessage('Цель: @p (ближайший), @s (сам), @a/@e (все), @r (случайный) или ник. Пример: /tp @p ~ ~10 ~', 'chat-sys');
+      '/tp [цель] <x> <y> <z> (~ — относительно), /give [цель] <имя|id> [кол-во], /seed, /kill [цель], /clear [цель], /gamemode s|c [цель], ' +
+      '/summon <моб> | <x> <y> <z> <моб> | <цель> <моб>', 'chat-sys');
+    addChatMessage('Цель: @p (ближайший), @s (сам), @a/@e (все), @r (случайный) или ник. Пример: /tp @p ~ ~10 ~ · /summon паук', 'chat-sys');
   };
 
   if (cmd === 'help' || cmd === '?') { helpText(); return; }
@@ -190,6 +277,12 @@ function handleChatCommand(msg, opts) {
     if (rest[1] && /^[0-9]+$/.test(rest[1])) n = Math.max(1, Math.min(64 * 9, parseInt(rest[1], 10)));
     if (addToInventory(id, n)) addChatMessage(cbPrefix + `Выдано: ${BLOCK_NAMES[id] || id} ×${n}`, 'chat-sys');
     else { addChatMessage(cbPrefix + 'Инвентарь полон — предмет выпал под ноги', 'chat-sys'); spawnDrop(id, PLAYER.pos.x, PLAYER.pos.y + 0.5, PLAYER.pos.z, n); }
+    return;
+  }
+
+  if (cmd === 'summon') {
+    // /summon — наш синтаксис: /summon <моб> | <x y z> <моб> | <цель> <моб>
+    handleSummonCommand(args, cbPrefix, fromCB);
     return;
   }
 

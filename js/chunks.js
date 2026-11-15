@@ -65,6 +65,7 @@ const WorldGenPool = {
     try {
       const src = this.buildWorkerSrc();
       const url = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+      this.url = url; // помним URL, чтобы освободить (фикс утечки blob URL)
       for (let i = 0; i < 2; i++) { // два воркера — вдвое быстрее прогрузка
         const w = new Worker(url);
         w.onmessage = (e) => this._onMsg(e.data);
@@ -72,11 +73,18 @@ const WorldGenPool = {
         w.postMessage({ type: 'init', seed: WORLD_SEED });
         this.workers.push(w);
       }
+      // Страховка: если terminate() не случится (воркеры живут долго),
+      // освобождаем URL сами — к этому моменту скрипты воркеров гарантированно
+      // загружены (они уже отвечают на gen-запросы в первые секунды)
+      const myUrl = url;
+      setTimeout(() => { if (this.url === myUrl) { URL.revokeObjectURL(myUrl); this.url = null; } }, 15000);
     } catch (err) { this.terminate(); }
   },
   terminate() {
     for (const w of this.workers) { try { w.terminate(); } catch (e) {} }
     this.workers = []; this.pending.clear();
+    // освободить blob URL генератора (фикс: раньше копился новый URL на каждый вход в мир)
+    if (this.url) { try { URL.revokeObjectURL(this.url); } catch (e) {} this.url = null; }
   },
   setDim(d) {
     this.dim = d;

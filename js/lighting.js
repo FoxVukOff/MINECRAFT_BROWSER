@@ -272,34 +272,35 @@ function buildChunkMesh(c) {
           continue;
         }
 
-        // ---- Кровать: уменьшенная геометрия (матрас ~0.55) на ножках ----
+        // ---- Кровать: геометрия по образцу ванильной bed.json (MC) ----
+        // Цельный матрас на ВСЮ клетку (половины стыкуются без щели — фикс
+        // «кровать разрезало пополам»), высота 9/16, короткие ножки 3/16
+        // ТОЛЬКО по внешним углам кровати (фикс «ноги отваливаются и
+        // левитируют»). Никаких досок-спинок — в ванили их нет.
         if (isBed(b)) {
           const mats = MATERIALS[b];
-          const mTop  = mats[2]; // верх матраса (подушка/одеяло)
-          const mSide = mats[0]; // бок матраса
-          const mEnd  = mats[4]; // торец матраса
-          const mLeg  = mats[3]; // ножки (дерево)
+          const mTop  = mats[2]; // верх матраса (подушка у изголовья)
+          const mSide = mats[0]; // длинный бок (одеяло + деревянная рама)
+          const mEnd  = mats[4]; // торец
+          const mLeg  = mats[3]; // ножки (доски)
           // свет: берём освещённость над кроватью (y+1) — матрас приподнят,
           // и гарантируем минимум ~уровень 8, чтобы кровать не выглядела чёрной в тени.
           sampleLight(c, lx, y + 1, lz, _slTmp);
           const blB = Math.max(_slTmp[1], 8) / 15, blS = _slTmp[0] / 15;
-          function qB(mat, shade, pts, nrm) {
+          // квад с покомпонентными UV (массив из 4 пар) — нужно для ориентации кровати
+          function qB(mat, shade, pts, nrm, uvs) {
             const mi = getMatIndex(mat);
             let buf = byMat.get(mi);
             if (!buf) { buf = { positions: [], normals: [], uvs: [], indices: [], colors: [], water:false }; byMat.set(mi, buf); }
             const base = buf.positions.length / 3;
-            for (const v of pts) { buf.positions.push(lx+v[0], y+v[1], lz+v[2]); buf.normals.push(nrm[0],nrm[1],nrm[2]); buf.colors.push(blB, blS, shade); }
-            buf.uvs.push(0,0, 1,0, 1,1, 0,1);
-            buf.indices.push(base,base+1,base+2, base,base+2,base+3);
-          }
-          // параллелепипед (x1..x2, y1..y2, z1..z2) с материалами по 6 граням
-          function boxB(x1,y1,z1,x2,y2,z2, mPx,mNx,mPy,mNy,mPz,mNz) {
-            qB(mPx, 0.82, [[x2,y1,z1],[x2,y1,z2],[x2,y2,z2],[x2,y2,z1]], [1,0,0]);
-            qB(mNx, 0.82, [[x1,y1,z2],[x1,y1,z1],[x1,y2,z1],[x1,y2,z2]], [-1,0,0]);
-            qB(mPy, 1.0,  [[x1,y2,z2],[x2,y2,z2],[x2,y2,z1],[x1,y2,z1]], [0,1,0]);
-            qB(mNy, 0.6,  [[x1,y1,z1],[x2,y1,z1],[x2,y1,z2],[x1,y1,z2]], [0,-1,0]);
-            qB(mPz, 0.82, [[x1,y1,z2],[x2,y1,z2],[x2,y2,z2],[x1,y2,z2]], [0,0,1]);
-            qB(mNz, 0.82, [[x2,y1,z1],[x1,y1,z1],[x1,y2,z1],[x2,y2,z1]], [0,0,-1]);
+            for (let i = 0; i < 4; i++) {
+              const v = pts[i];
+              buf.positions.push(lx+v[0], y+v[1], lz+v[2]);
+              buf.normals.push(nrm[0], nrm[1], nrm[2]);
+              buf.colors.push(blB, blS, shade);
+              buf.uvs.push(uvs[i*2], uvs[i*2+1]);
+            }
+            buf.indices.push(base, base+1, base+2, base, base+2, base+3);
           }
           // ориентация: front указывает от ножной части к изголовью
           const fr = hasFacing ? World.facing.get(wx + ',' + y + ',' + wz) : undefined;
@@ -309,34 +310,75 @@ function buildChunkMesh(c) {
           else if (fr === FACE_PZ) { fnx = 0; fnz = 1; }
           else if (fr === FACE_NZ) { fnx = 0; fnz = -1; }
           const longX = fnx !== 0; // длинная ось кровати — X
-          // ножки
-          const legW = 0.12, legH = 0.3, legInset = 0.07;
-          const corners = [
-            [legInset, legInset], [1-legInset-legW, legInset],
-            [legInset, 1-legInset-legW], [1-legInset-legW, 1-legInset-legW],
-          ];
-          for (const cc of corners) boxB(cc[0], 0, cc[1], cc[0]+legW, legH, cc[1]+legW, mLeg,mLeg,mLeg,mLeg,mLeg,mLeg);
-          // матрас
-          const mIns = 0.08;
-          const mY1 = legH, mY2 = legH + 0.22; // 0.3 .. 0.52
-          if (longX) {
-            // торцы по ±X, бока по ±Z
-            boxB(mIns, mY1, mIns, 1-mIns, mY2, 1-mIns, mEnd,mEnd,mTop,mLeg,mSide,mSide);
-          } else {
-            boxB(mIns, mY1, mIns, 1-mIns, mY2, 1-mIns, mSide,mSide,mTop,mLeg,mEnd,mEnd);
+          // --- матрас: вся клетка, y 3/16..9/16 (пропорции bed.json) ---
+          const mY1 = 0.1875, mY2 = 0.5625;
+          // v-окно боковых текстур: ряды 3..11 — одеяло сверху, деревянная рама снизу
+          const BV1 = 0.28125, BV2 = 0.78125; // v нижнего/верхнего края окна
+          // верх: UV с поворотом — подушка (верх текстуры, v≈1) всегда у ИЗГОЛОВЬЯ
+          const topUV = (cx, cz) => {
+            if (longX) {
+              const u = cz;
+              const v = (fnx > 0) ? cx : (1 - cx); // голова в +X -> у x=1 v=1
+              return [u, v];
+            }
+            const u = cx;
+            const v = (fnz > 0) ? cz : (1 - cz);   // голова в +Z -> у z=1 v=1
+            return [u, v];
+          };
+          {
+            // 4 угла верхней грани + UV от topUV
+            const cs = [[0,mY2,1],[1,mY2,1],[1,mY2,0],[0,mY2,0]]; // (x,z): (0,1)(1,1)(1,0)(0,0)
+            const uvs = [];
+            for (const [cx, , cz] of cs) { const [u, v] = topUV(cx, cz); uvs.push(u, v); }
+            qB(mTop, 1.0, cs.map(p => [p[0], p[1], p[2]]), [0,1,0], uvs);
+            // низ матраса (виден снизу) — доски
+            qB(mLeg, 0.6, [[0,mY1,0],[1,mY1,0],[1,mY1,1],[0,mY1,1]], [0,-1,0], [0,0,1,0,1,1,0,1]);
           }
-          // изголовье/ножное ограждение
-          const bThick = 0.1, bIns = mIns;
-          if (b === BLOCK.BED_HEAD) {
-            // изголовье у +front (высокое)
-            const hbH = 0.82;
-            if (longX) { const bx = fnx > 0 ? (1-bIns-bThick) : bIns; boxB(bx, mY1, bIns, bx+bThick, hbH, 1-bIns, mEnd,mEnd,mEnd,mLeg,mEnd,mEnd); }
-            else       { const bz = fnz > 0 ? (1-bIns-bThick) : bIns; boxB(bIns, mY1, bz, 1-bIns, hbH, bz+bThick, mEnd,mEnd,mEnd,mLeg,mEnd,mEnd); }
+          // длинные бока (перпендикулярны оси кровати): у идёт вдоль оси
+          const sideFaces = longX
+            ? [ // бока по ±Z
+              { pts: [[0,mY1,1],[1,mY1,1],[1,mY2,1],[0,mY2,1]], n: [0,0,1] },
+              { pts: [[1,mY1,0],[0,mY1,0],[0,mY2,0],[1,mY2,0]], n: [0,0,-1] },
+            ]
+            : [ // бока по ±X
+              { pts: [[1,mY1,1],[1,mY1,0],[1,mY2,0],[1,mY2,1]], n: [1,0,0] },
+              { pts: [[0,mY1,0],[0,mY1,1],[0,mY2,1],[0,mY2,0]], n: [-1,0,0] },
+            ];
+          for (const f of sideFaces) qB(mSide, 0.82, f.pts, f.n, [0,BV1, 1,BV1, 1,BV2, 0,BV2]);
+          // торцы (оба: внешний И стык — иначе при сломе половины была бы дыра)
+          {
+            let x1 = 0, x2 = 1, z1 = 0, z2 = 1;
+            let f1, f2; // два торца
+            if (longX) {
+              f1 = { pts: [[x2,mY1,z1],[x2,mY1,z2],[x2,mY2,z2],[x2,mY2,z1]], n: [1,0,0] };  // +X
+              f2 = { pts: [[x1,mY1,z2],[x1,mY1,z1],[x1,mY2,z1],[x1,mY2,z2]], n: [-1,0,0] }; // -X
+            } else {
+              f1 = { pts: [[x1,mY1,z2],[x2,mY1,z2],[x2,mY2,z2],[x1,mY2,z2]], n: [0,0,1] };  // +Z
+              f2 = { pts: [[x2,mY1,z1],[x1,mY1,z1],[x1,mY2,z1],[x2,mY2,z1]], n: [0,0,-1] }; // -Z
+            }
+            qB(mEnd, 0.82, f1.pts, f1.n, [0,BV1, 1,BV1, 1,BV2, 0,BV2]);
+            qB(mEnd, 0.82, f2.pts, f2.n, [0,BV1, 1,BV1, 1,BV2, 0,BV2]);
+          }
+          // --- ножки 3/16×3/16 у ВНЕШНЕГО торца этой половины ---
+          // (ножная половина: внешний торец = -front; изголовье: +front)
+          const legW = 0.1875; // = legH (3/16, bed.json)
+          const isFootHalf = (b === BLOCK.BED_FOOT);
+          const outerSign = isFootHalf ? -1 : 1; // в сторону front
+          const legFaces = [];
+          if (longX) {
+            const lx1 = (outerSign * fnx > 0) ? (1 - legW) : 0;
+            legFaces.push([lx1, 0, 0, lx1 + legW, legW, legW], [lx1, 0, 1 - legW, lx1 + legW, legW, 1]);
           } else {
-            // BED_FOOT: ножное ограждение у -front (низкое)
-            const fbH = 0.6;
-            if (longX) { const bx = fnx > 0 ? bIns : (1-bIns-bThick); boxB(bx, mY1, bIns, bx+bThick, fbH, 1-bIns, mEnd,mEnd,mEnd,mLeg,mEnd,mEnd); }
-            else       { const bz = fnz > 0 ? bIns : (1-bIns-bThick); boxB(bIns, mY1, bz, 1-bIns, fbH, bz+bThick, mEnd,mEnd,mEnd,mLeg,mEnd,mEnd); }
+            const lz1 = (outerSign * fnz > 0) ? (1 - legW) : 0;
+            legFaces.push([0, 0, lz1, legW, legW, lz1 + legW], [1 - legW, 0, lz1, 1, legW, lz1 + legW]);
+          }
+          for (const [gx1, gy1, gz1, gx2, gy2, gz2] of legFaces) {
+            // 4 бока + низ (верх скрыт матрасом)
+            qB(mLeg, 0.82, [[gx2,gy1,gz1],[gx2,gy1,gz2],[gx2,gy2,gz2],[gx2,gy2,gz1]], [1,0,0],  [1,0, 0,0, 0,1, 1,1]);
+            qB(mLeg, 0.82, [[gx1,gy1,gz2],[gx1,gy1,gz1],[gx1,gy2,gz1],[gx1,gy2,gz2]], [-1,0,0], [0,0, 1,0, 1,1, 0,1]);
+            qB(mLeg, 0.82, [[gx1,gy1,gz2],[gx2,gy1,gz2],[gx2,gy2,gz2],[gx1,gy2,gz2]], [0,0,1],  [0,0, 1,0, 1,1, 0,1]);
+            qB(mLeg, 0.82, [[gx2,gy1,gz1],[gx1,gy1,gz1],[gx1,gy2,gz1],[gx2,gy2,gz1]], [0,0,-1], [1,0, 0,0, 0,1, 1,1]);
+            qB(mLeg, 0.6,  [[gx1,gy1,gz1],[gx2,gy1,gz1],[gx2,gy1,gz2],[gx1,gy1,gz2]], [0,-1,0], [0,0, 1,0, 1,1, 0,1]);
           }
           continue;
         }

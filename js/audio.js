@@ -149,6 +149,16 @@ function playSound(kind, block) {
     phantomScreech(false);
   } else if (kind === 'phantom_hurt') {
     phantomScreech(true);
+  } else if (kind === 'pop') {
+    // короткий «поп» взятия/обмена предметов (вторая рука по F, креатив-слоты)
+    tone(520, 0.05, 0.2, 'square');
+    setTimeout(() => tone(760, 0.05, 0.16, 'square'), 40);
+  } else if (kind === 'spider') {
+    // шипение паука — длительное «с-с-с» (как в MC)
+    spiderHiss(false);
+  } else if (kind === 'spider_hurt') {
+    // короткое резкое шипение при ударе
+    spiderHiss(true);
   } else if (kind === 'hurt') {
     playerHurt();
   } else if (kind === 'burp') {
@@ -307,6 +317,30 @@ function zombieGroan(hurt) {
   osc.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
   osc.start(t0); osc.stop(t0 + dur + 0.05);
   lfo.start(t0); lfo.stop(t0 + dur + 0.05);
+}
+
+// шипение паука — шумовой «с-с-с» с полосовым фильтром (hurt — короче и резче)
+function spiderHiss(hurt) {
+  if (!AudioEngine.ctx) return;
+  const ctx = AudioEngine.ctx;
+  const dur = hurt ? 0.16 : 0.5;
+  const len = Math.floor(ctx.sampleRate * dur);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    // резкое «с» — белого шума побольше, огибающая с быстрым атаком
+    const t = i / len;
+    const env = Math.min(1, t * 12) * (1 - t * 0.85);
+    data[i] = (Math.random() * 2 - 1) * env;
+  }
+  const src = ctx.createBufferSource(); src.buffer = buf;
+  // полоса «с-с-с» — высокие частоты, как воздух сквозь зубы
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'bandpass'; filt.frequency.value = hurt ? 4200 : 3400; filt.Q.value = 1.1;
+  const g = ctx.createGain(); g.gain.value = hurt ? 0.3 : 0.22;
+  src.connect(filt); filt.connect(g); g.connect(AudioEngine.sfxGain);
+  src.start();
+  src.stop(ctx.currentTime + dur);
 }
 
 // клохтание курицы — пара коротких высоких чирков

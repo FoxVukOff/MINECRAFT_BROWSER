@@ -643,22 +643,21 @@ function buildTextures() {
     ctx.fillStyle = '#c2443d'; ctx.fillRect(0,13,16,1);
   });
   TEX.bed_side = makeTex(ctx => {
-    // бок: красный матрас сверху + деревянная рама с ножками (как в MC)
+    // бок: красный матрас + деревянная рама понизу. Ножки больше НЕ рисуем в
+    // текстуре — они честная 3D-геометрия по внешним углам кровати (как в MC)
     pixelFill(ctx, ['#b5342e','#a52a24','#c2443d'], [5,4,2], 3133);
     // блик и кромка матраса
     ctx.fillStyle = '#d0544d'; ctx.fillRect(0,1,16,1);
     ctx.fillStyle = '#8e211d'; ctx.fillRect(0,8,16,1);
-    // деревянная рама (доски с волокнами)
-    ctx.fillStyle = '#7a5326'; ctx.fillRect(0,9,16,4);
+    // деревянная рама (доски с волокнами) — во всю ширину торца
+    ctx.fillStyle = '#7a5326'; ctx.fillRect(0,9,16,7);
     ctx.fillStyle = '#8f6533'; ctx.fillRect(0,10,16,1);         // блик доски
+    ctx.fillStyle = '#6e4a26'; ctx.fillRect(0,13,16,1);         // нижний пояс доски
     ctx.fillStyle = '#5e401d'; ctx.fillRect(0,12,16,1);         // тень доски
-    // ножки по краям (чуть темнее, стоят до низа)
-    ctx.fillStyle = '#6b4a24'; ctx.fillRect(0,9,3,7); ctx.fillRect(13,9,3,7);
-    ctx.fillStyle = '#523618'; ctx.fillRect(2,9,1,7); ctx.fillRect(13,9,1,7);
-    ctx.fillStyle = '#3d2a11'; ctx.fillRect(0,15,3,1); ctx.fillRect(13,15,3,1); // тень под ножками
+    ctx.fillStyle = '#5e401d'; ctx.fillRect(0,15,16,1);         // тень под рамой
   });
   TEX.bed_end = makeTex(ctx => {
-    // торец: матрас + подушка видна срезом сверху + рама с ножками
+    // торец: матрас + подушка видна срезом сверху + рама (ножки — 3D-геометрия)
     pixelFill(ctx, ['#b5342e','#a52a24','#c2443d'], [5,4,2], 3134);
     // срез подушки сверху
     ctx.fillStyle = '#f4f4f6'; ctx.fillRect(1,0,14,2);
@@ -666,13 +665,12 @@ function buildTextures() {
     // блик матраса
     ctx.fillStyle = '#d0544d'; ctx.fillRect(0,4,16,1);
     ctx.fillStyle = '#8e211d'; ctx.fillRect(0,8,16,1);
-    // деревянная рама
-    ctx.fillStyle = '#7a5326'; ctx.fillRect(0,9,16,4);
+    // деревянная рама во всю ширину
+    ctx.fillStyle = '#7a5326'; ctx.fillRect(0,9,16,7);
     ctx.fillStyle = '#8f6533'; ctx.fillRect(0,10,16,1);
+    ctx.fillStyle = '#6e4a26'; ctx.fillRect(0,13,16,1);
     ctx.fillStyle = '#5e401d'; ctx.fillRect(0,12,16,1);
-    // ножки по углам
-    ctx.fillStyle = '#6b4a24'; ctx.fillRect(0,9,3,7); ctx.fillRect(13,9,3,7);
-    ctx.fillStyle = '#3d2a11'; ctx.fillRect(0,15,3,1); ctx.fillRect(13,15,3,1);
+    ctx.fillStyle = '#5e401d'; ctx.fillRect(0,15,16,1);
   });
   // редстоуновая руда: камень с красными вкраплениями
   TEX.redstone_ore = makeTex(ctx => {
