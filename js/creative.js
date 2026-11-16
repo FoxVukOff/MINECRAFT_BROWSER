@@ -54,6 +54,66 @@ const CREATIVE_ITEMS = [
 ];
 let creativeSearchQuery = '';
 
+// Текст для поиска предмета: название + теги категории/материала —
+// как вкладка поиска в креативе MC Java (ищет по имени И по тегам;
+// несколько слов через пробел = каждое должно найтись)
+function creativeSearchText(id) {
+  let s = (BLOCK_NAMES[id] || '').toLowerCase();
+  // категории-теги (по-русски и по-английски)
+  if (isArmor(id)) s += ' броня armor';
+  if (isSword(id)) s += ' оружие меч sword';
+  if (isPickaxe(id)) s += ' кирка pickaxe';
+  if (isAxe(id)) s += ' топор axe';
+  if (isShovel(id)) s += ' лопата shovel';
+  if (id === ITEM.SHEARS) s += ' ножницы shears';
+  if (id === ITEM.FLINT_AND_STEEL) s += ' огниво зажигалка flint and steel';
+  if (id === ITEM.BUCKET || id === ITEM.WATER_BUCKET || id === ITEM.LAVA_BUCKET) s += ' ведро bucket';
+  if (id === ITEM.BOAT) s += ' лодка boat';
+  if (id === ITEM.DOOR) s += ' дверь door';
+  // яйца призыва мобов (названия вида «Яйцо призыва …»)
+  if (s.includes('яйцо призыва')) s += ' спавн egg spawn';
+  if (id === ITEM.POTION_FIRE_RES || id === ITEM.SPLASH_POTION_FIRE_RES) s += ' зелье potion огнестойкость';
+  if (id === ITEM.WATER_BOTTLE) s += ' бутылка вода bottle';
+  if (id === ITEM.ENCHANTED_BOOK_SOUL_SPEED || (id >= ITEM.SOUL_BOOTS_I && id <= ITEM.SOUL_BOOTS_III)) s += ' скорость души чары book soul speed';
+  if (id === ITEM.ENDER_PEARL) s += ' жемчуг телепорт ender pearl';
+  if (id === ITEM.GOLDEN_APPLE) s += ' еда apple';
+  if (id === ITEM.APPLE) s += ' еда food apple';
+  // еда/мясо
+  if ([ITEM.PORK_RAW, ITEM.PORK_COOKED, ITEM.BEEF_RAW, ITEM.BEEF_COOKED, ITEM.CHICKEN_RAW, ITEM.CHICKEN_COOKED,
+       ITEM.MUTTON_RAW, ITEM.MUTTON_COOKED, ITEM.FISH_RAW, ITEM.FISH_COOKED, ITEM.ROTTEN_FLESH].includes(id))
+    s += ' еда food мясо';
+  // материалы: падежные формы + английский (золотой/золотая/золото/gold)
+  const MATERIAL_TAGS = [
+    ['золот', 'золото золотая золотые золотое золотой gold golden'],
+    ['желез', 'железо iron'],
+    ['алмаз', 'алмаз diamond'],
+    ['медн', 'медь copper'],
+    ['камен', 'камень stone'],
+    ['дерев', 'дерево деревянный wood wooden'],
+    ['кожан', 'кожа leather'],
+    ['незерск', 'незер nether ад'],
+  ];
+  for (const [k, alias] of MATERIAL_TAGS) if (s.includes(k)) s += ' ' + alias;
+  // предметы пиглинского бартера — тег «пиглин»/«бартер»
+  if ([BLOCK.CRYING_OBSIDIAN, BLOCK.SOUL_SAND, BLOCK.NETHER_BRICK, BLOCK.BLACKSTONE, BLOCK.DRIED_GHAST,
+       ITEM.IRON_NUGGET, ITEM.NETHER_QUARTZ, ITEM.ENDER_PEARL, ITEM.FIRE_CHARGE, ITEM.SPECTRAL_ARROW,
+       ITEM.WATER_BOTTLE, ITEM.POTION_FIRE_RES, ITEM.SPLASH_POTION_FIRE_RES,
+       ITEM.ENCHANTED_BOOK_SOUL_SPEED, ITEM.SOUL_BOOTS_I, ITEM.SOUL_BOOTS_II, ITEM.SOUL_BOOTS_III,
+       ITEM.STRING, ITEM.LEATHER, BLOCK.GRAVEL].includes(id))
+    s += ' пиглин piglin бартер barter';
+  // редстоун-механизмы
+  if ([BLOCK.REDSTONE_TORCH, BLOCK.LEVER, BLOCK.BUTTON, BLOCK.PISTON, BLOCK.COMMAND_BLOCK, ITEM.REDSTONE,
+       BLOCK.REDSTONE_ORE].includes(id)) s += ' редстоун redstone механизм';
+  return s;
+}
+
+// фильтр как в MC: каждое слово запроса должно найтись в тексте предмета
+function creativeSearchMatch(id, words) {
+  if (!words.length) return true;
+  const txt = creativeSearchText(id);
+  return words.every(w => txt.includes(w));
+}
+
 function renderCreativeInv() {
   const wrap = document.createElement('div');
   wrap.className = 'creative-wrap';
@@ -62,7 +122,7 @@ function renderCreativeInv() {
   const search = document.createElement('input');
   search.type = 'text';
   search.className = 'creative-search';
-  search.placeholder = 'Поиск (например: алмаз, кирка, дверь)…';
+  search.placeholder = 'Поиск (золото, броня, gold, еда… — можно несколько слов)';
   search.value = creativeSearchQuery;
   search.addEventListener('input', () => {
     creativeSearchQuery = search.value;
@@ -76,10 +136,8 @@ function renderCreativeInv() {
   wrap.appendChild(search);
 
   const q = creativeSearchQuery.trim().toLowerCase();
-  const items = CREATIVE_ITEMS.filter(id => {
-    const nm = (BLOCK_NAMES[id] || '').toLowerCase();
-    return !q || nm.includes(q);
-  });
+  const words = q.split(/\s+/).filter(Boolean);
+  const items = CREATIVE_ITEMS.filter(id => creativeSearchMatch(id, words));
 
   const grid = document.createElement('div');
   grid.className = 'creative-grid';

@@ -1137,11 +1137,13 @@ function updateMobs(dt) {
         const ty = PLAYER.pos.y + 12 + Math.sin(p.orbitA * 2) * 2.5;
         steer(tx, ty, tz, 4.4, 2.2);
         p.swoopT -= dt;
-        if (p.swoopT <= 0 && !PLAYER.dead) { p.flyState = 'swoop'; p.stateT = 6; }
+        if (p.swoopT <= 0 && !PLAYER.dead && !window.__creative) { p.flyState = 'swoop'; p.stateT = 6; }
       } else if (p.flyState === 'swoop') {
+        // креатив посреди пике — отменяем атаку и уходим вверх (MC-146524)
+        if (window.__creative) { p.flyState = 'climb'; p.stateT = 1.4 + Math.random(); continue; }
         // ПИКЕ на игрока: быстрый бросок вниз
         const d = steer(PLAYER.pos.x, PLAYER.pos.y + 0.9, PLAYER.pos.z, 9.5, 3.4);
-        if (d < 1.8 && p.attackCd <= 0 && !PLAYER.dead) {
+        if (d < 1.8 && p.attackCd <= 0 && !PLAYER.dead && !window.__creative) {
           p.attackCd = 1.2;
           damagePlayer(p.def.dmg || 6, 'Вас убил фантом');
           // отбросить игрока (как в MC при укусе пике)
@@ -1227,17 +1229,20 @@ function updateMobs(dt) {
 
     let moving = false;
     let chasing = false;
+    // КРЕАТИВ (parity MC, MC-146524): мобы вообще не таргетят игрока
+    // и мгновенно теряют агрессию при входе в креатив — даже если уже гнались
+    if (window.__creative && (p.aggro || 0) > 0) { p.aggro = 0; p.path = null; }
     // Зомби: самостоятельно замечают игрока в радиусе 35 блоков (MC parity)
-    if (p.type === 'zombie' && (p.aggro || 0) <= 0 && !PLAYER.dead) {
+    if (p.type === 'zombie' && (p.aggro || 0) <= 0 && !PLAYER.dead && !window.__creative) {
       if (dist2ToPlayer(p) < 35*35) p.aggro = 12; // MC: радиус обнаружения зомби 35 блоков
     }
     // Паук: в MC нейтрален при свете >= 12 и враждебен в темноте (16 блоков)
-    if (p.type === 'spider' && (p.aggro || 0) <= 0 && !PLAYER.dead) {
+    if (p.type === 'spider' && (p.aggro || 0) <= 0 && !PLAYER.dead && !window.__creative) {
       if (dist2ToPlayer(p) < 16*16 && spiderAngryAtLight(p)) p.aggro = 14;
     }
     // Пиглин: в MC враждебен к игроку БЕЗ золотой брони (радиус 35);
     // игрок хотя бы в одной золотой броне — пиглин его не трогает
-    if (p.type === 'piglin' && (p.aggro || 0) <= 0 && !PLAYER.dead) {
+    if (p.type === 'piglin' && (p.aggro || 0) <= 0 && !PLAYER.dead && !window.__creative) {
       if (dist2ToPlayer(p) < 35*35 && !playerWearsGoldArmor()) p.aggro = 12;
     }
     let barterSeek = false; // пиглин бежит за золотым слитком (или рассматривает его)
@@ -1273,7 +1278,7 @@ function updateMobs(dt) {
           }
         }
         // атака при контакте
-        if (d2 < 2.0*2.0 && p.attackCd <= 0 && !PLAYER.dead) {
+        if (d2 < 2.0*2.0 && p.attackCd <= 0 && !PLAYER.dead && !window.__creative) {
           p.attackCd = 1.0;
           damagePlayer(p.def.dmg || 3, 'Вас убил ' + (p.def.name || 'моб'));
           // отбросить игрока
@@ -1735,7 +1740,8 @@ function hurtMob(p) {
     refreshUI();
   }
   // Враждебные пачные мобы (пиглины): при ударе агрятся сами + вся стая (пока кто-то жив)
-  if (p.def && p.def.hostile) {
+  // в креативе мобы не мстят — не могут таргетить креативного игрока (MC-146524)
+  if (p.def && p.def.hostile && !window.__creative) {
     p.aggro = 30;
     if (p.def.pack) {
       for (const m of mobs) if (m.type === p.type && dist2Between(m, p) < 24*24) m.aggro = Math.max(m.aggro||0, 30);

@@ -117,6 +117,10 @@ function setGameMode(creative, announce) {
     PLAYER.oxygen = PLAYER.maxOxygen;
     PLAYER.burnTimer = 0;
     PLAYER.exhaustion = 0;
+    // parity MC (MC-146524): мобы мгновенно теряют агрессию к креативному игроку
+    if (typeof mobs !== 'undefined') {
+      for (const m of mobs) { m.aggro = 0; m.path = null; }
+    }
   } else {
     PLAYER.flying = false; // выход из креатива выключает полёт (как в MC)
   }
