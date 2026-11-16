@@ -212,6 +212,13 @@ function updatePlayer(dt) {
   if (PLAYER.inWater !== wasInWater) playSound('splash'); // всплеск при входе/выходе
 
   // ---- Урон/поджог от лавы и огня ----
+  // ЗЕЛЬЕ ОГНЕСТОЙКОСТИ (бартер пиглинов): полная невосприимчивость к
+  // лаве/огню/догоранию — как в MC (3:00 обычное / 2:15 взрывное)
+  const fireRes = (PLAYER.fireResT || 0) > 0;
+  if (fireRes) {
+    PLAYER.fireResT = Math.max(0, PLAYER.fireResT - dt);
+    PLAYER.burnTimer = 0; // огнестойкость мгновенно гасит горение (как в MC)
+  }
   const fBlk = blockAtPlayer(0.1);
   const bBlk = blockAtPlayer(0.9);
   const inFire = fBlk === BLOCK.FIRE || bBlk === BLOCK.FIRE;
@@ -223,11 +230,11 @@ function updatePlayer(dt) {
       teleportDimension(World.dim === 'overworld' ? 'nether' : 'overworld');
     }
   } else { PLAYER._portalT = 0; PLAYER._porting = false; }
-  if (inLava) {
+  if (inLava && !fireRes) {
     PLAYER.burnTimer = Math.max(PLAYER.burnTimer || 0, 15); // после лавы горишь 15 с (как в MC)
     PLAYER.lavaTick = (PLAYER.lavaTick || 0) + dt;
     if (PLAYER.lavaTick >= 0.5) { PLAYER.lavaTick = 0; damagePlayer(4, "Вы сгорели в лаве"); } // лава жжёт сильно (броня защищает — как в MC)
-  } else if (inFire) {
+  } else if (inFire && !fireRes) {
     PLAYER.burnTimer = Math.max(PLAYER.burnTimer || 0, 0.8);
   }
   // догорание (после выхода из лавы/огня игрок ещё горит)
@@ -247,6 +254,17 @@ function updatePlayer(dt) {
 
   // креатив-полёт: скорость как в MC (~10.9 м/с, со спринтом ~21)
   if (window.__creative && PLAYER.flying) speed = PLAYER.speed * (sprinting ? 4.8 : 2.5);
+
+  // ПЕСОК ДУШ (бартер пиглинов): замедляет ходьбу до ×0.4 (parity MC).
+  // Ботинки «Скорость души» игнорируют замедление и бустят:
+  // множитель = 1.3 + 0.105 × уровень (формула MC, уровни I–III)
+  if (!PLAYER.flying && !PLAYER.inLiquid) {
+    const groundBlk = World.getBlock(Math.floor(PLAYER.pos.x), Math.floor(PLAYER.pos.y - 0.05), Math.floor(PLAYER.pos.z));
+    if (groundBlk === BLOCK.SOUL_SAND) {
+      const ssl = soulSpeedLevel();
+      speed *= ssl > 0 ? (1.3 + 0.105 * ssl) : 0.4;
+    }
+  }
 
   if (PLAYER.inLiquid) {
     // ---- плавание (вода или лава) ----

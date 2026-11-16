@@ -391,6 +391,44 @@ function useFlintAndSteel(t, slot) {
   refreshUI();
 }
 
+// Огненный заряд (бартер пиглинов): поджигает блок/портал как зажигалка,
+// но одноразовый — расходуется 1 шт (parity MC)
+function useFireCharge(t, slot) {
+  if (!t) return;
+  const nx = t.x + t.face[0], ny = t.y + t.face[1], nz = t.z + t.face[2];
+  if (ny < 0 || ny >= WORLD_HEIGHT) return;
+  // Портал в Ад — тоже активируется (как в MC)
+  if (isNetherPortalSpot(nx, ny, nz)) {
+    if (activateNetherPortal(nx, ny, nz)) {
+      showToast('Портал активирован');
+      playSound('place', BLOCK.WOOD);
+      consumeHeldItem(slot);
+      refreshUI();
+    }
+    return;
+  }
+  if (World.getBlock(nx, ny, nz) !== BLOCK.AIR) return;
+  const belowOk = isSolidForPlayer(nx, ny - 1, nz);
+  const sideOk = isSolidForPlayer(t.x, t.y, t.z);
+  if (!belowOk && !sideOk) return;
+  FireSim.add(nx, ny, nz);
+  playSound('place', BLOCK.WOOD);
+  consumeHeldItem(slot);
+  refreshUI();
+}
+
+// Зелье огнестойкости (бартер): обычное 3:00, взрывное — 2:15 (75%, как в MC
+// при применении на себя). Мгновенно гасит горение (как в MC)
+function drinkFireResPotion(slot) {
+  const splash = slot.id === ITEM.SPLASH_POTION_FIRE_RES;
+  PLAYER.fireResT = splash ? 135 : 180;
+  PLAYER.burnTimer = 0;
+  playSound('eat');
+  showToast('Огнестойкость (' + (splash ? '2:15' : '3:00') + ') — лава и огонь не страшны');
+  consumeHeldItem(slot);
+  refreshUI();
+}
+
 // Яйцо спавна: призвать моба по месту клика — на грань блока (как в MC).
 // Рыба призывается только в воду (parity MC: водные яйца требуют воду).
 function useSpawnEgg(t, slot) {
@@ -409,7 +447,9 @@ function useSpawnEgg(t, slot) {
     spawnMob(egg.mob, nx + 0.5, ny, nz + 0.5);
   }
   // дымок призыва (цвет по мобу)
-  spawnParticles(nx + 0.5, ny + 0.7, nz + 0.5, 10, egg.mob === 'zombie' ? '#7ca844' : (egg.mob === 'phantom' ? '#7ea8b0' : '#e8e8e8'));
+  spawnParticles(nx + 0.5, ny + 0.7, nz + 0.5, 10,
+    egg.mob === 'zombie' ? '#7ca844' : (egg.mob === 'phantom' ? '#7ea8b0' :
+    (egg.mob === 'piglin' ? '#f0c832' : (egg.mob === 'zombie_piglin' ? '#e8a8b8' : '#e8e8e8'))));
   playSound('place', BLOCK.WOOL);
   consumeHeldItem(slot); // в креативе не расходуется (parity MC)
   refreshUI();
@@ -565,6 +605,21 @@ function placeBlock() {
     }
   }
 
+  // ПКМ по пиглину с золотым слитком — БАРТЕР напрямую (parity MC):
+  // пиглин забирает слиток и через 6 секунд бросает лут.
+  // Зомби-пиглины торговать не могут — у них нет бартера (m.def.barter)
+  {
+    const m = mobUnderCursor(4.0);
+    if (m && m.type === 'piglin' && m.def.barter && (m.barterT || 0) <= 0) {
+      const slot0 = activeItem();
+      if (slot0 && slot0.id === ITEM.GOLD_INGOT) {
+        startPiglinBarter(m);
+        consumeHeldItem(slot0); // в креативе слиток не тратится (parity MC)
+        return;
+      }
+    }
+  }
+
   // Основная рука; если ПУСТА — действует предмет из ВТОРОЙ руки (parity MC:
   // ПКМ работает offhand-предметом, когда основная рука не может)
   const slot = activeItem() || PLAYER.offhand;
@@ -573,6 +628,14 @@ function placeBlock() {
   if (slot.id === ITEM.BUCKET || slot.id === ITEM.WATER_BUCKET || slot.id === ITEM.LAVA_BUCKET) { useBucket(slot); return; }
   // зажигалка — поджечь
   if (slot.id === ITEM.FLINT_AND_STEEL) { useFlintAndSteel(t, slot); return; }
+  // огненный заряд (бартер) — поджечь блок/портал, одноразовый
+  if (slot.id === ITEM.FIRE_CHARGE) { useFireCharge(t, slot); return; }
+  // зелья огнестойкости (бартер) — выпить: 3:00 / взрывное 2:15
+  if (slot.id === ITEM.POTION_FIRE_RES || slot.id === ITEM.SPLASH_POTION_FIRE_RES) { drinkFireResPotion(slot); return; }
+  // эндер-жемчуг (бартер) — бросок с телепортом (урон 5 — как в MC)
+  if (slot.id === ITEM.ENDER_PEARL) { throwEnderPearl(); consumeHeldItem(slot); return; }
+  // бутылка воды (бартер) — просто вода (пустых бутылок в игре пока нет)
+  if (slot.id === ITEM.WATER_BOTTLE) { showToast('Просто вода…'); return; }
   // лодка — спустить на воду
   if (slot.id === ITEM.BOAT) { placeBoat(t, slot); return; }
   // яйцо спавна — призвать моба по месту клика

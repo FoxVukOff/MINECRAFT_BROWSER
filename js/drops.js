@@ -103,6 +103,44 @@ function dropFromHand(all) {
 }
 
 const DROP_LIFETIME = 300; // 5 минут — как в Minecraft
+
+// Бросок эндер-жемчуга (бартер пиглинов): летит по дуге, а где упал —
+// туда телепортирует игрока с уроном 5 (2.5 сердца, как в MC)
+function throwEnderPearl() {
+  const ex = PLAYER.pos.x, ey = PLAYER.pos.y + (PLAYER.crouching?PLAYER.crouchEye:PLAYER.eye) - 0.2, ez = PLAYER.pos.z;
+  const dir = new THREE.Vector3(
+    -Math.sin(PLAYER.yaw) * Math.cos(PLAYER.pitch),
+    Math.sin(PLAYER.pitch),
+    -Math.cos(PLAYER.yaw) * Math.cos(PLAYER.pitch)
+  ).normalize();
+  const mesh = makeDropMesh(ITEM.ENDER_PEARL);
+  const sx = ex + dir.x*0.6, sy = ey + dir.y*0.6, sz = ez + dir.z*0.6;
+  mesh.position.set(sx, sy, sz);
+  scene.add(mesh);
+  drops.push({
+    mesh, id: ITEM.ENDER_PEARL, count: 1,
+    pos: new THREE.Vector3(sx, sy, sz),
+    vel: new THREE.Vector3(dir.x*18, dir.y*18 + 2, dir.z*18),
+    age: 0, picked: false, pickDelay: Infinity, pearl: true, // не подбирается обратно
+  });
+}
+// телепорт игрока в точку падения жемчуга (урон 5 — как в MC)
+function enderPearlTeleport(p) {
+  const tx = Math.floor(p.x) + 0.5, tz = Math.floor(p.z) + 0.5;
+  let ty = Math.floor(p.y - 0.05);
+  let guard = 0;
+  // жемчуг упал у стены — поднимаем точку, пока клетка не освободится
+  while (guard++ < 4 && ty < WORLD_HEIGHT - 2 &&
+         (World.getBlock(Math.floor(tx), ty, Math.floor(tz)) !== BLOCK.AIR ||
+          World.getBlock(Math.floor(tx), ty + 1, Math.floor(tz)) !== BLOCK.AIR)) ty++;
+  spawnParticles(PLAYER.pos.x, PLAYER.pos.y + 1, PLAYER.pos.z, 12, '#8a3cd2');
+  PLAYER.pos.set(tx, ty, tz);
+  PLAYER.vel.set(0, 0, 0);
+  PLAYER.fallStart = undefined; // без урона от падения сразу после телепорта (как в MC)
+  spawnParticles(tx, ty + 1, tz, 12, '#8a3cd2');
+  playSound('pop');
+  damagePlayer(5, 'Вы разбились при телепорте', true); // 2.5 сердца (MC)
+}
 // простая проверка прямой видимости (нет сплошных блоков между дропом и игроком)
 function dropHasLOS(d) {
   const sx = d.pos.x, sy = d.pos.y + 0.1, sz = d.pos.z;
@@ -178,6 +216,22 @@ function updateDrops(dt) {
       d.burnT = 0;
     }
 
+    // ЭНДЕР-ЖЕМЧУГ (бартер): телепорт игрока в точку падения (как в MC)
+    if (d.pearl) {
+      const pb = World.getBlock(Math.floor(d.pos.x), Math.floor(d.pos.y + 0.1), Math.floor(d.pos.z));
+      const inSolid = pb !== BLOCK.AIR && !isLiquid(pb);
+      if (!inSolid) d.lastFree = d.pos.clone(); // последняя свободная точка (у стены)
+      const landed = d.vel.y === 0 && d.age > 0.1;
+      if (landed || inSolid || d.age > 30) {
+        if (landed || inSolid) enderPearlTeleport(inSolid && d.lastFree ? d.lastFree : d.pos);
+        scene.remove(d.mesh); d.mesh.geometry.dispose(); drops.splice(i, 1); continue;
+      }
+      d.mesh.position.copy(d.pos);
+      d.mesh.position.y += Math.sin(d.age * 3) * 0.05 + 0.05;
+      d.mesh.lookAt(camera.position.x, d.mesh.position.y, camera.position.z);
+      continue; // жемчуг не подбирается и не притягивается к игроку
+    }
+
     // подбор
     if (d.age > d.pickDelay && !PLAYER.dead) {
       const dx = d.pos.x - PLAYER.pos.x;
@@ -191,14 +245,24 @@ function updateDrops(dt) {
         d.pos.z -= dz * dt * 3;
       }
       if (distSq < 0.8 * 0.8) {
-        // при полном инвентаре дроп НЕ исчезает — попробует подобраться позже (фикс потери)
-        if (addToInventory(d.id, 1)) {
-          playSound('pickup');
-          scene.remove(d.mesh);
-          d.mesh.geometry.dispose();
-          drops.splice(i, 1);
+        // частичный подбор: берём сколько влезет, остаток стака лежит дальше
+        // (фикс потери: раньше из стака в 64 подбирался 1 предмет, а дроп исчезал целиком)
+        const space = inventorySpaceFor(d.id);
+        if (space > 0) {
+          const take = Math.min(space, d.count);
+          if (addToInventory(d.id, take)) {
+            playSound('pickup');
+            d.count -= take;
+            if (d.count <= 0) {
+              scene.remove(d.mesh);
+              d.mesh.geometry.dispose();
+              drops.splice(i, 1);
+            } else {
+              d.pickDelay = d.age + 0.6; // остаток стака — чуть позже
+            }
+          }
         } else {
-          d.pickDelay = d.age + 1.0; // повторная попытка через секунду
+          d.pickDelay = d.age + 1.0; // инвентарь полон — повторная попытка через секунду
         }
       }
     }

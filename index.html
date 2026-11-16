@@ -193,6 +193,12 @@
   #armorBar { display: flex; gap: 1px; }
   #oxygenRow { display: flex; gap: 1px; height: 11px; }
   #oxygenRow.hidden { visibility: hidden; }
+  /* индикатор огнестойкости (зелье из бартера пиглинов) */
+  #fireResRow { display: flex; align-items: center; gap: 4px; height: 18px;
+    font-family: monospace; font-size: 12px; font-weight: bold; color: #ffb44c;
+    text-shadow: 1px 1px 0 #000; }
+  #fireResRow.hidden { visibility: hidden; }
+  #fireResRow canvas { image-rendering: pixelated; }
   /* нижняя строка — слева сердца, справа голод (раздвинуты по краям) */
   #vitalRow { display: flex; justify-content: space-between; width: 100%; }
   #heartsBar, #hungerBar { display: flex; gap: 1px; }
@@ -451,6 +457,8 @@
     <div id="armorBar"></div>
     <div id="oxygenRow"></div>
   </div>
+  <!-- огнестойкость (зелье из бартера пиглинов) -->
+  <div id="fireResRow" class="hidden"></div>
   <!-- нижний ряд: слева здоровье, справа голод -->
   <div id="vitalRow">
     <div id="heartsBar"></div>

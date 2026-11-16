@@ -66,6 +66,12 @@ const BLOCK = {
   GOLD_ORE: 43, // золотая руда (глубоко; в MC — железной киркой+, плавить в печи)
   NETHER_GOLD_ORE: 44, // незерская золотая руда (в Аду; дропает самородки, как в MC)
   GOLD_BLOCK: 45, // золотой блок (9 слитков; в MC — железной киркой+)
+  // ---- Пиглинское обновление: блоки из бартера (только обмен у пиглинов) ----
+  CRYING_OBSIDIAN: 46, // плачущий обсидиан (светится 10, алмазная кирка — как в MC)
+  SOUL_SAND: 47, // песок душ (замедляет ходящих; лопата; как в MC)
+  NETHER_BRICK: 48, // незерский кирпич (любая кирка; как в MC)
+  BLACKSTONE: 49, // чёрный камень (любая кирка; как в MC)
+  DRIED_GHAST: 50, // сушёный гаст (бартер, как в MC 1.21.6+)
 };
 
 // Предметы (не блоки) начинаются с 100, чтобы не пересекаться с блоками
@@ -180,6 +186,21 @@ const ITEM = {
   GOLD_CHESTPLATE: 269,
   GOLD_LEGGINGS: 270,
   GOLD_BOOTS: 271,
+  SPAWN_EGG_ZOMBIE_PIGLIN: 272, // яйцо призыва зомби-пиглина (креатив/читы)
+  // ---- Пиглинское обновление: предметы из бартера (единственный способ
+  //      получения в выживании — обмен золотых слитков у пиглинов, parity MC) ----
+  IRON_NUGGET: 280, // железный самородок (10-36 шт за слиток)
+  NETHER_QUARTZ: 281, // незер-кварц (5-12 шт)
+  ENDER_PEARL: 282, // эндер-жемчуг (2-4 шт; ПКМ — бросок с телепортом)
+  FIRE_CHARGE: 283, // огненный заряд (ПКМ — поджечь блок/портал)
+  SPECTRAL_ARROW: 284, // спектральная стрела (6-12 шт; трофей)
+  WATER_BOTTLE: 285, // бутылка воды
+  POTION_FIRE_RES: 286, // зелье огнестойкости (3:00)
+  SPLASH_POTION_FIRE_RES: 287, // взрывное зелье огнестойкости (2:15)
+  ENCHANTED_BOOK_SOUL_SPEED: 288, // зачарованная книга «Скорость души»
+  SOUL_BOOTS_I: 289, // железные ботинки «Скорость души I» (2 очка брони, 195 прочности)
+  SOUL_BOOTS_II: 290, // «Скорость души II»
+  SOUL_BOOTS_III: 291, // «Скорость души III»
 };
 
 const BLOCK_NAMES = {
@@ -297,7 +318,8 @@ const BLOCK_NAMES = {
   [ITEM.SPAWN_EGG_CHICKEN]: 'Яйцо призыва курицы',
   [ITEM.SPAWN_EGG_FISH]:    'Яйцо призыва рыбы',
   [ITEM.SPAWN_EGG_ZOMBIE]:  'Яйцо призыва зомби',
-  [ITEM.SPAWN_EGG_PIGLIN]:  'Яйцо призыва зомби-пиглина',
+  [ITEM.SPAWN_EGG_PIGLIN]:  'Яйцо призыва пиглина',
+  [ITEM.SPAWN_EGG_ZOMBIE_PIGLIN]: 'Яйцо призыва зомби-пиглина',
   [ITEM.SPAWN_EGG_PHANTOM]: 'Яйцо призыва фантома',
   [ITEM.SPAWN_EGG_SPIDER]:  'Яйцо призыва паука',
   [BLOCK.GOLD_ORE]: 'Золотая руда',
@@ -315,6 +337,24 @@ const BLOCK_NAMES = {
   [ITEM.GOLD_CHESTPLATE]: 'Золотой нагрудник',
   [ITEM.GOLD_LEGGINGS]: 'Золотые поножи',
   [ITEM.GOLD_BOOTS]: 'Золотые ботинки',
+  // пиглинский бартер
+  [BLOCK.CRYING_OBSIDIAN]: 'Плачущий обсидиан',
+  [BLOCK.SOUL_SAND]: 'Песок душ',
+  [BLOCK.NETHER_BRICK]: 'Незерский кирпич',
+  [BLOCK.BLACKSTONE]: 'Чёрный камень',
+  [BLOCK.DRIED_GHAST]: 'Сушёный гаст',
+  [ITEM.IRON_NUGGET]: 'Железный самородок',
+  [ITEM.NETHER_QUARTZ]: 'Незер-кварц',
+  [ITEM.ENDER_PEARL]: 'Эндер-жемчуг',
+  [ITEM.FIRE_CHARGE]: 'Огненный заряд',
+  [ITEM.SPECTRAL_ARROW]: 'Спектральная стрела',
+  [ITEM.WATER_BOTTLE]: 'Бутылка воды',
+  [ITEM.POTION_FIRE_RES]: 'Зелье огнестойкости',
+  [ITEM.SPLASH_POTION_FIRE_RES]: 'Взрывное зелье огнестойкости',
+  [ITEM.ENCHANTED_BOOK_SOUL_SPEED]: 'Зачарованная книга (Скорость души)',
+  [ITEM.SOUL_BOOTS_I]: 'Ботинки со Скоростью души I',
+  [ITEM.SOUL_BOOTS_II]: 'Ботинки со Скоростью души II',
+  [ITEM.SOUL_BOOTS_III]: 'Ботинки со Скоростью души III',
 };
 
 // Еда: сколько голода восстанавливает (ванильные значения Minecraft)
@@ -344,7 +384,10 @@ const SPAWN_EGGS = {
   [ITEM.SPAWN_EGG_CHICKEN]: { mob: 'chicken', base: '#a8bcc8', spots: '#f0ecdc' },
   [ITEM.SPAWN_EGG_FISH]:    { mob: 'fish',    base: '#8a7a5c', spots: '#c8b888' },
   [ITEM.SPAWN_EGG_ZOMBIE]:  { mob: 'zombie',  base: '#3a6a9c', spots: '#7ca844' },
-  [ITEM.SPAWN_EGG_PIGLIN]:  { mob: 'piglin',  base: '#e8a8b8', spots: '#7ca844' },
+  // пиглин: розовая скорлупа с тёмно-золотыми крапинками (как в MC)
+  [ITEM.SPAWN_EGG_PIGLIN]:  { mob: 'piglin',  base: '#eeb0b8', spots: '#a87820' },
+  // зомби-пиглин: зелёная скорлупа с розовыми крапинками (как в MC)
+  [ITEM.SPAWN_EGG_ZOMBIE_PIGLIN]: { mob: 'zombie_piglin', base: '#7ca844', spots: '#e8a8b8' },
   [ITEM.SPAWN_EGG_PHANTOM]: { mob: 'phantom', base: '#4a6472', spots: '#a8c8c0' },
   [ITEM.SPAWN_EGG_SPIDER]:  { mob: 'spider',  base: '#2b241d', spots: '#a8302a' },
 };
@@ -404,7 +447,10 @@ const PLACEABLE = [BLOCK.GRASS, BLOCK.DIRT, BLOCK.STONE, BLOCK.SAND, BLOCK.GRAVE
                    BLOCK.TORCH, BLOCK.WOOL, BLOCK.BED_FOOT,
                    BLOCK.REDSTONE_ORE, ITEM.REDSTONE, BLOCK.REDSTONE_TORCH, BLOCK.LEVER,
                    BLOCK.BUTTON, BLOCK.PISTON,
-                   BLOCK.GOLD_ORE, BLOCK.NETHER_GOLD_ORE, BLOCK.GOLD_BLOCK];
+                   BLOCK.GOLD_ORE, BLOCK.NETHER_GOLD_ORE, BLOCK.GOLD_BLOCK,
+                   // блоки пиглинского бартера
+                   BLOCK.CRYING_OBSIDIAN, BLOCK.SOUL_SAND, BLOCK.NETHER_BRICK,
+                   BLOCK.BLACKSTONE, BLOCK.DRIED_GHAST];
 
 // Инструменты-кирки (ускоряют добычу камня и позволяют получить булыжник)
 function isPickaxe(id) { return id === ITEM.WOODEN_PICKAXE || id === ITEM.STONE_PICKAXE || id === ITEM.COPPER_PICKAXE || id === ITEM.IRON_PICKAXE || id === ITEM.DIAMOND_PICKAXE || id === ITEM.GOLD_PICKAXE; }
@@ -477,10 +523,26 @@ const ARMOR = {
   [ITEM.GOLD_CHESTPLATE]:{ slot: 'chestplate', points: 5 },
   [ITEM.GOLD_LEGGINGS]:  { slot: 'leggings',   points: 3 },
   [ITEM.GOLD_BOOTS]:     { slot: 'boots',      points: 1 },
+  // ботинки «Скорость души» из бартера: 2 очка — как у железных (MC),
+  // бонус скорости только на песке душ (см. physics.js), прочность 195
+  [ITEM.SOUL_BOOTS_I]:   { slot: 'boots',      points: 2 },
+  [ITEM.SOUL_BOOTS_II]:  { slot: 'boots',      points: 2 },
+  [ITEM.SOUL_BOOTS_III]: { slot: 'boots',      points: 2 },
 };
 function isArmor(id) { return ARMOR[id] !== undefined; }
 function armorSlotOf(id) { return ARMOR[id] ? ARMOR[id].slot : null; }
 function armorPointsOf(id) { return ARMOR[id] ? ARMOR[id].points : 0; }
+
+// Уровень «Скорости души» на надетых ботинках (0 — зачарования нет).
+// Формула MC: множитель скорости на песке душ = 1.3 + 0.105 × уровень.
+function soulSpeedLevel() {
+  const b = (typeof PLAYER !== 'undefined' && PLAYER.armor) ? PLAYER.armor.boots : null;
+  if (!b) return 0;
+  if (b.id === ITEM.SOUL_BOOTS_III) return 3;
+  if (b.id === ITEM.SOUL_BOOTS_II) return 2;
+  if (b.id === ITEM.SOUL_BOOTS_I) return 1;
+  return 0;
+}
 
 // --- Прочность предметов (ванильные значения Minecraft) ---
 // Инструменты: дерево 59, камень 131, медь (кастом) 180, железо 250, алмаз 1561.
@@ -500,6 +562,8 @@ const MAX_DURABILITY = {
   // золото (ваниль MC): инструменты 32 (самые хрупкие), броня 77/112/105/91
   [ITEM.GOLD_PICKAXE]:32, [ITEM.GOLD_AXE]:32, [ITEM.GOLD_SHOVEL]:32, [ITEM.GOLD_SWORD]:32,
   [ITEM.GOLD_HELMET]:77, [ITEM.GOLD_CHESTPLATE]:112, [ITEM.GOLD_LEGGINGS]:105, [ITEM.GOLD_BOOTS]:91,
+  // ботинки «Скорость души» — прочность железных ботинок (195, как в MC)
+  [ITEM.SOUL_BOOTS_I]:195, [ITEM.SOUL_BOOTS_II]:195, [ITEM.SOUL_BOOTS_III]:195,
 };
 function hasDurability(id) { return MAX_DURABILITY[id] !== undefined; }
 // израсходовать 1 заряд прочности у предмета в слоте; вернуть true если предмет сломался.
@@ -536,10 +600,10 @@ function useDurability(slot) {
 }
 // Блоки, по которым эффективен топор / лопата
 function axeBlock(b) { return b === BLOCK.WOOD || b === BLOCK.PLANKS || b === BLOCK.CRAFTING_TABLE || b === BLOCK.CHEST || b === BLOCK.DOOR_BOTTOM || b === BLOCK.DOOR_TOP; }
-function shovelBlock(b) { return b === BLOCK.DIRT || b === BLOCK.GRASS || b === BLOCK.SAND || b === BLOCK.GRAVEL; }
+function shovelBlock(b) { return b === BLOCK.DIRT || b === BLOCK.GRASS || b === BLOCK.SAND || b === BLOCK.GRAVEL || b === BLOCK.SOUL_SAND; }
 
 // Блоки, для добычи которых нужна кирка (иначе ломается, но ничего не выпадает)
-function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE || b === BLOCK.DIAMOND_ORE || b === BLOCK.OBSIDIAN || b === BLOCK.NETHERRACK || b === BLOCK.DEEPSLATE || b === BLOCK.REDSTONE_ORE || b === BLOCK.PISTON || b === BLOCK.GOLD_ORE || b === BLOCK.NETHER_GOLD_ORE || b === BLOCK.GOLD_BLOCK; }
+function needsPickaxe(b) { return b === BLOCK.STONE || b === BLOCK.COBBLESTONE || b === BLOCK.FURNACE || b === BLOCK.COAL_ORE || b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE || b === BLOCK.DIAMOND_ORE || b === BLOCK.OBSIDIAN || b === BLOCK.NETHERRACK || b === BLOCK.DEEPSLATE || b === BLOCK.REDSTONE_ORE || b === BLOCK.PISTON || b === BLOCK.GOLD_ORE || b === BLOCK.NETHER_GOLD_ORE || b === BLOCK.GOLD_BLOCK || b === BLOCK.CRYING_OBSIDIAN || b === BLOCK.NETHER_BRICK || b === BLOCK.BLACKSTONE; }
 // Минимальный уровень кирки для добычи блока:
 //  руды железа/меди — каменная(2)+; алмаз и редстоун — железная(4)+; обсидиан — алмазная(5).
 //  Светокамень в MC кирки НЕ требует.
@@ -547,8 +611,10 @@ function minePickTier(b) {
   if (b === BLOCK.OBSIDIAN) return 5;
   if (b === BLOCK.DIAMOND_ORE || b === BLOCK.REDSTONE_ORE) return 4; // в MC — только железной киркой+
   if (b === BLOCK.GOLD_ORE || b === BLOCK.GOLD_BLOCK) return 4; // золотая руда/блок — только железной киркой+ (MC)
+  if (b === BLOCK.CRYING_OBSIDIAN) return 5; // плачущий обсидиан — только алмазной киркой+ (MC)
   if (b === BLOCK.IRON_ORE || b === BLOCK.COPPER_ORE) return 2;
   if (b === BLOCK.NETHER_GOLD_ORE) return 1; // любая кирка (как в MC)
+  // незер-кирпич и чёрный камень — любая кирка (как в MC)
   return 1;
 }
 
@@ -587,6 +653,12 @@ const HARDNESS = {
   [BLOCK.GOLD_ORE]: 3.0,        // как в MC
   [BLOCK.NETHER_GOLD_ORE]: 3.0, // как в MC
   [BLOCK.GOLD_BLOCK]: 3.0,      // как в MC
+  // блоки пиглинского бартера (ванильные значения MC)
+  [BLOCK.CRYING_OBSIDIAN]: 50.0, // как обсидиан (MC)
+  [BLOCK.SOUL_SAND]: 0.5,
+  [BLOCK.NETHER_BRICK]: 2.0,
+  [BLOCK.BLACKSTONE]: 1.5,
+  [BLOCK.DRIED_GHAST]: 0.5,      // MC: мягкий, ломается любым инструментом
   [BLOCK.REDSTONE_DUST]: 0,
   [BLOCK.REDSTONE_TORCH]: 0,
   [BLOCK.LEVER]: 0.5,

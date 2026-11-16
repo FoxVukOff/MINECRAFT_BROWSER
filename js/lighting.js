@@ -28,6 +28,7 @@ function lightEmission(b) {
   if (b === BLOCK.FIRE) return 15;
   if (b === BLOCK.NETHER_PORTAL) return 11;
   if (b === BLOCK.REDSTONE_TORCH) return 7;
+  if (b === BLOCK.CRYING_OBSIDIAN) return 10; // плачущий обсидиан (бартер пиглинов) — светит 10, как в MC
   return 0;
 }
 // В Аду неба нет — глобальная подсветка незерака, чтобы не было кромешной тьмы

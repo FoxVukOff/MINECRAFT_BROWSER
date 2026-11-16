@@ -39,6 +39,9 @@ function onObtain(id) {
 function maxStack(id) {
   if (isTool(id) || isArmor(id) || id === ITEM.SHEARS || id === ITEM.FLINT_AND_STEEL || id === ITEM.BOAT) return 1;
   if (id === ITEM.BUCKET || id === ITEM.WATER_BUCKET || id === ITEM.LAVA_BUCKET || id === ITEM.DOOR) return 16;
+  // предметы бартера (parity MC): зелья/бутылки не стакаются, жемчуг/заряды — по 16
+  if (id === ITEM.POTION_FIRE_RES || id === ITEM.SPLASH_POTION_FIRE_RES || id === ITEM.WATER_BOTTLE) return 1;
+  if (id === ITEM.ENDER_PEARL || id === ITEM.FIRE_CHARGE) return 16;
   return MAX_STACK;
 }
 
@@ -71,6 +74,17 @@ function countItem(id) {
   let c = 0;
   for (const s of slots) if (s && s.id === id) c += s.count;
   return c;
+}
+
+// сколько ещё штук id влезет в инвентарь (для частичного подбора дропа-стака)
+function inventorySpaceFor(id) {
+  let space = 0;
+  for (let i = 0; i < TOTAL_SLOTS; i++) {
+    const s = slots[i];
+    if (!s) space += maxStack(id);
+    else if (s.id === id && s.dur === undefined) space += maxStack(id) - s.count;
+  }
+  return space;
 }
 
 // убрать n штук id из инвентаря (для постановки блока)
@@ -323,6 +337,7 @@ function iconCanvas(id, size) {
     const isDia = (id>=ITEM.DIAMOND_HELMET), isIron = (id>=ITEM.IRON_HELMET && id<=ITEM.IRON_BOOTS);
     const isCopper = (id>=ITEM.COPPER_HELMET && id<=ITEM.COPPER_BOOTS);
     const isGold = (id>=ITEM.GOLD_HELMET && id<=ITEM.GOLD_BOOTS);
+    const isSoul = (id>=ITEM.SOUL_BOOTS_I && id<=ITEM.SOUL_BOOTS_III); // ботинки «Скорость души» из бартера
     const mat = isDia ? '#3fd6e0' : isIron ? '#cfd3da' : isCopper ? '#d07a40' : isGold ? '#f0c832' : '#8a5a32';
     const dark = isDia ? '#1f9fb0' : isIron ? '#9aa0a8' : isCopper ? '#9c4f22' : isGold ? '#a8841c' : '#5e3a1e';
     const sl = armorSlotOf(id);
@@ -331,6 +346,14 @@ function iconCanvas(id, size) {
     else if (sl === 'chestplate') { ctx.fillRect(3*u,3*u,10*u,3*u); ctx.fillRect(4*u,6*u,8*u,7*u); ctx.fillStyle=dark; ctx.fillRect(4*u,9*u,8*u,1*u); ctx.fillStyle=mat; ctx.fillRect(2*u,4*u,2*u,4*u); ctx.fillRect(12*u,4*u,2*u,4*u); }
     else if (sl === 'leggings') { ctx.fillRect(4*u,3*u,8*u,4*u); ctx.fillRect(4*u,7*u,3*u,7*u); ctx.fillRect(9*u,7*u,3*u,7*u); ctx.fillStyle=dark; ctx.fillRect(7*u,4*u,2*u,3*u); }
     else { ctx.fillRect(3*u,8*u,4*u,5*u); ctx.fillRect(9*u,8*u,4*u,5*u); ctx.fillStyle=dark; ctx.fillRect(3*u,12*u,4*u,1*u); ctx.fillRect(9*u,12*u,4*u,1*u); }
+    // «Скорость души»: золотые пипсы уровня I–III (как чары)
+    if (isSoul) {
+      const lvl = id === ITEM.SOUL_BOOTS_III ? 3 : id === ITEM.SOUL_BOOTS_II ? 2 : 1;
+      ctx.fillStyle = '#f0c832';
+      for (let li = 0; li < lvl; li++) ctx.fillRect((5.5 + li*2)*u, 5.6*u, 1.3*u, 1.3*u);
+      ctx.fillStyle = '#3fbfa8';
+      ctx.fillRect(3*u,8*u,1*u,5*u); ctx.fillRect(12*u,8*u,1*u,5*u); // бирюзовая «аура» чар по бокам
+    }
     return c;
   }
   // ведро (пустое/вода/лава)
@@ -423,6 +446,90 @@ function iconCanvas(id, size) {
     ctx.fillRect(6*u, 7.4*u, 2*u, 1*u); ctx.fillRect(9*u, 8.4*u, 2*u, 1*u);
     ctx.fillStyle = '#fff8cc';
     ctx.fillRect(6*u, 7.4*u, 1*u, 1*u);
+    return c;
+  }
+  // ---- Предметы пиглинского бартера ----
+  // железный самородок — маленький бугорок железа (10-36 за слиток)
+  if (id === ITEM.IRON_NUGGET) {
+    const u = size/16;
+    ctx.fillStyle = '#9a9aa6';
+    ctx.beginPath(); ctx.ellipse(8*u, 9.6*u, 4.4*u, 3.6*u, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#d2d2da';
+    ctx.beginPath(); ctx.ellipse(8*u, 9*u, 4*u, 3.1*u, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#eeeef4';
+    ctx.fillRect(6*u, 7.4*u, 2*u, 1*u); ctx.fillRect(9*u, 8.4*u, 2*u, 1*u);
+    return c;
+  }
+  // незер-кварц — светлый огранённый кристалл
+  if (id === ITEM.NETHER_QUARTZ) {
+    const u = size/16;
+    ctx.fillStyle = '#e8e2dc';
+    ctx.beginPath(); ctx.moveTo(8*u,2*u); ctx.lineTo(12*u,7*u); ctx.lineTo(8*u,14*u); ctx.lineTo(4*u,7*u); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fbf7f2'; ctx.fillRect(7*u,4*u,2*u,4*u);
+    ctx.fillStyle = '#b8aca0'; ctx.fillRect(8.4*u,9*u,1.6*u,3*u);
+    return c;
+  }
+  // эндер-жемчуг — тёмная бирюзовая сфера (ПКМ — бросок с телепортом)
+  if (id === ITEM.ENDER_PEARL) {
+    const u = size/16;
+    ctx.fillStyle = '#0d4a44';
+    ctx.beginPath(); ctx.arc(8*u,8*u,5*u,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#1f7a6e';
+    ctx.beginPath(); ctx.arc(8*u,8*u,4*u,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#3fbfa8';
+    ctx.fillRect(5*u,5*u,2*u,2*u); ctx.fillRect(9*u,8*u,2*u,2*u);
+    return c;
+  }
+  // огненный заряд — тёмный угольный шар с огненным нутром
+  if (id === ITEM.FIRE_CHARGE) {
+    const u = size/16;
+    ctx.fillStyle = '#2a1a10';
+    ctx.beginPath(); ctx.arc(8*u,8*u,5*u,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#e8641c';
+    ctx.beginPath(); ctx.arc(8*u,8*u,3.4*u,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#ffd24a';
+    ctx.fillRect(7*u,6*u,2*u,3*u);
+    return c;
+  }
+  // спектральная стрела — светящаяся золотистая стрела (трофей бартера)
+  if (id === ITEM.SPECTRAL_ARROW) {
+    const u = size/16;
+    ctx.strokeStyle = '#c8b48a'; ctx.lineWidth = Math.max(1, u);        // древко
+    ctx.beginPath(); ctx.moveTo(4*u,13*u); ctx.lineTo(12*u,4*u); ctx.stroke();
+    ctx.fillStyle = '#f8e8a0';                                          // наконечник
+    ctx.beginPath(); ctx.moveTo(13*u,3*u); ctx.lineTo(9*u,5*u); ctx.lineTo(12*u,7*u); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#fff8cc';                                        // светящееся оперение
+    ctx.lineWidth = Math.max(1, u*0.9);
+    ctx.beginPath(); ctx.moveTo(4*u,13*u); ctx.lineTo(6.4*u,10*u); ctx.moveTo(6.4*u,13.4*u); ctx.lineTo(8.6*u,10.4*u); ctx.stroke();
+    return c;
+  }
+  // бутылка воды (синяя) и зелья огнестойкости (оранжевые; взрывное — с «короной» брызг)
+  if (id === ITEM.WATER_BOTTLE || id === ITEM.POTION_FIRE_RES || id === ITEM.SPLASH_POTION_FIRE_RES) {
+    const u = size/16;
+    const potion = id !== ITEM.WATER_BOTTLE;
+    const splash = id === ITEM.SPLASH_POTION_FIRE_RES;
+    ctx.fillStyle = '#b98e4d'; ctx.fillRect(6.6*u,2.2*u,2.8*u,2*u);      // пробка
+    ctx.fillStyle = 'rgba(220,230,240,0.85)'; ctx.fillRect(6.9*u,4.2*u,2.2*u,2.8*u); // горлышко
+    ctx.fillStyle = 'rgba(220,230,240,0.5)';                             // колба
+    ctx.beginPath(); ctx.arc(8*u,10*u,4.2*u,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = potion ? '#e8641c' : '#3a86d8';                      // содержимое
+    ctx.beginPath(); ctx.arc(8*u,10.4*u,3.2*u,0,Math.PI*2); ctx.fill();
+    if (potion) { ctx.fillStyle = '#ffd24a'; ctx.fillRect(6.4*u,9.4*u,1.4*u,1.4*u); }
+    if (splash) { // «корона» брызг — отличительный знак взрывного зелья
+      ctx.fillStyle = '#ffd24a';
+      ctx.fillRect(4*u,3.4*u,1.6*u,1.6*u); ctx.fillRect(10.6*u,3.4*u,1.6*u,1.6*u); ctx.fillRect(7.2*u,0.8*u,1.6*u,1.6*u);
+    }
+    return c;
+  }
+  // зачарованная книга «Скорость души» — книга с бирюзовым сиянием чар
+  if (id === ITEM.ENCHANTED_BOOK_SOUL_SPEED) {
+    const u = size/16;
+    ctx.fillStyle = '#7a3a24'; ctx.fillRect(3*u,4*u,10*u,9*u);          // обложка
+    ctx.fillStyle = '#e8dcc8'; ctx.fillRect(4.4*u,4.6*u,8.2*u,7.8*u);   // страницы
+    ctx.fillStyle = '#c8b89a'; ctx.fillRect(4.4*u,8*u,8.2*u,1*u);       // строка
+    ctx.fillStyle = '#3fbfa8';                                           // сияние чар
+    ctx.fillRect(5*u,5.4*u,7*u,1*u); ctx.fillRect(6*u,10.4*u,5*u,1*u);
+    ctx.fillStyle = '#0d4a44'; ctx.fillRect(8.6*u,6.6*u,2.8*u,2.8*u);   // руна души
     return c;
   }
   // яблоко (обычное красное / золотое — как в MC)

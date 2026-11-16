@@ -402,6 +402,87 @@ function buildTextures() {
     ctx.fillStyle = '#fff8cc';
     ctx.fillRect(6,6,1,1); ctx.fillRect(9,8,1,1);
   });
+  // ---- Пиглинское обновление: блоки из бартера ----
+  // плачущий обсидиан — фиолетово-чёрный со светящимися «слезами» (бартер пиглинов)
+  TEX.crying_obsidian = makeTex(ctx => {
+    pixelFill(ctx, ['#120b1e','#1a1128','#0d0816','#221536','#0a0612'], [5,4,3,2,2], 4646);
+    // стеклянные блики, как у обсидиана
+    ctx.fillStyle = '#3a2a5c';
+    for (let i = 0; i < 8; i++) ctx.fillRect(2 + i, 12 - i, 1, 1);
+    ctx.fillStyle = '#5a3f8a';
+    for (let i = 0; i < 4; i++) ctx.fillRect(10 + i, 14 - i, 1, 1);
+    // светящиеся фиолетовые «капли» — фирменные слёзы плачущего обсидиана
+    const tears = [[3,3],[10,2],[6,7],[12,9],[2,12],[8,13],[13,5]];
+    for (const [tx,ty] of tears) {
+      ctx.fillStyle = '#8a3cd2'; ctx.fillRect(tx,ty,2,3);
+      ctx.fillStyle = '#c98af5'; ctx.fillRect(tx,ty,1,1);
+      ctx.fillStyle = '#4a1a7a'; ctx.fillRect(tx+1,ty+2,1,1);
+    }
+  });
+  // песок душ — бурый зернистый с тёмными «лицами душ» (бартер пиглинов)
+  TEX.soul_sand = makeTex(ctx => {
+    pixelFill(ctx, ['#513c2d','#5c4635','#463325','#665040','#3c2b1e'], [5,4,4,2,2], 4747);
+    // тёмные воронки-лица душ (как узоры на песке душ в MC)
+    const faces = [[2,2],[9,4],[4,9],[11,11],[6,13]];
+    for (const [fx,fy] of faces) {
+      ctx.fillStyle = '#241a10'; ctx.fillRect(fx,fy,4,4);   // впадина
+      ctx.fillStyle = '#120c06'; ctx.fillRect(fx+1,fy+1,1,1); ctx.fillRect(fx+2,fy+1,1,1); // глаза-щёлки
+      ctx.fillStyle = '#6b5442'; ctx.fillRect(fx,fy,4,1);   // светлый верхний ободок
+    }
+    // редкие песчинки-блёстки
+    ctx.fillStyle = '#8a6f55';
+    for (const [gx,gy] of [[7,1],[1,8],[13,7],[8,9]]) ctx.fillRect(gx,gy,1,1);
+  });
+  // незерский кирпич — кладка тёмно-багровых кирпичей (бартер пиглинов)
+  TEX.nether_brick = makeTex(ctx => {
+    const brick = (bx, by, w) => {
+      ctx.fillStyle = '#2c0d0d'; ctx.fillRect(bx,by,w,3);          // сам кирпич (тёмный)
+      ctx.fillStyle = '#4c1a1a'; ctx.fillRect(bx,by,w,1);          // верхняя грань
+      ctx.fillStyle = '#5e2626'; ctx.fillRect(bx+1,by+1,Math.max(1,w-2),1); // середина посветлее
+      ctx.fillStyle = '#1a0606'; ctx.fillRect(bx,by+2,w,1);        // нижняя тень
+    };
+    // фон швов
+    pixelFill(ctx, ['#170404','#1e0808','#120303'], [4,4,3], 4747);
+    // кладка со смещением рядов (как в MC)
+    brick(0,1,7);  brick(8,1,8);
+    brick(0,5,3);  brick(4,5,7);  brick(12,5,4);
+    brick(0,9,8);  brick(9,9,7);
+    brick(0,13,4); brick(5,13,6); brick(12,13,4);
+    // редкие багровые искры
+    ctx.fillStyle = '#7a3030';
+    for (const [gx,gy] of [[5,3],[11,8],[3,12]]) ctx.fillRect(gx,gy,1,1);
+  });
+  // чёрный камень — тёмная брекчия со сколами и светлыми крапинами (бартер пиглинов)
+  TEX.blackstone = makeTex(ctx => {
+    pixelFill(ctx, ['#191919','#222222','#101010','#2a2a2a','#0a0a0a'], [5,4,4,2,2], 4646);
+    // крупные тёмные булыжники-обломки
+    const chunks = [[2,2,3,3],[8,1,4,3],[3,7,3,4],[10,8,4,3],[1,12,4,3],[7,12,3,3],[12,13,3,3]];
+    for (const [cx,cy,cw,ch] of chunks) {
+      ctx.fillStyle = '#2e2e2e'; ctx.fillRect(cx,cy,cw,ch);
+      ctx.fillStyle = '#3c3c3c'; ctx.fillRect(cx,cy,cw,1);        // светлая грань сверху
+      ctx.fillStyle = '#141414'; ctx.fillRect(cx,cy+ch-1,cw,1);   // тень снизу
+    }
+    // светлые крапины кварца в тёмной массе (фирменная деталь MC)
+    ctx.fillStyle = '#565656';
+    for (const [gx,gy] of [[6,5],[12,4],[5,11],[13,10],[9,6]]) ctx.fillRect(gx,gy,1,1);
+  });
+  // сушёный гаст — бледная серо-белая «мумия» с буграми щупалец (бартер, MC 1.21.6+)
+  TEX.dried_ghast = makeTex(ctx => {
+    pixelFill(ctx, ['#8f8d86','#9a988f','#84827b','#a3a199','#787670'], [5,4,4,2,2], 4545);
+    // морщинистые ряды-бугры (засохшие щупальца гаста)
+    for (let r = 0; r < 4; r++) {
+      const ry = 1 + r * 4;
+      for (let i = 0; i < 3; i++) {
+        const cx = 1 + i * 5 + (r % 2) * 2;
+        ctx.fillStyle = '#6f6d66'; ctx.fillRect(cx, ry, 4, 3);
+        ctx.fillStyle = '#b3b1a8'; ctx.fillRect(cx, ry, 4, 1);
+        ctx.fillStyle = '#5c5a54'; ctx.fillRect(cx, ry+2, 4, 1);
+      }
+    }
+    // тёмные «затхлые» пятна
+    ctx.fillStyle = '#55534e';
+    for (const [gx,gy] of [[4,6],[11,3],[7,12],[13,9]]) ctx.fillRect(gx,gy,2,1);
+  });
   // гравий — округлая галька разных тонов с мокрыми бликами
   TEX.gravel = makeTex(ctx => {
     pixelFill(ctx, ['#8a8480','#9a938c','#76706a','#a39c94','#6a625c'], [5,4,4,2,2], 2424);
@@ -1032,6 +1113,12 @@ function buildMaterials() {
   const mGoldOre   = texToMaterial(TEX.gold_ore);
   const mNGoldOre  = texToMaterial(TEX.nether_gold_ore);
   const mGoldBlock = texToMaterial(TEX.gold_block);
+  // пиглинский бартер: блоки лута
+  const mCryingObsidian = texToMaterial(TEX.crying_obsidian);
+  const mSoulSand  = texToMaterial(TEX.soul_sand);
+  const mNetherBrick = texToMaterial(TEX.nether_brick);
+  const mBlackstone = texToMaterial(TEX.blackstone);
+  const mDriedGhast = texToMaterial(TEX.dried_ghast);
   const mGravel    = texToMaterial(TEX.gravel);
   const mObsidian  = texToMaterial(TEX.obsidian);
   const mNetherrack= texToMaterial(TEX.netherrack);
@@ -1119,6 +1206,12 @@ function buildMaterials() {
   MATERIALS[BLOCK.GOLD_ORE] = [mGoldOre, mGoldOre, mGoldOre, mGoldOre, mGoldOre, mGoldOre];
   MATERIALS[BLOCK.NETHER_GOLD_ORE] = [mNGoldOre, mNGoldOre, mNGoldOre, mNGoldOre, mNGoldOre, mNGoldOre];
   MATERIALS[BLOCK.GOLD_BLOCK] = [mGoldBlock, mGoldBlock, mGoldBlock, mGoldBlock, mGoldBlock, mGoldBlock];
+  // пиглинский бартер: блоки лута
+  MATERIALS[BLOCK.CRYING_OBSIDIAN] = [mCryingObsidian, mCryingObsidian, mCryingObsidian, mCryingObsidian, mCryingObsidian, mCryingObsidian];
+  MATERIALS[BLOCK.SOUL_SAND] = [mSoulSand, mSoulSand, mSoulSand, mSoulSand, mSoulSand, mSoulSand];
+  MATERIALS[BLOCK.NETHER_BRICK] = [mNetherBrick, mNetherBrick, mNetherBrick, mNetherBrick, mNetherBrick, mNetherBrick];
+  MATERIALS[BLOCK.BLACKSTONE] = [mBlackstone, mBlackstone, mBlackstone, mBlackstone, mBlackstone, mBlackstone];
+  MATERIALS[BLOCK.DRIED_GHAST] = [mDriedGhast, mDriedGhast, mDriedGhast, mDriedGhast, mDriedGhast, mDriedGhast];
   MATERIALS[BLOCK.GRAVEL] = [mGravel, mGravel, mGravel, mGravel, mGravel, mGravel];
   MATERIALS[BLOCK.OBSIDIAN] = [mObsidian, mObsidian, mObsidian, mObsidian, mObsidian, mObsidian];
   MATERIALS[BLOCK.NETHERRACK] = [mNetherrack, mNetherrack, mNetherrack, mNetherrack, mNetherrack, mNetherrack];

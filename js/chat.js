@@ -36,7 +36,8 @@ const GIVE_ALIASES = {
   spawn_egg_fish: ITEM.SPAWN_EGG_FISH, fish_spawn_egg: ITEM.SPAWN_EGG_FISH,
   spawn_egg_zombie: ITEM.SPAWN_EGG_ZOMBIE, zombie_spawn_egg: ITEM.SPAWN_EGG_ZOMBIE,
   spawn_egg_piglin: ITEM.SPAWN_EGG_PIGLIN, piglin_spawn_egg: ITEM.SPAWN_EGG_PIGLIN,
-  spawn_egg_zombie_piglin: ITEM.SPAWN_EGG_PIGLIN, zombie_piglin_spawn_egg: ITEM.SPAWN_EGG_PIGLIN,
+  spawn_egg_zombie_piglin: ITEM.SPAWN_EGG_ZOMBIE_PIGLIN, zombie_piglin_spawn_egg: ITEM.SPAWN_EGG_ZOMBIE_PIGLIN,
+  spawn_egg_zpiglin: ITEM.SPAWN_EGG_ZOMBIE_PIGLIN, zombified_piglin_spawn_egg: ITEM.SPAWN_EGG_ZOMBIE_PIGLIN,
   spawn_egg_phantom: ITEM.SPAWN_EGG_PHANTOM, phantom_spawn_egg: ITEM.SPAWN_EGG_PHANTOM,
   spawn_egg_spider: ITEM.SPAWN_EGG_SPIDER, spider_spawn_egg: ITEM.SPAWN_EGG_SPIDER,
   string: ITEM.STRING, thread: ITEM.STRING, нить: ITEM.STRING, apple: ITEM.APPLE,
@@ -61,6 +62,16 @@ const GIVE_ALIASES = {
   porkchop: ITEM.PORK_RAW, cooked_porkchop: ITEM.PORK_COOKED, beef: ITEM.BEEF_RAW, cooked_beef: ITEM.BEEF_COOKED,
   chicken: ITEM.CHICKEN_RAW, cooked_chicken: ITEM.CHICKEN_COOKED,
   rotten_flesh: ITEM.ROTTEN_FLESH, zombie_flesh: ITEM.ROTTEN_FLESH,
+  // пиглинский бартер (золото ↔ лут)
+  crying_obsidian: BLOCK.CRYING_OBSIDIAN, soul_sand: BLOCK.SOUL_SAND,
+  nether_brick: BLOCK.NETHER_BRICK, blackstone: BLOCK.BLACKSTONE, dried_ghast: BLOCK.DRIED_GHAST,
+  iron_nugget: ITEM.IRON_NUGGET, nether_quartz: ITEM.NETHER_QUARTZ, quartz: ITEM.NETHER_QUARTZ,
+  ender_pearl: ITEM.ENDER_PEARL, fire_charge: ITEM.FIRE_CHARGE, spectral_arrow: ITEM.SPECTRAL_ARROW,
+  water_bottle: ITEM.WATER_BOTTLE, potion_fire_res: ITEM.POTION_FIRE_RES,
+  fire_resistance_potion: ITEM.POTION_FIRE_RES, splash_potion_fire_res: ITEM.SPLASH_POTION_FIRE_RES,
+  enchanted_book: ITEM.ENCHANTED_BOOK_SOUL_SPEED, soul_speed_book: ITEM.ENCHANTED_BOOK_SOUL_SPEED,
+  soul_boots: ITEM.SOUL_BOOTS_III, soul_speed_boots: ITEM.SOUL_BOOTS_III,
+  soul_boots_1: ITEM.SOUL_BOOTS_I, soul_boots_2: ITEM.SOUL_BOOTS_II, soul_boots_3: ITEM.SOUL_BOOTS_III,
 };
 
 function resolveGiveId(nameOrId) {
@@ -127,7 +138,9 @@ const SUMMON_ALIASES = {
   sheep: 'sheep', овца: 'sheep',
   fish: 'fish', рыба: 'fish',
   zombie: 'zombie', зомби: 'zombie',
-  piglin: 'piglin', zombie_piglin: 'piglin', зомби_пиглин: 'piglin', пиглин: 'piglin',
+  piglin: 'piglin', пиглин: 'piglin',                                   // обычный пиглин — БАРТЕРЩИК
+  zombie_piglin: 'zombie_piglin', зомби_пиглин: 'zombie_piglin',         // зомбифицированный — НЕ торгует
+  зомбифицированный_пиглин: 'zombie_piglin', zombified_piglin: 'zombie_piglin',
   phantom: 'phantom', фантом: 'phantom',
   spider: 'spider', паук: 'spider',
 };

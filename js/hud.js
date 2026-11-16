@@ -15,6 +15,7 @@ const oxygenRowEl = document.getElementById('oxygenRow');
 const armorBarEl = document.getElementById('armorBar');
 const heartsBarEl = document.getElementById('heartsBar');
 const hungerBarEl = document.getElementById('hungerBar');
+const fireResRowEl = document.getElementById('fireResRow');
 const damageFlashEl = document.getElementById('damageFlash');
 
 // --- Пиксель-арт иконки статуса (рисуем на 9x9, масштаб x2) ---
@@ -58,6 +59,16 @@ function heartIcon(state) {
     // блик
     px(x, hi, 1, 2); px(x, hi, 2, 2);
     if (state === 'full') { px(x, hi, 6, 2); }
+  });
+}
+
+// язычок огня — индикатор огнестойкости (зелье из бартера пиглинов)
+function flameIcon() {
+  return statusCanvas(x => {
+    px(x, '#5a2000', 3, 6, 3, 2);           // основание
+    px(x, '#e8641c', 3, 4, 3, 2); px(x, '#e8641c', 4, 3, 1, 1);
+    px(x, '#ffb44c', 3, 2, 2, 2); px(x, '#ffd98a', 4, 1, 1, 1);
+    px(x, '#fff3c8', 4, 3, 1, 1);           // яркое ядро
   });
 }
 
@@ -163,7 +174,8 @@ function updateWaterUI() {
   const oxy = Math.max(0, Math.ceil(PLAYER.oxygen));
   const showOxy = PLAYER.submerged || PLAYER.oxygen < PLAYER.maxOxygen - 0.01;
   const armorPts = totalArmorPoints();
-  const sig = hp + '|' + hunger + '|' + (showOxy ? oxy : 'x') + '|' + armorPts;
+  const fr = Math.ceil(PLAYER.fireResT || 0); // огнестойкость (бартер) — до целых секунд
+  const sig = hp + '|' + hunger + '|' + (showOxy ? oxy : 'x') + '|' + armorPts + '|' + fr;
   if (sig === _lastStatus) return;
   _lastStatus = sig;
 
@@ -175,6 +187,17 @@ function updateWaterUI() {
       const st = v >= 2 ? 'full' : (v === 1 ? 'half' : 'empty');
       armorBarEl.appendChild(armorIcon(st));
     }
+  }
+
+  // --- огнестойкость (зелье из бартера пиглинов): огонёк + таймер ---
+  fireResRowEl.innerHTML = '';
+  fireResRowEl.classList.toggle('hidden', fr <= 0);
+  if (fr > 0) {
+    fireResRowEl.appendChild(flameIcon());
+    const frText = document.createElement('span');
+    const mm2 = Math.floor(fr / 60), ss2 = (fr % 60).toString().padStart(2, '0');
+    frText.textContent = mm2 + ':' + ss2;
+    fireResRowEl.appendChild(frText);
   }
 
   // --- сердца (10 шт = 20 hp) ---

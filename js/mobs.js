@@ -197,6 +197,16 @@ function buildMobMaterials() {
     ctx.fillStyle = '#7a4a58'; ctx.fillRect(4,7,3,3); ctx.fillRect(9,7,3,3);
   }));
   MOB_MAT.piglin_cloth = mobTex(makeTex(ctx => noiseFill(ctx, 0x8a6a2a, 6))); // золотистая одежда/штаны
+  // --- Обычный пиглин (бартерщик из MC) ---
+  MOB_MAT.piglin_fresh = mobTex(makeTex(ctx => {       // розовая живая кожа
+    noiseFill(ctx, 0xe8a89a, 6);
+    ctx.fillStyle = '#f2bcb0'; for (let i=0;i<5;i++) ctx.fillRect((Math.random()*14)|0,(Math.random()*14)|0,2,1);
+  }));
+  MOB_MAT.piglin_cloth_dark = mobTex(makeTex(ctx => {  // тёмная одежда с золотой оторочкой
+    noiseFill(ctx, 0x3a2c22, 6);
+    ctx.fillStyle = '#a8841c'; ctx.fillRect(0,5,16,2); ctx.fillRect(6,0,3,3);
+  }));
+  MOB_MAT.gold_sword = mobTex(makeTex(ctx => noiseFill(ctx, 0xf0c832, 5))); // золото (меч и слиток в руке)
   // --- Овца ---
   MOB_MAT.sheep_wool = mobTex(makeTex(ctx => {               // пушистая шерсть
     pixelFill(ctx, ['#e9e9ec','#dedee2','#f2f2f4','#d2d2d6'], [5,4,3,2], 3333);
@@ -344,14 +354,17 @@ const MOB_TYPES = {
     },
     width: 0.95, height: 1.05, hp: 8,
   },
-  piglin: {
-    spawnOn: BLOCK.NETHERRACK, drop: ITEM.PORK_RAW, dropCount: () => 1 + (Math.random()*2|0),
+  zombie_piglin: {
+    // зомбифицированный пиглин: нейтрален, пока не ударят (parity MC),
+    // НЕ бартерит — золото обменивают только обычные пиглины!
+    spawnOn: BLOCK.NETHERRACK, drop: ITEM.ROTTEN_FLESH, dropCount: () => (Math.random()*2|0), // 0–1 гнили (как в MC)
     idleSound: 'oink', hurtSound: 'oink_hurt',
-    hostile: true,      // может атаковать игрока (после агра)
-    pack: true,         // вся стая агрится при ударе по одному
+    hostile: true,      // монстр, но НЕЙТРАЛЕН, пока его не ударят (как в MC)
+    pack: true,         // вся стая агрится при ударе по одному (MC: до 20-40 блоков)
     pathfind: true,     // A*-навигация (в Аду обходят лаву и стены)
     name: 'зомби-пиглин',
-    dmg: 3,
+    dmg: 8,             // Java Normal с золотым мечом (как в MC)
+    chaseSpeed: 3.4,    // MC: 3.38 м/с в погоне
     build() {
       const g = new THREE.Group();
       const box = (w,h,d,mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat||MOB_MAT.piglin_skin); if (SHADOWS_ON) m.castShadow=true; return m; };
@@ -366,6 +379,12 @@ const MOB_TYPES = {
       const armL = box(0.2,0.7,0.2); armL.geometry.translate(0,-0.35,0); armL.position.set(-0.4,1.42,0); g.add(armL);
       const armR = armL.clone(); armR.position.x = 0.4; g.add(armR);
       g.userData.legs.push(armL, armR); // руки качаются вместе с ногами
+      // золотой меч в правой руке (в MC зомби-пиглины тоже с мечом)
+      const sword = new THREE.Group();
+      const blade = box(0.09, 0.5, 0.09, MOB_MAT.gold_sword); blade.position.y = -0.28; sword.add(blade);
+      const guard = box(0.24, 0.06, 0.12, MOB_MAT.piglin_cloth); sword.add(guard);
+      sword.position.set(0, -0.62, 0.16); sword.rotation.x = -0.5;
+      armR.add(sword);
       // голова
       const head = new THREE.Group();
       head.add(box(0.55,0.5,0.5));
@@ -378,7 +397,56 @@ const MOB_TYPES = {
       head.position.set(0, 1.75, 0); g.add(head); g.userData.head = head;
       return g;
     },
-    width: 0.6, height: 2.0, hp: 16,
+    width: 0.6, height: 2.0, hp: 20,
+  },
+  piglin: {
+    // обычный пиглин — БАРТЕРЩИК: обменивает золотые слитки на лут
+    // (зомби-пиглины торговать не умеют — parity MC)
+    spawnOn: BLOCK.NETHERRACK,
+    drop: ITEM.GOLD_SWORD, dropCount: () => (Math.random() < 0.085 ? 1 : 0), // 8.5% меч из руки (как в MC)
+    idleSound: 'oink', hurtSound: 'oink_hurt',
+    hostile: true,       // враждебен к игроку БЕЗ золотой брони; в золотой — нейтрален (parity MC)
+    pack: true,          // при ударе агрится вся стая (как в MC)
+    pathfind: true,      // A*-навигация (в Аду обходят лаву и стены)
+    barter: true,        // ЕДИНСТВЕННЫЙ бартерщик: 6с рассматривает слиток и бросает лут
+    name: 'пиглин',
+    dmg: 8,              // Java Normal с золотым мечом (как в MC)
+    chaseSpeed: 4.1,     // MC speed 0.35 — пиглины заметно быстрее зомби
+    build() {
+      const g = new THREE.Group();
+      const box = (w,h,d,mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat||MOB_MAT.piglin_fresh); if (SHADOWS_ON) m.castShadow=true; return m; };
+      // ноги (тёмные штаны с золотой оторочкой)
+      const legs = []; const lp = [[-0.16,0],[0.16,0]];
+      for (const [lx,lz] of lp) { const leg = box(0.26,0.7,0.26, MOB_MAT.piglin_cloth_dark); leg.geometry.translate(0,-0.35,0); leg.position.set(lx,0.7,lz); g.add(leg); legs.push(leg); }
+      g.userData.legs = legs;
+      // тело (тёмная куртка с золотым поясом)
+      const body = box(0.6, 0.75, 0.34, MOB_MAT.piglin_cloth_dark); body.position.set(0, 1.05, 0); g.add(body);
+      const torso = box(0.6, 0.3, 0.34); torso.position.set(0, 1.34, 0); g.add(torso);
+      // руки
+      const armL = box(0.2,0.7,0.2); armL.geometry.translate(0,-0.35,0); armL.position.set(-0.4,1.42,0); g.add(armL);
+      const armR = armL.clone(); armR.position.x = 0.4; g.add(armR);
+      g.userData.legs.push(armL, armR); // руки качаются вместе с ногами
+      // ЗОЛОТОЙ МЕЧ в правой руке (как в MC)
+      const sword = new THREE.Group();
+      const blade = box(0.09, 0.5, 0.09, MOB_MAT.gold_sword); blade.position.y = -0.28; sword.add(blade);
+      const guard = box(0.24, 0.06, 0.12, MOB_MAT.piglin_cloth_dark); sword.add(guard);
+      sword.position.set(0, -0.62, 0.16); sword.rotation.x = -0.5;
+      armR.add(sword);
+      // рука для бартера: сюда пиглин «берёт» золотой слиток на 6 секунд
+      g.userData.barterArm = armL;
+      // голова (розовая, большие уши)
+      const head = new THREE.Group();
+      head.add(box(0.55,0.5,0.5));
+      const snout = box(0.42,0.2,0.16, MOB_MAT.piglin_snout); snout.position.set(0,-0.08,0.3); head.add(snout);
+      // уши — крупнее, чем у зомбифицированного
+      const earL = box(0.12,0.26,0.06, MOB_MAT.piglin_snout); earL.position.set(-0.31,0.12,0); head.add(earL);
+      const earR = earL.clone(); earR.position.x = 0.31; head.add(earR);
+      const eL = new THREE.Mesh(new THREE.BoxGeometry(0.08,0.08,0.02), EYE_MAT()); eL.position.set(-0.14,0.06,0.26); head.add(eL);
+      const eR = eL.clone(); eR.position.x = 0.14; head.add(eR);
+      head.position.set(0, 1.75, 0); g.add(head); g.userData.head = head;
+      return g;
+    },
+    width: 0.6, height: 1.95, hp: 16,
   },
   fish: {
     spawnOn: BLOCK.WATER, drop: ITEM.FISH_RAW, dropCount: () => 1 + (Math.random()*1|0),
@@ -574,11 +642,11 @@ let hostileSpawnTimer = 1.5;    // цикл монстров (свой, част
 const MAX_HOSTILES = 70;
 function zombieCount() { let n = 0; for (const m of mobs) if (m.type === 'zombie') n++; return n; }
 // монстры: зомби + пауки (верхний мир) + зомби-пиглины (Ад); фантомы — отдельный кап
-function hostileCount() { let n = 0; for (const m of mobs) if (m.type === 'zombie' || m.type === 'piglin' || m.type === 'spider') n++; return n; }
-// мирные животные (без зомби/пауков/пиглинов/фантомов)
+function hostileCount() { let n = 0; for (const m of mobs) if (m.type === 'zombie' || m.type === 'piglin' || m.type === 'zombie_piglin' || m.type === 'spider') n++; return n; }
+// мирные животные (без зомби/пауков/пиглинов/зомби-пиглинов/фантомов)
 function passiveCount() {
   let n = 0;
-  for (const m of mobs) if (m.type !== 'zombie' && m.type !== 'piglin' && m.type !== 'phantom' && m.type !== 'spider') n++;
+  for (const m of mobs) if (m.type !== 'zombie' && m.type !== 'piglin' && m.type !== 'zombie_piglin' && m.type !== 'phantom' && m.type !== 'spider') n++;
   return n;
 }
 
@@ -618,7 +686,7 @@ function hostileSpotOk(type, x, y, z, opts) {
   if (World.getBlock(x, y, z) !== BLOCK.AIR) return false;
   if (World.getBlock(x, y + 1, z) !== BLOCK.AIR) return false;
   if (!mobSolid(x, y - 1, z)) return false;             // опора — только твёрдый блок
-  if (type === 'piglin' && World.getBlock(x, y - 1, z) !== BLOCK.NETHERRACK) return false;
+  if ((type === 'piglin' || type === 'zombie_piglin') && World.getBlock(x, y - 1, z) !== BLOCK.NETHERRACK) return false;
   if (opts.light0) {
     // MC 1.18+: спавн только при свете блока 0 (-1 = сетки света нет — мимо,
     // чтобы возле факела в ещё не мешированном чанке не появился зомби)
@@ -632,8 +700,8 @@ function hostileSpotOk(type, x, y, z, opts) {
 function spawnHostilePack(type, x, y, z, opts) {
   if (!hostileSpotOk(type, x, y, z, opts)) return false;
   spawnMob(type, x + 0.5, y, z + 0.5);
-  // pack spawn MC: рядом с лидером до 4 особей (пиглины ходят пачками по 2-4)
-  const want = (type === 'piglin' ? 2 + (Math.random() * 3 | 0) : 1 + (Math.random() * 4 | 0));
+  // pack spawn MC: пиглины и зомби-пиглины ходят пачками по 2-4
+  const want = ((type === 'piglin' || type === 'zombie_piglin') ? 2 + (Math.random() * 3 | 0) : 1 + (Math.random() * 4 | 0));
   for (let pk = 1; pk < want && hostileCount() < MAX_HOSTILES; pk++) {
     const ox = x + ((Math.random() * 5 | 0) - 2), oz = z + ((Math.random() * 5 | 0) - 2);
     for (let oy = y + 1; oy >= y - 1; oy--) {           // та же высота ± 1 блок
@@ -650,8 +718,8 @@ function spawnHostilePack(type, x, y, z, opts) {
 function hostileSpawnAttempt(type) {
   const night = daylight() < 0.25;
   // зомби и пауки спавнятся «в темноте» (свет блока 0, ночью — и на поверхности);
-  // пиглины в Аду — на любой светлоте (как в MC)
-  const opts = (type === 'piglin') ? { light0: false } : { light0: true, night };
+  // пиглины и зомби-пиглины в Аду — на любой светлоте (как в MC)
+  const opts = (type === 'piglin' || type === 'zombie_piglin') ? { light0: false } : { light0: true, night };
   const maxDist = Math.max(32, Math.min(RENDER_DISTANCE * CHUNK_SIZE - 8, 56));
   const ang = Math.random() * Math.PI * 2;
   const dist = 24 + Math.random() * (maxDist - 24);
@@ -670,6 +738,7 @@ function hostileSpawnAttempt(type) {
 }
 function trySpawnZombiePack() { return hostileSpawnAttempt('zombie'); }
 function trySpawnPiglinPack() { return hostileSpawnAttempt('piglin'); }
+function trySpawnZombiePiglinPack() { return hostileSpawnAttempt('zombie_piglin'); }
 function trySpawnSpiderPack() { return hostileSpawnAttempt('spider'); }
 
 // ============================================================
@@ -728,7 +797,9 @@ function trySpawnMobs(dt) {
   if (hostileSpawnTimer <= 0) {
     hostileSpawnTimer = 1.5 + Math.random();
     if (hostileCount() < MAX_HOSTILES) {
-      const fn = (World.dim !== 'overworld') ? trySpawnPiglinPack
+      // в Аду: пиглины и зомби-пиглины 50/50 (в MC оба водятся в nether wastes)
+      const fn = (World.dim !== 'overworld')
+        ? (Math.random() < 0.5 ? trySpawnPiglinPack : trySpawnZombiePiglinPack)
         : (Math.random() < 0.5 ? trySpawnZombiePack : trySpawnSpiderPack);
       fn();
     }
@@ -848,6 +919,117 @@ function mobCollideY(p, amount, widthScale) {
   return false;
 }
 
+// ============================================================
+//  ПИГЛИНСКИЙ БАРТЕР (parity MC, актуальная таблица Java 1.21.6+):
+//  ТОЛЬКО обычный пиглин за золотой слиток через 6 секунд
+//  «рассматривания» бросает случайный предмет из таблицы.
+//  Зомби-пиглины золото НЕ берут и НЕ обменивают (как в MC).
+//  Сумма весов = 469 (ваниль). Количества — ванильные.
+// ============================================================
+const PIGLIN_BARTER = [
+  { w: 5,  id: ITEM.ENCHANTED_BOOK_SOUL_SPEED, min: 1, max: 1 }, // 1.07%
+  { w: 8,  boots: true, min: 1, max: 1 },                        // ботинки «Скорость души» I–III (1.71%)
+  { w: 8,  id: ITEM.SPLASH_POTION_FIRE_RES, min: 1, max: 1 },
+  { w: 8,  id: ITEM.POTION_FIRE_RES, min: 1, max: 1 },
+  { w: 10, id: ITEM.WATER_BOTTLE, min: 1, max: 1 },              // 2.13%
+  { w: 10, id: BLOCK.DRIED_GHAST, min: 1, max: 1 },
+  { w: 10, id: ITEM.IRON_NUGGET, min: 10, max: 36 },
+  { w: 10, id: ITEM.ENDER_PEARL, min: 2, max: 4 },
+  { w: 20, id: ITEM.STRING, min: 3, max: 9 },                    // 4.26%
+  { w: 20, id: ITEM.NETHER_QUARTZ, min: 5, max: 12 },
+  { w: 40, id: BLOCK.OBSIDIAN, min: 1, max: 1 },                 // 8.53%
+  { w: 40, id: ITEM.FIRE_CHARGE, min: 1, max: 1 },
+  { w: 40, id: BLOCK.CRYING_OBSIDIAN, min: 1, max: 3 },
+  { w: 40, id: ITEM.LEATHER, min: 2, max: 4 },
+  { w: 40, id: BLOCK.SOUL_SAND, min: 2, max: 8 },
+  { w: 40, id: BLOCK.NETHER_BRICK, min: 2, max: 8 },
+  { w: 40, id: ITEM.SPECTRAL_ARROW, min: 6, max: 12 },
+  { w: 40, id: BLOCK.GRAVEL, min: 8, max: 16 },
+  { w: 40, id: BLOCK.BLACKSTONE, min: 8, max: 16 },
+];
+// бросить кубик по таблице (веса как в ванили)
+function rollPiglinBarter() {
+  let total = 0; for (const e of PIGLIN_BARTER) total += e.w;
+  let r = Math.random() * total;
+  for (const e of PIGLIN_BARTER) {
+    r -= e.w;
+    if (r < 0) {
+      if (e.boots) {
+        // случайный уровень зачарования I–III (как в MC)
+        const lvl = 1 + (Math.random() * 3 | 0);
+        return { id: lvl === 3 ? ITEM.SOUL_BOOTS_III : lvl === 2 ? ITEM.SOUL_BOOTS_II : ITEM.SOUL_BOOTS_I, count: 1 };
+      }
+      return { id: e.id, count: e.min + (Math.random() * (e.max - e.min + 1) | 0) };
+    }
+  }
+  return { id: BLOCK.GRAVEL, count: 8 + (Math.random() * 9 | 0) };
+}
+// Parity MC: пиглины НЕ атакуют игрока хотя бы в одной золотой броне
+function playerWearsGoldArmor() {
+  if (!PLAYER.armor) return false;
+  return (PLAYER.armor.helmet && PLAYER.armor.helmet.id === ITEM.GOLD_HELMET) ||
+         (PLAYER.armor.chestplate && PLAYER.armor.chestplate.id === ITEM.GOLD_CHESTPLATE) ||
+         (PLAYER.armor.leggings && PLAYER.armor.leggings.id === ITEM.GOLD_LEGGINGS) ||
+         (PLAYER.armor.boots && PLAYER.armor.boots.id === ITEM.GOLD_BOOTS);
+}
+// «взять в руку» золотой слиток на время рассматривания
+function attachBarterIngot(m) {
+  const arm = m.mesh.userData.barterArm;
+  if (!arm || m._ingotMesh) return;
+  const ingot = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.13, 0.36), MOB_MAT.gold_sword);
+  if (SHADOWS_ON) ingot.castShadow = true;
+  ingot.position.set(0, -0.62, 0.18);
+  arm.add(ingot);
+  m._ingotMesh = ingot;
+}
+function detachBarterIngot(m) {
+  if (m._ingotMesh) {
+    if (m._ingotMesh.parent) m._ingotMesh.parent.remove(m._ingotMesh);
+    m._ingotMesh.geometry.dispose();
+    m._ingotMesh = null;
+  }
+}
+// пиглин берёт слиток: 6 секунд «рассматривания» (Java MC = 120 тиков)
+function startPiglinBarter(m) {
+  if (!m || m.type !== 'piglin' || (m.barterT || 0) > 0) return false;
+  m.barterT = 6;
+  attachBarterIngot(m);
+  playSound('oink');
+  return true;
+}
+// конец бартера: бросить лут (к игроку, если видит; иначе вверх — как в MC)
+function finishPiglinBarter(m) {
+  detachBarterIngot(m);
+  const loot = rollPiglinBarter();
+  spawnDrop(loot.id, m.pos.x, m.pos.y + 1.4, m.pos.z, loot.count);
+  const d = drops[drops.length - 1];
+  if (d) {
+    const dx = PLAYER.pos.x - m.pos.x, dz = PLAYER.pos.z - m.pos.z;
+    const len = Math.hypot(dx, dz) || 1;
+    if (typeof dropHasLOS === 'function' && dropHasLOS(d)) {
+      d.vel.set(dx / len * 3.2, 4.2, dz / len * 3.2);   // бросок в сторону игрока
+    } else {
+      d.vel.set((Math.random() - 0.5) * 2, 5, (Math.random() - 0.5) * 2); // вверх
+    }
+  }
+  playSound('pop');
+  playSound('oink');
+}
+// ближайший лежащий золотой слиток (радиус 8) для пиглина;
+// слиток «зарезервирован» за первым пиглином, который его увидел
+function findGoldIngotDrop(m) {
+  let best = null, bestD = 8 * 8;
+  for (const d of drops) {
+    if (d.id !== ITEM.GOLD_INGOT || d.pearl) continue;
+    if (d.claimedBy && d.claimedBy !== m && mobs.indexOf(d.claimedBy) >= 0) continue;
+    const dx = d.pos.x - m.pos.x, dy = d.pos.y - m.pos.y, dz = d.pos.z - m.pos.z;
+    const dd = dx*dx + dy*dy + dz*dz;
+    if (dd < bestD) { bestD = dd; best = d; }
+  }
+  if (best) best.claimedBy = m;
+  return best;
+}
+
 function updateMobs(dt) {
   trySpawnMobs(dt);
   trySpawnPhantoms(dt);
@@ -869,6 +1051,11 @@ function updateMobs(dt) {
     if (p.def.hostile) {
       const dd = Math.hypot(p.pos.x - PLAYER.pos.x, p.pos.z - PLAYER.pos.z);
       if (dd > 128 || (dd > 32 && Math.random() < dt * 20 / 800)) {
+        // пиглин деспавнится с рассматриваемым слитком — роняет слиток (как в MC)
+        if (p.type === 'piglin' && (p.barterT || 0) > 0) {
+          detachBarterIngot(p);
+          spawnDrop(ITEM.GOLD_INGOT, p.pos.x, p.pos.y + 1, p.pos.z);
+        }
         scene.remove(p.mesh); disposeGroup(p.mesh); mobs.splice(i, 1); continue;
       }
     }
@@ -1048,7 +1235,13 @@ function updateMobs(dt) {
     if (p.type === 'spider' && (p.aggro || 0) <= 0 && !PLAYER.dead) {
       if (dist2ToPlayer(p) < 16*16 && spiderAngryAtLight(p)) p.aggro = 14;
     }
-    if ((p.aggro || 0) > 0) {
+    // Пиглин: в MC враждебен к игроку БЕЗ золотой брони (радиус 35);
+    // игрок хотя бы в одной золотой броне — пиглин его не трогает
+    if (p.type === 'piglin' && (p.aggro || 0) <= 0 && !PLAYER.dead) {
+      if (dist2ToPlayer(p) < 35*35 && !playerWearsGoldArmor()) p.aggro = 12;
+    }
+    let barterSeek = false; // пиглин бежит за золотым слитком (или рассматривает его)
+    if ((p.aggro || 0) > 0 && !(p.type === 'piglin' && (p.barterT || 0) > 0)) {
       // --- Агрессия: преследуем игрока и атакуем вблизи ---
       p.aggro -= dt;
       const d2 = dist2ToPlayer(p);
@@ -1089,7 +1282,44 @@ function updateMobs(dt) {
         }
       }
     }
-    if (!chasing) {
+    // --- ПИГЛИНСКИЙ БАРТЕР (только обычный пиглин; зомби-пиглины золото игнорируют) ---
+    if (p.type === 'piglin' && p.def.barter && (p.barterT || 0) > 0) {
+      // рассматривает слиток: стоит на месте и не атакует (как в MC Java)
+      p.barterT -= dt;
+      if (p.barterT <= 0) { p.barterT = 0; finishPiglinBarter(p); }
+      chasing = false; moving = false;
+      p.vel.x = 0; p.vel.z = 0;
+    } else if (p.type === 'piglin' && p.def.barter && !PLAYER.dead) {
+      // ищет золотые слитки на земле (радиус 8, как в MC) — идёт к ним
+      const ingot = findGoldIngotDrop(p);
+      if (ingot) {
+        barterSeek = true;
+        const idx2 = ingot.pos.x - p.pos.x, idz = ingot.pos.z - p.pos.z;
+        const idd = Math.hypot(idx2, idz);
+        if (idd < 1.15 && Math.abs(ingot.pos.y - p.pos.y) < 1.6) {
+          // подобрал слиток — начать «рассматривание» (6 с, как в MC Java)
+          const di = drops.indexOf(ingot);
+          if (di >= 0) {
+            scene.remove(ingot.mesh);
+            if (ingot.mesh.geometry) ingot.mesh.geometry.dispose();
+            drops.splice(di, 1);
+          }
+          startPiglinBarter(p);
+        } else {
+          // бежать к слитку (A* в обход стен/лавы, как за игроком)
+          chasing = true; moving = true;
+          if (typeof mobUpdateChasePath === 'function') {
+            mobUpdateChasePath(p, ingot.pos.x, ingot.pos.y, ingot.pos.z, dt);
+            const ang = mobSteerAlongPath(p);
+            p.yaw = (ang !== null) ? ang : Math.atan2(idx2, idz);
+          } else {
+            p.yaw = Math.atan2(idx2, idz);
+          }
+        }
+      }
+    }
+    // блуждание/бегство — но НЕ во время бартера (пиглин стоит и разглядывает слиток)
+    if (!chasing && !barterSeek) {
       if (p.flee > 0) {
         p.flee -= dt;
         const ax = p.pos.x - PLAYER.pos.x, az = p.pos.z - PLAYER.pos.z;
@@ -1105,8 +1335,13 @@ function updateMobs(dt) {
       }
     }
 
-    // зомби заметно медленнее игрока (2.7), пиглин шустрее (3.6) — от зомби можно убежать
-    const speed = chasing ? (p.def.chaseSpeed || 3.6) : (p.flee > 0 ? 3.2 : 1.4);
+    // зомби заметно медленнее игрока (2.7), пиглины быстрые (3.4–4.1) — от зомби можно убежать
+    let speed = chasing ? (p.def.chaseSpeed || 3.6) : (p.flee > 0 ? 3.2 : 1.4);
+    // песок душ замедляет мобов (parity MC; замедление не действует на Скорость души —
+    // но мобы её не носят)
+    if (World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y - 0.05), Math.floor(p.pos.z)) === BLOCK.SOUL_SAND) {
+      speed *= 0.4;
+    }
     if (moving && (p.leapT || 0) > 0) {
       // в полёте прыжка-атаки — не переназначаем скорость, летим по инерции
       p.leapT -= dt;
@@ -1489,6 +1724,8 @@ function hurtMob(p) {
   const dmg = window.__creative ? 1000 : (isSword(heldId) ? swordDamage(heldId) : (isTool(heldId) ? 2 : 1));
   p.hp -= dmg;
   p.hurtT = 0.3;
+  // Удар по пиглину во время бартера: слиток «конфискуется», обмен НЕ завершается (parity MC)
+  if (p.type === 'piglin' && (p.barterT || 0) > 0) { p.barterT = 0; detachBarterIngot(p); }
   addExhaustion(0.1); // атака тратит голод
   playSound(p.def.hurtSound);
   // износ инструмента при ударе (в MC оружие тоже теряет прочность;
@@ -1523,7 +1760,17 @@ function hurtMob(p) {
     // куры роняют 0–2 пера (как в MC)
     if (p.type === 'chicken') { const fc = (Math.random()*3|0); for (let k=0;k<fc;k++) spawnDrop(ITEM.FEATHER, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4); }
     // зомби-пиглины дополнительно роняют 0–1 золотой самородок (как в MC)
-    if (p.type === 'piglin') { const gn = (Math.random()*2|0); for (let k=0;k<gn;k++) spawnDrop(ITEM.GOLD_NUGGET, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4); }
+    // и иногда свой золотой меч (8.5%, как в MC — он его держит)
+    if (p.type === 'zombie_piglin') {
+      const gn = (Math.random()*2|0);
+      for (let k=0;k<gn;k++) spawnDrop(ITEM.GOLD_NUGGET, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4);
+      if (Math.random() < 0.085) spawnDrop(ITEM.GOLD_SWORD, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4);
+    }
+    // пиглин погиб, РАССМАТРИВАЯ слиток — роняет сам слиток (parity MC)
+    if (p.type === 'piglin' && (p.barterT || 0) > 0) {
+      detachBarterIngot(p);
+      spawnDrop(ITEM.GOLD_INGOT, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4);
+    }
     // овцы роняют 1 шерсть, если ещё не острижены
     if (p.type === 'sheep' && !p.sheared) { spawnDrop(BLOCK.WOOL, p.pos.x+(Math.random()-0.5)*0.4, p.pos.y+0.4, p.pos.z+(Math.random()-0.5)*0.4); }
     const idx = mobs.indexOf(p);

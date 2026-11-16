@@ -101,7 +101,12 @@ function soundProfile(block) {
     case BLOCK.GOLD_ORE:
     case BLOCK.NETHER_GOLD_ORE:
     case BLOCK.GOLD_BLOCK:
+    case BLOCK.CRYING_OBSIDIAN:                                   // плачущий обсидиан — камень-сирота
+    case BLOCK.NETHER_BRICK:                                      // незер-кирпич — звонкий обожжённый
+    case BLOCK.BLACKSTONE:                                        // чёрный камень — глухой
     case BLOCK.DIAMOND_ORE: return { freq: 360, dur: 0.13, type: 'lowpass' };
+    case BLOCK.SOUL_SAND:  return { freq: 460, dur: 0.14, type: 'lowpass', sand: true }; // «тягучий» песок душ
+    case BLOCK.DRIED_GHAST: return { freq: 900, dur: 0.10, type: 'lowpass' };  // мягкий «кожистый» гаст
     default:            return { freq: 600, dur: 0.10, type: 'lowpass' };
   }
 }
