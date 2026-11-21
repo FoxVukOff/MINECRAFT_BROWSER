@@ -141,6 +141,44 @@ function enderPearlTeleport(p) {
   playSound('pop');
   damagePlayer(5, 'Вы разбились при телепорте', true); // 2.5 сердца (MC)
 }
+
+// Бросок ВЗРЫВНОГО зелья (сплеш, бартер пиглинов): летит по дуге и
+// РАЗБИВАЕТСЯ при ударе — брызги стекла + огнестойкость по радиусу (как в MC)
+function throwSplashPotion() {
+  const ex = PLAYER.pos.x, ey = PLAYER.pos.y + (PLAYER.crouching?PLAYER.crouchEye:PLAYER.eye) - 0.2, ez = PLAYER.pos.z;
+  const dir = new THREE.Vector3(
+    -Math.sin(PLAYER.yaw) * Math.cos(PLAYER.pitch),
+    Math.sin(PLAYER.pitch),
+    -Math.cos(PLAYER.yaw) * Math.cos(PLAYER.pitch)
+  ).normalize();
+  const mesh = makeDropMesh(ITEM.SPLASH_POTION_FIRE_RES);
+  const sx = ex + dir.x*0.6, sy = ey + dir.y*0.6, sz = ez + dir.z*0.6;
+  mesh.position.set(sx, sy, sz);
+  scene.add(mesh);
+  drops.push({
+    mesh, id: ITEM.SPLASH_POTION_FIRE_RES, count: 1,
+    pos: new THREE.Vector3(sx, sy, sz),
+    vel: new THREE.Vector3(dir.x*13, dir.y*13 + 2.5, dir.z*13),
+    age: 0, picked: false, pickDelay: Infinity, splashPotion: true, // не подбирается
+  });
+  playSound('pop');
+}
+
+// разбитие сплеш-зелья: стекло + брызги; всем в радиусе 4 блоков —
+// огнестойкость (на себя 2:15 = 75% от 3:00, как в MC)
+function splashPotionBreak(p) {
+  spawnParticles(p.x, p.y + 0.15, p.z, 16, '#ff9839'); // оранжевые брызги зелья
+  spawnParticles(p.x, p.y + 0.25, p.z, 8, '#ffe6b0');
+  spawnParticles(p.x, p.y + 0.2, p.z, 6, '#cfe8ef');   // осколки стекла
+  playSound('break', BLOCK.GLASS);
+  playSound('splash');
+  const dx = PLAYER.pos.x - p.x, dy = (PLAYER.pos.y + 0.9) - p.y, dz = PLAYER.pos.z - p.z;
+  if (dx*dx + dy*dy + dz*dz <= 4*4) {
+    PLAYER.fireResT = Math.max(PLAYER.fireResT || 0, 135);
+    PLAYER.burnTimer = 0; // мгновенно гасит горение (как в MC)
+    showToast('Огнестойкость (2:15) — лава и огонь не страшны');
+  }
+}
 // простая проверка прямой видимости (нет сплошных блоков между дропом и игроком)
 function dropHasLOS(d) {
   const sx = d.pos.x, sy = d.pos.y + 0.1, sz = d.pos.z;
@@ -230,6 +268,21 @@ function updateDrops(dt) {
       d.mesh.position.y += Math.sin(d.age * 3) * 0.05 + 0.05;
       d.mesh.lookAt(camera.position.x, d.mesh.position.y, camera.position.z);
       continue; // жемчуг не подбирается и не притягивается к игроку
+    }
+
+    // ВЗРЫВНОЕ ЗЕЛЬЕ (сплеш): разбивается при любом ударе о блок/землю (как в MC)
+    if (d.splashPotion) {
+      const pb = World.getBlock(Math.floor(d.pos.x), Math.floor(d.pos.y + 0.1), Math.floor(d.pos.z));
+      const inSolid = pb !== BLOCK.AIR && !isLiquid(pb);
+      const landed = d.vel.y === 0 && d.age > 0.1;
+      if (landed || inSolid || d.age > 20) {
+        splashPotionBreak(d.pos);
+        scene.remove(d.mesh); d.mesh.geometry.dispose(); drops.splice(i, 1); continue;
+      }
+      d.mesh.position.copy(d.pos);
+      d.mesh.lookAt(camera.position.x, d.mesh.position.y, camera.position.z);
+      d.mesh.rotation.z += d.age * 9; // крутится в полёте
+      continue; // снаряд — не подбирается и не притягивается
     }
 
     // подбор

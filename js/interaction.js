@@ -417,14 +417,13 @@ function useFireCharge(t, slot) {
   refreshUI();
 }
 
-// Зелье огнестойкости (бартер): обычное 3:00, взрывное — 2:15 (75%, как в MC
-// при применении на себя). Мгновенно гасит горение (как в MC)
+// Зелье огнестойкости (бартер) — ОБЫЧНОЕ: выпить 3:00.
+// (Взрывное — отдельная механика: бросок снарядом в throwSplashPotion)
 function drinkFireResPotion(slot) {
-  const splash = slot.id === ITEM.SPLASH_POTION_FIRE_RES;
-  PLAYER.fireResT = splash ? 135 : 180;
+  PLAYER.fireResT = 180;
   PLAYER.burnTimer = 0;
   playSound('eat');
-  showToast('Огнестойкость (' + (splash ? '2:15' : '3:00') + ') — лава и огонь не страшны');
+  showToast('Огнестойкость (3:00) — лава и огонь не страшны');
   consumeHeldItem(slot);
   refreshUI();
 }
@@ -630,8 +629,9 @@ function placeBlock() {
   if (slot.id === ITEM.FLINT_AND_STEEL) { useFlintAndSteel(t, slot); return; }
   // огненный заряд (бартер) — поджечь блок/портал, одноразовый
   if (slot.id === ITEM.FIRE_CHARGE) { useFireCharge(t, slot); return; }
-  // зелья огнестойкости (бартер) — выпить: 3:00 / взрывное 2:15
-  if (slot.id === ITEM.POTION_FIRE_RES || slot.id === ITEM.SPLASH_POTION_FIRE_RES) { drinkFireResPotion(slot); return; }
+  // зелья огнестойкости (бартер): обычное — выпить, взрывное — БРОСОК (как в MC)
+  if (slot.id === ITEM.POTION_FIRE_RES) { drinkFireResPotion(slot); return; }
+  if (slot.id === ITEM.SPLASH_POTION_FIRE_RES) { throwSplashPotion(); consumeHeldItem(slot); return; }
   // эндер-жемчуг (бартер) — бросок с телепортом (урон 5 — как в MC)
   if (slot.id === ITEM.ENDER_PEARL) { throwEnderPearl(); consumeHeldItem(slot); return; }
   // бутылка воды (бартер) — просто вода (пустых бутылок в игре пока нет)

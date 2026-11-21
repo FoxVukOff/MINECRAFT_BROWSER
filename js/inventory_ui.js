@@ -150,10 +150,44 @@ function makeSlotEl(arr, index, size) {
 //  4 слота брони + слот offhand. Броню можно надевать/снимать кликом
 //  (фикс: раньше надетую броню снять было НЕВОЗМОЖНО — только смерть).
 // ============================================================
-const ARMOR_SLOT_ICONS = { helmet: '⌒', chestplate: '▣', leggings: '║', boots: '⌄', offhand: '✋' };
 const ARMOR_SLOT_NAMES = {
   helmet: 'Шлем', chestplate: 'Нагрудник', leggings: 'Поножи', boots: 'Ботинки', offhand: 'Вторая рука (F — обмен)',
 };
+
+// Пиксельные силуэты пустых слотов (как в MC — вместо юникод-символов)
+function armorSlotGhostIcon(slotName, size) {
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  const u = size / 16;
+  ctx.fillStyle = '#585858';
+  ctx.globalAlpha = 0.9;
+  if (slotName === 'helmet') {
+    ctx.fillRect(4*u, 3*u, 8*u, 4*u);            // купол
+    ctx.fillRect(3*u, 5*u, 1*u, 4*u); ctx.fillRect(12*u, 5*u, 1*u, 4*u); // наушники
+    ctx.fillRect(4*u, 6*u, 3*u, 2*u); ctx.fillRect(9*u, 6*u, 3*u, 2*u); // прорези
+  } else if (slotName === 'chestplate') {
+    ctx.fillRect(4*u, 2*u, 8*u, 2*u);            // ворот
+    ctx.fillRect(3*u, 4*u, 10*u, 6*u);           // корпус
+    ctx.fillRect(2*u, 4*u, 1*u, 5*u); ctx.fillRect(13*u, 4*u, 1*u, 5*u); // плечи
+    ctx.fillRect(5*u, 10*u, 2*u, 2*u); ctx.fillRect(9*u, 10*u, 2*u, 2*u); // низ
+  } else if (slotName === 'leggings') {
+    ctx.fillRect(4*u, 2*u, 8*u, 4*u);            // пояс
+    ctx.fillRect(4*u, 6*u, 3*u, 8*u);            // штанина левая
+    ctx.fillRect(9*u, 6*u, 3*u, 8*u);            // штанина правая
+  } else if (slotName === 'boots') {
+    ctx.fillRect(3*u, 5*u, 4*u, 3*u); ctx.fillRect(9*u, 5*u, 4*u, 3*u); // голенища
+    ctx.fillRect(2*u, 8*u, 5*u, 3*u); ctx.fillRect(9*u, 8*u, 5*u, 3*u); // ступни (носки вперёд)
+  } else if (slotName === 'offhand') {
+    // щит (как силуэт слота второй руки в MC)
+    ctx.fillRect(5*u, 2*u, 6*u, 1*u);            // верх
+    ctx.fillRect(4*u, 3*u, 8*u, 8*u);            // корпус щита
+    ctx.fillRect(5*u, 11*u, 6*u, 1*u);           // низ
+    ctx.globalAlpha = 0.5;
+    ctx.fillRect(7*u, 4*u, 2*u, 6*u);            // вертикальная полоса
+  }
+  return c;
+}
 
 // клик по слоту брони: надеть/снять/обменять (как в MC)
 function armorSlotClick(slotName) {
@@ -228,7 +262,11 @@ function makeArmorSlotEl(slotName) {
     el.title = (BLOCK_NAMES[item.id] || '') + ' — ' + ARMOR_SLOT_NAMES[slotName];
   } else {
     const ghost = document.createElement('div');
-    ghost.className = 'ghost'; ghost.textContent = ARMOR_SLOT_ICONS[slotName] || '';
+    ghost.className = 'ghost';
+    ghost.style.display = 'flex';
+    ghost.style.alignItems = 'center';
+    ghost.style.justifyContent = 'center';
+    ghost.appendChild(armorSlotGhostIcon(slotName, 30));
     el.appendChild(ghost);
     el.title = ARMOR_SLOT_NAMES[slotName];
   }

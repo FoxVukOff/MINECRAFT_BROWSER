@@ -193,12 +193,17 @@
   #armorBar { display: flex; gap: 1px; }
   #oxygenRow { display: flex; gap: 1px; height: 11px; }
   #oxygenRow.hidden { visibility: hidden; }
-  /* индикатор огнестойкости (зелье из бартера пиглинов) */
-  #fireResRow { display: flex; align-items: center; gap: 4px; height: 18px;
-    font-family: monospace; font-size: 12px; font-weight: bold; color: #ffb44c;
-    text-shadow: 1px 1px 0 #000; }
-  #fireResRow.hidden { visibility: hidden; }
-  #fireResRow canvas { image-rendering: pixelated; }
+  /* панель статус-эффектов — справа сверху, ПОД кнопкой «Меню» (как в MC Java) */
+  #effectPanel { position: fixed; top: 52px; right: 10px; z-index: 11;
+    display: flex; flex-direction: row; gap: 4px; pointer-events: none; }
+  #effectPanel .fx-box { display: flex; flex-direction: column; align-items: center;
+    width: 42px; /* целая ширина: иконка попадает на целый пиксель (без замыливания) */
+    background: rgba(20,20,24,0.72); border: 2px solid #3a3a44; border-radius: 3px;
+    padding: 3px 0 2px; }
+  #effectPanel .fx-icon { display: flex; align-items: center; justify-content: center; height: 20px; }
+  #effectPanel .fx-timer { font-family: monospace; font-size: 11px; font-weight: bold;
+    color: #e8e8e8; text-shadow: 1px 1px 0 #000; line-height: 1; margin-top: 1px; }
+  #effectPanel canvas { image-rendering: pixelated; }
   /* нижняя строка — слева сердца, справа голод (раздвинуты по краям) */
   #vitalRow { display: flex; justify-content: space-between; width: 100%; }
   #heartsBar, #hungerBar { display: flex; gap: 1px; }
@@ -457,14 +462,14 @@
     <div id="armorBar"></div>
     <div id="oxygenRow"></div>
   </div>
-  <!-- огнестойкость (зелье из бартера пиглинов) -->
-  <div id="fireResRow" class="hidden"></div>
   <!-- нижний ряд: слева здоровье, справа голод -->
   <div id="vitalRow">
     <div id="heartsBar"></div>
     <div id="hungerBar"></div>
   </div>
 </div>
+<!-- панель статус-эффектов (справа сверху; отдельно от statusBars — видна и в креативе) -->
+<div id="effectPanel"></div>
 
 <div id="hud"></div>
 <button id="menuBtn">Меню (Esc)</button>
@@ -629,6 +634,7 @@
   <script src="js/drops.js"></script>
   <script src="js/sand.js"></script>
   <script src="js/mobs.js"></script>
+  <script src="js/avatar.js"></script>
   <script src="js/pathfinding.js"></script>
   <script src="js/interaction.js"></script>
   <script src="js/furnace.js"></script>

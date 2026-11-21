@@ -334,12 +334,12 @@ function iconCanvas(id, size) {
   // броня — рисуем по типу куска + цвету материала
   if (isArmor(id)) {
     const u = size/16;
-    const isDia = (id>=ITEM.DIAMOND_HELMET), isIron = (id>=ITEM.IRON_HELMET && id<=ITEM.IRON_BOOTS);
+    const isDia = (id>=ITEM.DIAMOND_HELMET && id<=ITEM.DIAMOND_BOOTS), isIron = (id>=ITEM.IRON_HELMET && id<=ITEM.IRON_BOOTS);
     const isCopper = (id>=ITEM.COPPER_HELMET && id<=ITEM.COPPER_BOOTS);
     const isGold = (id>=ITEM.GOLD_HELMET && id<=ITEM.GOLD_BOOTS);
-    const isSoul = (id>=ITEM.SOUL_BOOTS_I && id<=ITEM.SOUL_BOOTS_III); // ботинки «Скорость души» из бартера
-    const mat = isDia ? '#3fd6e0' : isIron ? '#cfd3da' : isCopper ? '#d07a40' : isGold ? '#f0c832' : '#8a5a32';
-    const dark = isDia ? '#1f9fb0' : isIron ? '#9aa0a8' : isCopper ? '#9c4f22' : isGold ? '#a8841c' : '#5e3a1e';
+    const isSoul = (id>=ITEM.SOUL_BOOTS_I && id<=ITEM.SOUL_BOOTS_III); // ботинки «Скорость души» из бартера (железные с чарами)
+    const mat = isDia ? '#3fd6e0' : isIron ? '#cfd3da' : isCopper ? '#d07a40' : isGold ? '#f0c832' : isSoul ? '#cfd3da' : '#8a5a32';
+    const dark = isDia ? '#1f9fb0' : isIron ? '#9aa0a8' : isCopper ? '#9c4f22' : isGold ? '#a8841c' : isSoul ? '#9aa0a8' : '#5e3a1e';
     const sl = armorSlotOf(id);
     ctx.fillStyle = mat;
     if (sl === 'helmet') { ctx.fillRect(4*u,3*u,8*u,5*u); ctx.fillStyle=dark; ctx.fillRect(4*u,7*u,8*u,1*u); ctx.fillStyle='#0008'; ctx.fillRect(6*u,5*u,4*u,2*u); }

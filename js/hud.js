@@ -15,8 +15,74 @@ const oxygenRowEl = document.getElementById('oxygenRow');
 const armorBarEl = document.getElementById('armorBar');
 const heartsBarEl = document.getElementById('heartsBar');
 const hungerBarEl = document.getElementById('hungerBar');
-const fireResRowEl = document.getElementById('fireResRow');
+const effectPanelEl = document.getElementById('effectPanel');
 const damageFlashEl = document.getElementById('damageFlash');
+
+// ============================================================
+//  ПАНЕЛЬ СТАТУС-ЭФФЕКТОВ (справа сверху, parity MC Java):
+//  иконка активного эффекта + таймер под ней. Видна и в креативе —
+//  как в MC, эффекты отображаются всегда, когда активны.
+// ============================================================
+
+// сапог со спиралью души — иконка «Скорость души» (бирюза чар, как на ботинках)
+function soulSpeedIcon() {
+  return statusCanvas(x => {
+    // сапог
+    const boot = [[2,2],[3,2],[4,2],[5,2],[2,3],[3,3],[4,3],[5,3],[2,4],[3,4],[5,4],[2,5],[3,5],[4,5],[5,5],[6,5],[2,6],[3,6],[4,6],[5,6],[6,6]];
+    for (const [gx,gy] of boot) px(x, '#c8ccd2', gx, gy);
+    px(x, '#f0f2f5', 2, 2); px(x, '#f0f2f5', 3, 2); // блик
+    px(x, '#9aa0a8', 5, 5); px(x, '#9aa0a8', 6, 6); // тень
+    // бирюзовая спираль чар
+    px(x, '#3fbfa8', 7, 2); px(x, '#3fbfa8', 7, 3);
+    px(x, '#7fe8d2', 6, 1); px(x, '#7fe8d2', 7, 1);
+  });
+}
+
+// реестр эффектов: иконка, имя, проверка «активен ли», остаток времени (сек)
+// (текст — для всплывающей подсказки; seconds < 0 — без таймера, «постоянный»)
+function activeStatusEffects() {
+  const list = [];
+  const fr = PLAYER.fireResT || 0;
+  if (fr > 0) list.push({ key: 'fireRes', name: 'Огнестойкость', icon: () => flameIcon(), seconds: Math.ceil(fr) });
+  // Скорость души: ботинки из бартера работают только на песке душ
+  if (typeof soulSpeedLevel === 'function' && soulSpeedLevel() > 0 && !PLAYER.flying) {
+    const gb = World.getBlock(Math.floor(PLAYER.pos.x), Math.floor(PLAYER.pos.y - 0.05), Math.floor(PLAYER.pos.z));
+    if (gb === BLOCK.SOUL_SAND) {
+      list.push({ key: 'soulSpeed', name: 'Скорость души ' + 'I'.repeat(soulSpeedLevel()), icon: () => soulSpeedIcon(), seconds: -1 });
+    }
+  }
+  return list;
+}
+
+let _lastFxSig = '';
+function renderEffectPanel() {
+  if (!effectPanelEl) return;
+  const fx = (typeof gameStarted !== 'undefined' && gameStarted && overlay.classList.contains('hidden'))
+    ? activeStatusEffects() : [];
+  const sig = fx.map(f => f.key + ':' + f.seconds).join('|');
+  if (sig === _lastFxSig) return;
+  _lastFxSig = sig;
+  effectPanelEl.innerHTML = '';
+  for (const f of fx) {
+    const box = document.createElement('div');
+    box.className = 'fx-box';
+    const iconWrap = document.createElement('div');
+    iconWrap.className = 'fx-icon';
+    iconWrap.appendChild(f.icon());
+    box.appendChild(iconWrap);
+    const t = document.createElement('div');
+    t.className = 'fx-timer';
+    if (f.seconds >= 0) {
+      const mm = Math.floor(f.seconds / 60), ss = (f.seconds % 60).toString().padStart(2, '0');
+      t.textContent = mm + ':' + ss;
+    } else {
+      t.textContent = '∞';
+    }
+    box.appendChild(t);
+    box.title = f.name;
+    effectPanelEl.appendChild(box);
+  }
+}
 
 // --- Пиксель-арт иконки статуса (рисуем на 9x9, масштаб x2) ---
 const ICON_PX = 9, ICON_SCALE = 2;
@@ -163,6 +229,9 @@ function updateWaterUI() {
   // красная вспышка урона
   damageFlashEl.style.background = 'rgba(180,20,20,' + (PLAYER.damageFlash * 0.35).toFixed(3) + ')';
 
+  // панель статус-эффектов (до creative-гейта: в креативе эффекты тоже видны, как в MC)
+  renderEffectPanel();
+
   // показываем полосы в игре; в КРЕАТИВЕ полос нет (parity MC)
   const inGame = gameStarted && overlay.classList.contains('hidden') && !window.__creative;
   statusBarsEl.classList.toggle('on', inGame);
@@ -187,17 +256,6 @@ function updateWaterUI() {
       const st = v >= 2 ? 'full' : (v === 1 ? 'half' : 'empty');
       armorBarEl.appendChild(armorIcon(st));
     }
-  }
-
-  // --- огнестойкость (зелье из бартера пиглинов): огонёк + таймер ---
-  fireResRowEl.innerHTML = '';
-  fireResRowEl.classList.toggle('hidden', fr <= 0);
-  if (fr > 0) {
-    fireResRowEl.appendChild(flameIcon());
-    const frText = document.createElement('span');
-    const mm2 = Math.floor(fr / 60), ss2 = (fr % 60).toString().padStart(2, '0');
-    frText.textContent = mm2 + ':' + ss2;
-    fireResRowEl.appendChild(frText);
   }
 
   // --- сердца (10 шт = 20 hp) ---

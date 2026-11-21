@@ -315,6 +315,12 @@ document.addEventListener('keydown', (e) => {
     debugOpen = !debugOpen;
     hudEl.classList.toggle('on', debugOpen);
   }
+  // F5 — перспектива: 1-е лицо → 3-е (за спиной) → 3-е (спереди) — как в MC
+  if (e.code === 'F5' && !chatOpen) {
+    e.preventDefault();
+    camMode = ((typeof camMode !== 'undefined' ? camMode : 0) + 1) % 3;
+    showToast(['Вид от 1-го лица', 'Вид от 3-го лица (за спиной)', 'Вид от 3-го лица (спереди)'][camMode]);
+  }
   // Креатив: ДВОЙНОЙ ПРОБЕЛ — вкл/выкл полёта (как в Minecraft)
   if (e.code === 'Space' && window.__creative && !e.repeat) {
     const now = performance.now();
@@ -357,10 +363,14 @@ let leftHeld = false;
 canvas.addEventListener('mousedown', (e) => {
   if (!pointerLocked) return;
   if (e.button === 0) {
+    if (typeof avatarSwing === 'function') avatarSwing(); // взмах рукой (F5/вьюмодель)
     // сначала пробуем ударить свинью; если попали — не ломаем блок
     if (!tryAttackMob()) leftHeld = true;       // удержание = непрерывное ломание
   }
-  if (e.button === 2) placeBlock();
+  if (e.button === 2) {
+    if (typeof avatarSwing === 'function') avatarSwing();
+    placeBlock();
+  }
 });
 canvas.addEventListener('mouseup', (e) => {
   if (e.button === 0) { leftHeld = false; resetMining(); }

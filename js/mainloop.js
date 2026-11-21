@@ -103,15 +103,34 @@ function loop(now) {
     }
   }
 
-  // камера
+  // камера (F5: 1-е лицо / 3-е за спиной / 3-е спереди — parity MC)
   const eyeY = PLAYER.pos.y + (PLAYER.crouching ? PLAYER.crouchEye : PLAYER.eye);
-  camera.position.set(PLAYER.pos.x, eyeY, PLAYER.pos.z);
+  const ex = PLAYER.pos.x, ez = PLAYER.pos.z;
   _camDir.set(
     -Math.sin(PLAYER.yaw) * Math.cos(PLAYER.pitch),
     Math.sin(PLAYER.pitch),
     -Math.cos(PLAYER.yaw) * Math.cos(PLAYER.pitch)
   );
-  camera.lookAt(_camTarget.copy(camera.position).add(_camDir));
+  if (camMode === 1 || camMode === 2) {
+    // 3-е лицо: камера отнесена от глаз (назад или вперёд), но не сквозь блоки
+    const off = (camMode === 1) ? -1 : 1; // 1: за спиной; 2: перед лицом
+    const dx = _camDir.x * off, dy = _camDir.y * off, dz = _camDir.z * off;
+    let d = 0.4;
+    while (d < 4.2) {
+      const b = World.getBlock(Math.floor(ex + dx * d), Math.floor(eyeY + dy * d), Math.floor(ez + dz * d));
+      if (OPAQUE[b]) break;
+      d += 0.2;
+    }
+    d = Math.max(0.5, d - 0.3);
+    camera.position.set(ex + dx * d, eyeY + dy * d, ez + dz * d);
+    camera.lookAt(ex, eyeY, ez); // всегда смотрим на игрока
+  } else {
+    camera.position.set(ex, eyeY, ez);
+    camera.lookAt(_camTarget.copy(camera.position).add(_camDir));
+  }
+
+  // аватар: модель игрока в 3-м лице + рука с предметом в 1-м (F5)
+  if (typeof updateAvatar === 'function') updateAvatar(dt);
 
   // подсветка цели (в активной игре t уже вычислен; в паузе/меню — луч от стоячей камеры)
   if (!tComputed) t = getTargetBlock();
