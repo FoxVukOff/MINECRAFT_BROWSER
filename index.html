@@ -286,6 +286,37 @@
   #loadingScreen.nether .load-sub { color: #d9a89a; }
   #loadingScreen.nether .load-tip { color: #b08878; }
 
+  /* Переход через портал (parity MC): экран «расплывается» — нарастающее
+     размытие + лиловая дымка с водоворотом, и только ПОТОМ появляется
+     экран загрузки измерения. Слой ниже загрузки (z 45 < 50). */
+  #portalFx {
+    position: fixed; inset: 0; z-index: 45; pointer-events: none;
+  }
+  #portalFx .pf-blur {
+    position: absolute; inset: 0;
+    backdrop-filter: blur(0px) brightness(1);
+    transition: backdrop-filter 0.95s ease-in;
+  }
+  #portalFx.on .pf-blur { backdrop-filter: blur(15px) brightness(0.72); }
+  #portalFx .pf-swirl {
+    position: absolute; inset: -30%; opacity: 0;
+    background: conic-gradient(from 0deg,
+      rgba(150,70,220,0) 0deg, rgba(150,70,220,0.17) 50deg, rgba(90,25,150,0.05) 110deg,
+      rgba(150,70,220,0.19) 170deg, rgba(60,12,95,0.05) 230deg, rgba(150,70,220,0.15) 300deg,
+      rgba(150,70,220,0) 360deg);
+    filter: blur(16px);
+    transition: opacity 0.55s ease-in;
+  }
+  #portalFx.on .pf-swirl { opacity: 1; animation: pfSpin 1.5s linear infinite; }
+  @keyframes pfSpin { to { transform: rotate(360deg); } }
+  #portalFx .pf-tint {
+    position: absolute; inset: 0; opacity: 0;
+    background: radial-gradient(circle at 50% 50%,
+      rgba(120,36,180,0) 16%, rgba(96,22,150,0.45) 55%, rgba(42,6,70,0.94) 100%);
+    transition: opacity 0.95s ease-in;
+  }
+  #portalFx.on .pf-tint { opacity: 1; }
+
   /* Подсказки / меню старта */
   #overlay {
     position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,0.6);
@@ -562,6 +593,9 @@
     <div class="load-tip" id="loadTip"></div>
   </div>
 </div>
+
+<!-- Оверлей перехода через портал: экран «расплывается» перед загрузкой -->
+<div id="portalFx"><div class="pf-blur"></div><div class="pf-swirl"></div><div class="pf-tint"></div></div>
 
 <div id="overlay">
   <!-- Главное меню (чистый вид: ник + Играть + настройки) -->

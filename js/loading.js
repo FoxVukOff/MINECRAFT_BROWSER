@@ -73,8 +73,16 @@ function startWorldLoading() {
   // ФАЗА 0 (генерация) — теперь АСИНХРОННО: чанки делают воркеры в отдельных
   // потоках, главный поток ждёт и лишь обновляет прогресс-бар. Фризов нет:
   // браузер спокойно рисует экран загрузки (и анимацию в нём).
+  // Честная надпись: если все чанки уже в памяти (повторный вход в мир
+  // без перезагрузки страницы) — фаза генерации не нужна вовсе, сразу меши.
+  let toGen = 0;
+  for (const it of list) if (!World.chunks.has(World.key(it.cx, it.cz))) toGen++;
+  if (toGen === 0) { phase = 1; done = list.length; sub.textContent = 'Построение чанков'; }
+  else sub.textContent = 'Генерация чанков: осталось ' + toGen;
+
   for (const it of list) WorldGenPool.request(it.cx, it.cz);
 
+  let lastLeft = -1;
   function step() {
     if (myToken !== startWorldLoading._gen) return; // загрузка отменена — новый мир грузится
     if (phase === 0) {
@@ -85,6 +93,8 @@ function startWorldLoading() {
       bar.style.width = Math.min(100, Math.round(done / totalSteps * 100)) + '%';
       if (ready >= list.length) { phase = 1; sub.textContent = 'Построение чанков'; }
       else {
+        const left = list.length - ready;
+        if (left !== lastLeft) { lastLeft = left; sub.textContent = 'Генерация чанков: осталось ' + left; }
         // подстраховка: воркеров нет / пали — добираем синхронно, по ~10мс за кадр
         if (!WorldGenPool.workers.length) {
           const t0 = performance.now();
@@ -164,8 +174,18 @@ function loadDimensionArea(dimName, onDone) {
   let j = 0;
   let phase = 0;
 
+  // Честная надпись (фикс «пишет генерацию, хотя чанки уже есть»): чанки
+  // бывалого измерения остаются в памяти (World.dims[dim].chunks) — их НЕ
+  // пересоздаём, только строим меши. Фаза генерации показывается лишь тогда,
+  // когда реально есть что генерировать (первый вход / выгруженные чанки).
+  let toGen = 0;
+  for (const it of list) if (!World.chunks.has(World.key(it.cx, it.cz))) toGen++;
+  if (toGen === 0) { phase = 1; done = list.length; sub.textContent = 'Построение чанков (данные готовы)'; }
+  else sub.textContent = 'Генерация чанков: осталось ' + toGen;
+
   for (const it of list) WorldGenPool.request(it.cx, it.cz);
 
+  let lastLeft = -1;
   function step() {
     if (myToken !== startWorldLoading._gen) return; // отменено (грузится другой мир/измерение)
     if (phase === 0) {
@@ -175,6 +195,9 @@ function loadDimensionArea(dimName, onDone) {
       bar.style.width = Math.min(100, Math.round(done / totalSteps * 100)) + '%';
       if (ready >= list.length) { phase = 1; sub.textContent = 'Построение чанков'; }
       else {
+        const left = list.length - ready;
+        if (left !== lastLeft) { lastLeft = left; sub.textContent = 'Генерация чанков: осталось ' + left; }
+        // подстраховка: воркеров нет / пали — добираем синхронно, по ~10мс за кадр
         if (!WorldGenPool.workers.length) {
           const t0 = performance.now();
           while (performance.now() - t0 < 10) {

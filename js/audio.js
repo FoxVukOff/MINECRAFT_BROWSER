@@ -186,7 +186,35 @@ function playSound(kind, block) {
     tone(180, 0.08, 0.3, 'square');
     noiseBurst(0.12, 1200, 0.2, 'lowpass');
     setTimeout(() => tone(140, 0.06, 0.18, 'square'), 70);
+  } else if (kind === 'portal') {
+    // телепорт через портал: восходящий «вжух» с вибрацией (parity MC)
+    portalWhoosh();
   }
+}
+
+// «вжух» незер-портала: три расстроенных пилообразных осциллятора скользят
+// вверх сквозь полосовой фильтр — вибрирующий затягивающий звук перехода
+function portalWhoosh() {
+  const ctx = AudioEngine.ctx;
+  if (!ctx) return;
+  const t0 = ctx.currentTime;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.22, t0 + 0.35);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.3);
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'bandpass'; filt.Q.value = 2.2;
+  filt.frequency.setValueAtTime(220, t0);
+  filt.frequency.exponentialRampToValueAtTime(1500, t0 + 0.9);
+  for (const det of [0, 7, -5]) {
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(90 + det, t0);
+    osc.frequency.exponentialRampToValueAtTime(340 + det * 2, t0 + 1.1);
+    osc.connect(filt);
+    osc.start(t0); osc.stop(t0 + 1.35);
+  }
+  filt.connect(g); g.connect(AudioEngine.sfxGain);
 }
 
 // пещерный эмбиент: случайные жуткие звуки под землём при низком освещении

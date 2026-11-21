@@ -10,29 +10,61 @@
 // сохранённые координаты входа в каждом измерении (чтобы возвращаться рядом)
 const _dimReturn = { overworld: null, nether: null };
 
-// построить аварийный портал-площадку у точки назначения (рамка обсидиана + портал)
+// построить портал прибытия у точки назначения — РОВНО рамка, как PortalForcer
+// в MC: обсидиановая рамка 4×5 с проёмом 2×3, залитым порталом (ось по X).
+// Раньше вместе с рамкой клалась «безопасная площадка» 4×3 — 8 ЛИШНИХ блоков
+// обсидиана спереди и сзади выхода. По просьбе убрано: лишнего обсидиана,
+// как в ванилле, не появляется — только рамка.
 function buildArrivalPortal(px, py, pz) {
-  // небольшая платформа из обсидиана + 2x3 проём, залитый порталом, ось по X
-  for (let dx = -1; dx <= 2; dx++) for (let dz = -1; dz <= 1; dz++) {
-    World.setBlock(px + dx, py - 1, pz + dz, BLOCK.OBSIDIAN); // пол
-  }
-  // рамка (стойки на px-1 и px+2), проём px..px+1, высота 3
+  // нижняя перекладина рамки (4 блока — углы + низ проёма)
+  for (let dx = -1; dx <= 2; dx++) World.setBlock(px + dx, py - 1, pz, BLOCK.OBSIDIAN);
+  // стойки по краям проёма (высота 4, включая верхние углы)
   for (let dy = 0; dy <= 3; dy++) { World.setBlock(px-1, py+dy, pz, BLOCK.OBSIDIAN); World.setBlock(px+2, py+dy, pz, BLOCK.OBSIDIAN); }
+  // верхняя перекладина между углами
   for (let dx = 0; dx <= 1; dx++) { World.setBlock(px+dx, py+3, pz, BLOCK.OBSIDIAN); }
-  // воздух в проёме + портал
+  // проём — блоки портала
   for (let dx = 0; dx <= 1; dx++) for (let dy = 0; dy <= 2; dy++) {
     World.setBlock(px+dx, py+dy, pz, BLOCK.NETHER_PORTAL);
   }
-  // воздух перед порталом, чтобы было где встать
-  for (let dx = 0; dx <= 1; dx++) for (let dy = 0; dy <= 2; dy++) {
-    if (World.getBlock(px+dx, py+dy, pz+1) !== BLOCK.OBSIDIAN) World.setBlock(px+dx, py+dy, pz+1, BLOCK.AIR);
+  // расчистка вокруг проёма (как PortalForcer в MC): спереди и сзади ставим
+  // воздух, чтобы игрока не замуровало в стене и было куда выйти
+  for (const dz of [1, -1]) for (let dx = 0; dx <= 1; dx++) for (let dy = 0; dy <= 2; dy++) {
+    if (World.getBlock(px+dx, py+dy, pz+dz) !== BLOCK.OBSIDIAN) World.setBlock(px+dx, py+dy, pz+dz, BLOCK.AIR);
   }
 }
 
 let _teleporting = false;
-function teleportDimension(target) {
+// Длительность «расплывания» экрана до старта загрузки (parity MC: экран
+// затягивает лиловой дымкой с размытием, и только потом — экран загрузки).
+const PORTAL_FX_MS = 950;
+
+// Телепортация с анимацией: 1) экран расплывается (мир ещё живёт под дымкой),
+// 2) затем — сама смена измерения + экран загрузки, 3) по готовности дымка
+// спадает уже поверх нового мира. opts.onArrived — колбэк вызывающего кода
+// (например, возрождение у кровати после возврата из Ада).
+function teleportDimension(target, opts) {
   if (_teleporting || _dimLoading) return;
   _teleporting = true;
+  // токен отмены: если за время анимации умрём или переключим мир из меню —
+  // отложенный переход не выполнится (общий токен с экранами загрузки)
+  const myToken = ++startWorldLoading._gen;
+  // 1) фаза «расплывания»: нарастающее размытие + лиловая дымка (CSS #portalFx)
+  const fx = document.getElementById('portalFx');
+  if (fx) fx.classList.add('on');
+  if (typeof playSound === 'function') playSound('portal');
+  // 2) когда экран полностью затянуло — телепортация и загрузка измерения
+  setTimeout(() => {
+    // успели умереть или мир уже переключили — отменяем переход
+    if (PLAYER.dead || myToken !== startWorldLoading._gen) {
+      if (fx) fx.classList.remove('on');
+      _teleporting = false;
+      return;
+    }
+    _doTeleport(target, opts);
+  }, PORTAL_FX_MS);
+}
+
+function _doTeleport(target, opts) {
   _dimLoading = true; // замораживаем игровой цикл — дальше экран загрузки (как в MC)
   // запомнить точку выхода в текущем измерении
   _dimReturn[World.dim] = { x: PLAYER.pos.x, y: PLAYER.pos.y, z: PLAYER.pos.z };
@@ -83,7 +115,9 @@ function teleportDimension(target) {
     // 2) Иначе строим площадку-портал ОДИН раз и регистрируем её
     buildArrivalPortal(tx, ty, tz);
     registerPortal(tx, ty, tz);
-    PLAYER.pos.set(tx + 1.5, ty, tz + 1.5);  // встать рядом с порталом, не в нём
+    // как в MC: выходим стоя ВНУТРИ портала (на нижней перекладине рамки),
+    // а не на отдельной площадке — её больше нет
+    PLAYER.pos.set(tx + 1, ty + 0.01, tz + 0.5);
   }
   PLAYER.vel.set(0,0,0);
   PLAYER._portalT = 0; PLAYER._porting = true; // не телепортироваться сразу обратно
@@ -104,7 +138,11 @@ function teleportDimension(target) {
     // синхронизировать редстоун в новом измерении (поршни/пыль/двери)
     markRedstoneDirty(Math.floor(PLAYER.pos.x), Math.floor(PLAYER.pos.y), Math.floor(PLAYER.pos.z));
     WorldManager.save();
+    // дымка спадает уже поверх нового измерения — мягкое «проявление» мира
+    const fx = document.getElementById('portalFx');
+    if (fx) fx.classList.remove('on');
+    // отложенная логика вызывающего кода (например, возрождение у кровати)
+    if (opts && typeof opts.onArrived === 'function') opts.onArrived();
   });
 }
 startWorldLoading._gen = 0;
-

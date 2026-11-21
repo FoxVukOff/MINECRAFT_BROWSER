@@ -546,28 +546,35 @@ function respawnPlayer() {
   PLAYER.vel.set(0,0,0);
   PLAYER.fallStart = undefined;
   timeSinceRest = 0;   // смерть обнуляет бессонницу (parity MC: rest при смерти)
+  // выставить точку возрождения: у кровати (если цела) или у спавна мира.
+  // Вынесено в функцию: телепорт из Ада теперь С АНИМАЦИЕЙ (асинхронный),
+  // позицию ставим когда переход завершится (onArrived), а не сразу —
+  // раньше код ниже полагался на синхронную смену World.dim.
+  const placeRespawn = () => {
+    if (PLAYER.spawnPoint && World.dim === 'overworld') {
+      const sp = PLAYER.spawnPoint;
+      let bedNear = false;
+      for (let dx = -1; dx <= 1 && !bedNear; dx++) for (let dz = -1; dz <= 1 && !bedNear; dz++) for (let dy = -1; dy <= 1 && !bedNear; dy++) {
+        if (isBed(World.getBlock(Math.floor(sp.x) + dx, Math.floor(sp.y) + dy, Math.floor(sp.z) + dz))) bedNear = true;
+      }
+      if (bedNear) {
+        PLAYER.pos.set(sp.x, sp.y, sp.z);
+      } else {
+        // кровать уничтожена — «Точка возрождения пропала» (как в MC)
+        showToast('Точка возрождения потеряна!');
+        PLAYER.spawnPoint = null;
+        spawnPlayer();
+      }
+    } else {
+      spawnPlayer();
+    }
+  };
   // умерли в Аду — возврат в обычный мир (фикс: раньше respawn использовал
   // генератор рельефа оверворлда внутри Ада и ставил игрока в незерак/лаву)
   if (World.dim !== 'overworld') {
-    teleportDimension('overworld');
-  }
-  // если есть точка возрождения (кровать) в обычном мире — проверить, цела ли кровать
-  if (PLAYER.spawnPoint && World.dim === 'overworld') {
-    const sp = PLAYER.spawnPoint;
-    let bedNear = false;
-    for (let dx = -1; dx <= 1 && !bedNear; dx++) for (let dz = -1; dz <= 1 && !bedNear; dz++) for (let dy = -1; dy <= 1 && !bedNear; dy++) {
-      if (isBed(World.getBlock(Math.floor(sp.x) + dx, Math.floor(sp.y) + dy, Math.floor(sp.z) + dz))) bedNear = true;
-    }
-    if (bedNear) {
-      PLAYER.pos.set(sp.x, sp.y, sp.z);
-    } else {
-      // кровать уничтожена — «Точка возрождения пропала» (как в MC)
-      showToast('Точка возрождения потеряна!');
-      PLAYER.spawnPoint = null;
-      spawnPlayer();
-    }
+    teleportDimension('overworld', { onArrived: placeRespawn });
   } else {
-    spawnPlayer();
+    placeRespawn();
   }
   document.getElementById('deathScreen').classList.remove('on');
   refreshUI();

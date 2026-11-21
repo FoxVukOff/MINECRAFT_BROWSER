@@ -218,9 +218,14 @@ document.getElementById('deathMenuBtn').addEventListener('click', (e) => {
   PLAYER.dead = false;
   PLAYER.hp = PLAYER.maxHp; PLAYER.hunger = PLAYER.maxHunger;
   PLAYER.oxygen = PLAYER.maxOxygen; PLAYER.burnTimer = 0; PLAYER.vel.set(0,0,0);
-  if (World.dim !== 'overworld') teleportDimension('overworld');
-  if (PLAYER.spawnPoint && World.dim === 'overworld') PLAYER.pos.set(PLAYER.spawnPoint.x, PLAYER.spawnPoint.y, PLAYER.spawnPoint.z);
-  else spawnPlayer();
+  // телепорт из Ада теперь С АНИМАЦИЕЙ (асинхронный) — позицию выставляем
+  // по завершении перехода (onArrived), а не сразу после вызова
+  const placeAtSpawn = () => {
+    if (PLAYER.spawnPoint && World.dim === 'overworld') PLAYER.pos.set(PLAYER.spawnPoint.x, PLAYER.spawnPoint.y, PLAYER.spawnPoint.z);
+    else spawnPlayer();
+  };
+  if (World.dim !== 'overworld') teleportDimension('overworld', { onArrived: placeAtSpawn });
+  else placeAtSpawn();
   document.getElementById('deathScreen').classList.remove('on');
   openMenu();
 });

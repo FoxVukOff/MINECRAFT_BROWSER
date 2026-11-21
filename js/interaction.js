@@ -343,8 +343,17 @@ function findBedSpawn(bx, by, bz) {
   return null; // безопасной клетки нет
 }
 
-// безопасная точка выхода у портала: проверяем 4 горизонтальных соседа нижних клеток
+// безопасная точка выхода у портала: как в MC, игрок материализуется стоя
+// ВНУТРИ проёма (блоки портала проходимы, ноги — на нижней перекладине
+// рамки). Если внутри замуровано — ищем свободного соседа с опорой под ногами.
 function findSafePortalExit(px, py, pz) {
+  const passable = (b) => b === BLOCK.AIR || b === BLOCK.NETHER_PORTAL;
+  // 1) сам проём — ванильное место появления
+  if (passable(World.getBlock(px, py, pz)) && passable(World.getBlock(px, py + 1, pz))) {
+    const belowIn = World.getBlock(px, py - 1, pz);
+    if (belowIn !== BLOCK.AIR && !isLiquid(belowIn)) return { x: px + 0.5, y: py + 0.01, z: pz + 0.5 };
+  }
+  // 2) горизонтальные соседи нижних клеток с опорой
   const dirs = [[0,1],[1,0],[0,-1],[-1,0]];
   for (const [dx, dz] of dirs) {
     const x = px + dx, z = pz + dz;
@@ -358,7 +367,8 @@ function findSafePortalExit(px, py, pz) {
       return { x: x + 0.5, y: py + 0.01, z: z + 0.5 };
     }
   }
-  return { x: px + 0.5, y: py + 0.01, z: pz + 1.5 }; // как раньше
+  // 3) запасной вариант — центр проёма (встанем на перекладину рамки)
+  return { x: px + 0.5, y: py + 0.01, z: pz + 0.5 };
 }
 
 // Зажигалка: поджечь блок (создать огонь над ним) или активировать портал.
