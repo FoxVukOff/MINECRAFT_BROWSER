@@ -651,12 +651,16 @@ function passiveCount() {
 }
 
 // Паук враждебен только в темноте (parity MC): эффективный свет
-// max(блокСвет, небСвет·факторДня) >= 12 — паук НЕЙТРАЛЕН (днём на
-// поверхности, у факелов/светокамня/лавы). Фикс «hostile днём у кровати»:
-// раньше решал грубый hasSkyAccess (прямое небо) + только блок-свет,
-// и под крышей/без сетки (bl = -1 < 12) паук ошибочно был враждебен.
-// Теперь — честный расчёт через skyLightAt (свет сквозь листву/стекло)
-// с фактором времени суток: ночь ~4, день 15 (как в MC).
+// max(блокСвет, небСвет − затемнение) >= 12 — паук НЕЙТРАЛЕН.
+// ФИКС «пауки нападают утром/после сна у опушки»: раньше считали
+// МУЛЬТИПЛИКАТИВНО (sl·(4+11·daylight)/15) — из-за этого у кромки леса
+// (sl 13–14) эффективный свет оставался < 12 чуть ли не до полудня и пауки
+// нападали «просто так» в светлое утро. В ванили (Java, Level#getSkyDarken)
+// формула ВЫЧИТАЮЩАЯ: effSky = skyLight − darken, где
+// darken = (int)(clamp(1 − (cos(2π·f)·2 + 0.5), 0, 1) · 11),
+// f — доля суток от полудня (полдень 0, рассвет/закат ±0.25).
+// Полдень: darken 0; рассвет: 5; полночь: 11 — spiders нейтральны уже
+// через ~9 секунд игрового времени после рассвета (как в MC).
 function spiderAngryAtLight(p) {
   const x = Math.floor(p.pos.x), y = Math.floor(p.pos.y + 0.3), z = Math.floor(p.pos.z);
   const bl = blockLightAt(x, y, z);
@@ -666,8 +670,11 @@ function spiderAngryAtLight(p) {
     // сетки света ещё нет (чанк не меширован) — грубая оценка по прямому небу
     return hasSkyAccess(x, y, z) ? daylight() < 0.5 : true;
   }
-  const effSky = sl * (4 + daylight() * 11) / 15; // ночь ~4, день 15 (как в MC)
-  return Math.max(bl, effSky) < 12;
+  // ванильное «затемнение неба» (Java Level#getSkyDarken):
+  const f = ((DAY.time - 0.5) % 1 + 1) % 1;  // 0 = полдень
+  const g = Math.max(0, Math.min(1, 1 - (Math.cos(f * Math.PI * 2) * 2 + 0.5)));
+  const darken = Math.floor(g * 11);          // (int)(g*11) — обрубание, как в Java
+  return Math.max(bl, sl - darken) < 12;
 }
 
 // ============================================================
@@ -1347,6 +1354,12 @@ function updateMobs(dt) {
     if (World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y - 0.05), Math.floor(p.pos.z)) === BLOCK.SOUL_SAND) {
       speed *= 0.4;
     }
+    // ЖИДКОСТЬ у ног/головы — вычисляем ДО движения: нужно и для «не заходить
+    // в воду», и для всплытия/выхода на берег (фикс «пиглины инвалиды»)
+    const _headBlk = World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y + p.height*0.7), Math.floor(p.pos.z));
+    const _feetBlk = World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y + 0.2), Math.floor(p.pos.z));
+    const feetInLiquidNow = isLiquid(_feetBlk) || isLiquid(_headBlk);
+
     if (moving && (p.leapT || 0) > 0) {
       // в полёте прыжка-атаки — не переназначаем скорость, летим по инерции
       p.leapT -= dt;
@@ -1356,8 +1369,10 @@ function updateMobs(dt) {
       const ahx = Math.floor(p.pos.x + dirx*0.8), ahz = Math.floor(p.pos.z + dirz*0.8);
       const ahy = Math.floor(p.pos.y);
       const aheadWater = isWaterLiquid(World.getBlock(ahx, ahy, ahz)) || isWaterLiquid(World.getBlock(ahx, ahy-1, ahz));
-      // не убегая в панике от воды разворачиваемся; при бегстве или ПОГОНЕ (зомби/пиглин лезут в воду) — продолжаем
-      if (aheadWater && p.flee <= 0 && !chasing) {
+      // не убегая в панике от воды разворачиваемся; при бегстве или ПОГОНЕ (зомби/пиглин лезут в воду) — продолжаем.
+      // ФИКС «не могут выбраться из воды»: моб, УЖЕ находящийся в жидкости,
+      // НЕ разворачивается каждые 0.3 с (раньше крутился на месте у берега)
+      if (aheadWater && p.flee <= 0 && !chasing && !feetInLiquidNow) {
         p.yaw += Math.PI * (0.5 + Math.random()*0.5);
         p.vel.x = 0; p.vel.z = 0;
         p.stateT = Math.min(p.stateT, 0.3);
@@ -1365,22 +1380,55 @@ function updateMobs(dt) {
         p.vel.x = dirx * speed; p.vel.z = dirz * speed;
         const fx = Math.floor(p.pos.x + dirx*0.6), fz = Math.floor(p.pos.z + dirz*0.6);
         const fy = Math.floor(p.pos.y);
-        if (p.onGround && mobSolid(fx, fy, fz) && !mobSolid(fx, fy+1, fz)) { p.vel.y = 7; p.onGround = false; }
+        // ПРЫЖОК НА СТУПЕНЬКУ +1 блок (parity MC). ФИКС «мобы не допрыгивают
+        // на 1 блок» (пиглины «инвалиды»): скорость 7 давала высоту
+        // 7²/(2·26) = 0.94 блока — моб бился о ступень и отскакивал.
+        // 8.4 → 1.36 блока (как прыжок игрока 8.2 → 1.29). Рослым мобам
+        // (2 клетки) нужно 2 клетки воздуха над ступенькой.
+        if (p.onGround && mobSolid(fx, fy, fz) && !mobSolid(fx, fy+1, fz) &&
+            (p.height <= 1.05 || !mobSolid(fx, fy+2, fz))) { p.vel.y = 8.4; p.onGround = false; }
       }
     } else { p.vel.x = 0; p.vel.z = 0; }
 
-    // ВОДА (не лава): моб активно всплывает и держится на поверхности — «не дышит под водой».
-    const headBlk = World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y + p.height*0.7), Math.floor(p.pos.z));
-    const feetBlk = World.getBlock(Math.floor(p.pos.x), Math.floor(p.pos.y + 0.2), Math.floor(p.pos.z));
+    // ВОДА/ЛАВА (parity MC): моб всплывает и держится на поверхности — «не дышит
+    // под водой»; в лаве тоже ПЛАВАЕТ (как мобы в MC), а не тонет в ней.
+    const headBlk = _headBlk, feetBlk = _feetBlk;
     const headInWater = isWaterLiquid(headBlk);
+    const feetInLava = isLavaLiquid(feetBlk);
+    const headInLava = isLavaLiquid(headBlk);
     const inWater = isWaterLiquid(feetBlk) || headInWater;
-    if (inWater) {
+    const inAnyLiquid = inWater || feetInLava || headInLava;
+    if (inAnyLiquid) {
       // плавучесть ПЕРЕКРЫВАЕТ гравитацию: задаём целевую скорость всплытия,
       // чтобы моб поднимался к поверхности и держался на ней (не тонул, не «дышал под водой»).
-      const target = headInWater ? 3.2 : 1.4;   // под воде — всплывать быстрее
+      const target = headInWater ? 3.2 : (inWater ? 1.4 : 1.8);   // под водой — быстрее; в лаве — вязко
       p.vel.y += (target - p.vel.y) * Math.min(1, dt * 8); // плавно к целевой
       // паническое стремление к ближайшей суше
       if (p.flee <= 0) { p.state = 'walk'; p.stateT = Math.max(p.stateT, 0.5); }
+      // ВЫХОД НА БЕРЕГ (фикс «пиглины/мобы не могут выбраться из воды»):
+      // в MC моб у кромки выпрыгивает на сушу — и вровень, и на +1 блок выше.
+      // Пока моб У САМОЙ ПОВЕРХНОСТИ (над клеткой ног нет жидкости) и
+      // двигается вперёд, а впереди берег со свободным пространством над
+      // ним, — мощный вертикальный толчок, ПОДТВЕРЖДАЕМЫЙ каждый кадр,
+      // пока ноги в жидкости (иначе плавучесть гасит импульс на след. кадре).
+      if (moving) {
+        const fy2 = Math.floor(p.pos.y);
+        const aboveFeet = World.getBlock(Math.floor(p.pos.x), fy2 + 1, Math.floor(p.pos.z));
+        if (!isLiquid(aboveFeet)) {
+          const dxx = Math.sin(p.yaw), dzz = Math.cos(p.yaw);
+          const fits2 = p.height <= 1.05; // рослым нужно 2 клетки воздуха
+          for (const probe of [0.75, 1.25]) {
+            const sx2 = Math.floor(p.pos.x + dxx * probe), sz2 = Math.floor(p.pos.z + dzz * probe);
+            // берег ВРОВЕНЬ (блок на уровне ног) ИЛИ НА +1 БЛОК выше
+            const shoreLevel = mobSolid(sx2, fy2, sz2) && !mobSolid(sx2, fy2+1, sz2) && (fits2 || !mobSolid(sx2, fy2+2, sz2));
+            const shoreUp    = mobSolid(sx2, fy2+1, sz2) && !mobSolid(sx2, fy2+2, sz2) && (fits2 || !mobSolid(sx2, fy2+3, sz2));
+            if (shoreLevel || shoreUp) {
+              p.vel.y = Math.max(p.vel.y, 8.4); // как прыжок с земли — хватает на +1 блок
+              break;
+            }
+          }
+        }
+      }
     } else if (p.climbing) {
       // ПАУК НА СТЕНЕ: гравитация не действует — ползёт по стене
       // с постоянной скоростью (независимо от FPS: на низких кадрах
@@ -1392,7 +1440,11 @@ function updateMobs(dt) {
       const cty = cwp ? (cwp.y + 0.5) : PLAYER.pos.y;
       p.vel.y = (cty < p.pos.y - 0.6) ? -2.8 : 3.0; // ниже — сползает, выше — лезет
     } else {
-      p.vel.y -= GRAVITY * dt;
+      // ПОЛгравитации до движения (метод средней точки; вторая половина —
+      // после mobCollide('y') ниже): на низких FPS дискретный прыжок моба
+      // «схлопывался» (при dt=0.1 высота 0.96 вместо 1.36 — моб не мог
+      // запрыгнуть на блок ровно в 1.0 высотой даже с vel.y=8.4)
+      p.vel.y -= GRAVITY * dt * 0.5;
       // курица медленно падает, размахивая крыльями (без урона от падения, как в MC)
       if (p.type === 'chicken' && p.vel.y < -2.5) p.vel.y = -2.5;
       if (p.vel.y < -55) p.vel.y = -55;
@@ -1452,6 +1504,12 @@ function updateMobs(dt) {
     let climbHit = false;
     if (p.climbing) climbHit = mobCollideY(p, p.vel.y * dt, 0.5);
     else mobCollide(p, 'y', p.vel.y * dt);
+    // вторая половина гравитации — ПОСЛЕ движения (метод средней точки;
+    // только «наземная» физика: не жидкость и не лазание; при столкновении
+    // vel.y=0 — пропуск, чтобы не копить скорость вниз стоя на земле)
+    if (!inAnyLiquid && !p.climbing && p.vel.y !== 0) {
+      p.vel.y -= GRAVITY * dt * 0.5;
+    }
     // ПАУК: упёрся ГОЛОВОЙ в козырёк/листву, вися на стене — не висеть
     // вечно (стагнат-детектор ниже требует onGround и тут не срабатывает):
     // через 0.7 с отпускаем стену и сразу пересчитываем маршрут
@@ -1548,6 +1606,14 @@ function mobUnderCursor(maxDist) {
 // поспать в кровати: только ночью — плавно промотать время ВПЕРЁД к рассвету + spawn у кровати
 // bx,by,bz — координаты блока кровати (для точки возрождения и камеры)
 let sleepTransition = null; // {from, span, t, dur, sx, sy, sz, camFromX, camFromY, camFromZ}
+// Пробуждение из кровати = «утро, солнце УЖЕ встало» = DAY.time 0.35
+// (daylight ≈ 0.79). ФИКС «пауки нападают сразу после сна»: раньше будили
+// на 0.25 — чистый рассвет (daylight = 0.5): эффективный небесный свет
+// 15·(4+5.5)/15 = 9.5 < 12 — пауки оставались враждебными ещё ~45 с
+// после сна при «дневном» небе. В ванили после сна сразу полный день:
+// свет ≥ 12, пауки на поверхности нейтральны сразу
+// (wiki: «spiders are neutral in bright light»).
+const SLEEP_WAKE_TIME = 0.35;
 function sleepInBed(bx, by, bz) {
   // в Аду кровать ВЗРЫВАЕТСЯ (как в Minecraft)
   if (World.dim === 'nether') {
@@ -1599,8 +1665,7 @@ function sleepInBed(bx, by, bz) {
   const sx = (bx !== undefined ? bx + 0.5 : PLAYER.pos.x);
   const sz = (bz !== undefined ? bz + 0.5 : PLAYER.pos.z);
   const sy = (by !== undefined ? by + 1 : PLAYER.pos.y);
-  // Рассвет = DAY.time 0.25 (daylight = 0.5 — реальный рассвет по формуле daylight).
-  const DAWN = 0.25;
+  const DAWN = SLEEP_WAKE_TIME; // проматываем время до «полного утра» (см. const выше)
   let span = (DAWN - DAY.time + 1) % 1;
   if (span < 0.01) span = 1.0; // если уже почти рассвет — крутим полные сутки
   // сохранить позицию камеры для возврата после сна
@@ -1648,7 +1713,7 @@ function updateSleepTransition(dt) {
   PLAYER.pos.y = sleepTransition.camFromY + (sleepTransition.bedY - sleepTransition.camFromY) * kk;
   PLAYER.pos.z = sleepTransition.camFromZ + (sleepTransition.bedZ - sleepTransition.camFromZ) * kk;
   if (k >= 1) {
-    DAY.time = 0.25; // рассвет (daylight = 0.5)
+    DAY.time = SLEEP_WAKE_TIME; // утро, полный день (daylight ≈ 0.79 — свет ≥ 12, пауки на поверхности нейтральны)
     DAY_LIGHT_UNIFORM.value = skyFactor();
     timeSinceRest = 0;              // ВЫСПАЛСЯ: бессонница сброшена, фантомы уйдут (parity MC)
     phantomSpawnTimer = 20;

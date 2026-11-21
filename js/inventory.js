@@ -852,5 +852,25 @@ function renderHotbar() {
     slot.addEventListener('click', () => { if (!invOpen) selectSlot(i); });
     hotbarEl.appendChild(slot);
   }
+  updateHeldItemName();
+}
+
+// ---- Название выбранного предмета над хотбаром (parity MC): показывается
+// при смене активного слота/предмета и плавно гаснет через ~2 с ----
+let _heldNameInit = false, _heldNameSig = '';
+function updateHeldItemName() {
+  const it = slots[activeSlot];
+  const sig = activeSlot + '|' + (it ? it.id : 0);
+  const first = !_heldNameInit;
+  _heldNameInit = true;
+  if (sig === _heldNameSig) return;
+  _heldNameSig = sig;
+  if (first || !it) return; // при первом рендере (загрузка мира) не показываем
+  const el = document.getElementById('hotbarItemName');
+  if (!el) return;
+  el.textContent = BLOCK_NAMES[it.id] || '';
+  el.classList.remove('show');
+  void el.offsetWidth; // перезапуск CSS-анимации
+  el.classList.add('show');
 }
 

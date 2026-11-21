@@ -336,6 +336,40 @@
   #blockTooltip.on { display: block; animation: tipFade 0.15s ease-out; }
   @keyframes tipFade { from { opacity: 0; transform: translateX(-50%) translateY(-4px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
+  /* Всплывающая подсказка предмета при наведении в инвентаре/креативе
+     (parity MC: тёмный фиолетово-обрамлённый бокс у курсора с названием
+     и строками описания — «подробности при открытии инвентаря») */
+  #itemTooltip {
+    position: fixed; z-index: 1000; pointer-events: none; display: none;
+    max-width: 300px;
+    background: rgba(16, 1, 16, 0.94);
+    border: 2px solid rgba(93, 24, 168, 0.65);
+    border-radius: 0;
+    padding: 5px 8px;
+    font-family: monospace; font-size: 13px; line-height: 1.4;
+    color: #fff; text-shadow: 1px 1px 0 #000;
+  }
+  #itemTooltip .tt-name { font-weight: bold; }
+  #itemTooltip .tt-sub { color: #aaaaaa; font-size: 12px; }
+  #itemTooltip .tt-gold { color: #ffaa00; }
+  #itemTooltip .tt-aqua { color: #55ffff; }
+  #itemTooltip .tt-green { color: #55ff55; }
+  #itemTooltip .tt-red { color: #ff5555; }
+  #itemTooltip .tt-yellow { color: #ffff55; }
+  #itemTooltip .tt-gray { color: #888888; font-size: 11px; }
+  #itemTooltip .tt-row { margin-top: 2px; }
+
+  /* Название выбранного предмета над хотбаром (parity MC: показывается
+     при смене слота/предмета и плавно гаснет) */
+  #hotbarItemName {
+    position: fixed; left: 50%; bottom: 78px; transform: translateX(-50%);
+    z-index: 12; pointer-events: none; opacity: 0;
+    font-family: monospace; font-size: 16px; font-weight: bold; color: #fff;
+    text-shadow: 2px 2px 0 #000; white-space: nowrap;
+  }
+  #hotbarItemName.show { animation: heldNameFade 2.2s ease-out forwards; }
+  @keyframes heldNameFade { 0% { opacity: 1; } 70% { opacity: 1; } 100% { opacity: 0; } }
+
   /* Индикатор времени суток (солнышко/луна в углу) */
   #timeIndicator {
     position: fixed; right: 12px; top: 42px; z-index: 11; pointer-events: none;
@@ -489,6 +523,8 @@
 <div id="saveToast" style="position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:14;background:rgba(0,0,0,0.7);color:#9fd;padding:6px 14px;border-radius:4px;font-family:monospace;font-size:13px;display:none;">Сохранено ✓</div>
 
 <div id="hotbar"></div>
+<!-- название выбранного предмета над хотбаром (parity MC) -->
+<div id="hotbarItemName"></div>
 
 <div id="inventory">
   <h2 id="invTitle">Инвентарь</h2>
@@ -496,6 +532,8 @@
   <p class="inv-hint">ЛКМ — взять/положить · ПКМ — половина/по одному · J — справочник · E/Esc — закрыть</p>
 </div>
 <div id="cursorItem"></div>
+<!-- подсказка предмета при наведении (parity MC): название + подробности -->
+<div id="itemTooltip"></div>
 
 <!-- Настройка командного блока (ранний прототип, как в MC) -->
 <div id="cmdBlockBox">

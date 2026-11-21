@@ -13,6 +13,179 @@ function refreshUI() {
   renderHotbar();
   if (invOpen) renderInventory();
   renderCursor();
+  refreshItemTooltip();
+}
+
+// ============================================================
+//  Всплывающая подсказка предмета при наведении (parity MC):
+//  тёмный бокс у курсора — название + подробности (урон/прочность/
+//  защита/еда/эффекты/чем добывать и т.д.). Показывается во всех
+//  интерфейсах: инвентарь, броня/вторая рука, верстак, сундук,
+//  печь, креатив, справочник.
+// ============================================================
+const itemTooltipEl = document.getElementById('itemTooltip');
+let ttMouse = { x: 0, y: 0 };
+document.addEventListener('mousemove', (e) => { ttMouse.x = e.clientX; ttMouse.y = e.clientY; });
+
+// строки подсказки предмета: [{ text, cls }] — первая строка: название
+function itemTooltipLines(id, item) {
+  const L = [];
+  const name = BLOCK_NAMES[id];
+  const isBlk = isBlock(id);
+  // ---- название (редкость-цвет как в MC: золотое яблоко — жёлтый uncommon) ----
+  let nameCls = 'tt-name';
+  if (id === ITEM.GOLDEN_APPLE) nameCls += ' tt-gold';
+  L.push({ text: name || ('#' + id), cls: nameCls });
+
+  const sub = (t, cls) => L.push({ text: t, cls: 'tt-row ' + (cls || 'tt-sub') });
+
+  // ---- зачарования (бирюзовый, как в MC) ----
+  if (id === ITEM.SOUL_BOOTS_I) sub('Скорость души I', 'tt-aqua');
+  if (id === ITEM.SOUL_BOOTS_II) sub('Скорость души II', 'tt-aqua');
+  if (id === ITEM.SOUL_BOOTS_III) sub('Скорость души III', 'tt-aqua');
+  if (id === ITEM.ENCHANTED_BOOK_SOUL_SPEED) sub('Скорость души I–III (ботинки)', 'tt-aqua');
+  if (id === ITEM.SOUL_BOOTS_I || id === ITEM.SOUL_BOOTS_II || id === ITEM.SOUL_BOOTS_III)
+    sub('Ускоряет на песке душ: ×' + (1.3 + 0.105 * (id === ITEM.SOUL_BOOTS_III ? 3 : id === ITEM.SOUL_BOOTS_II ? 2 : 1)).toFixed(2));
+
+  // ---- прочность (показываем, когда предмет уже изношен) ----
+  if (item && item.dur !== undefined && hasDurability(id)) {
+    const mx = MAX_DURABILITY[id];
+    const frac = item.dur / mx;
+    sub('Прочность: ' + item.dur + ' / ' + mx, frac > 0.4 ? 'tt-sub' : (frac > 0.15 ? 'tt-yellow' : 'tt-red'));
+  } else if (hasDurability(id)) {
+    sub('Прочность: ' + MAX_DURABILITY[id] + ' / ' + MAX_DURABILITY[id] + ' (новый)');
+  }
+
+  // ---- оружие/инструменты ----
+  if (isSword(id)) {
+    sub('Урон в ближнем бою: ' + swordDamage(id));
+    if (id === ITEM.GOLD_SWORD) sub('Золото: быстрое, но хрупкое (32)');
+  } else if (isPickaxe(id)) {
+    const t = pickaxeTier(id);
+    sub('Кирка · уровень добычи: ' + ['—', 'деревянный', 'каменный', 'медный', 'железный', 'алмазный'][t]);
+    if (t >= 5) sub('Добывает всё, включая обсидиан', 'tt-green');
+    else if (t >= 4) sub('Добывает всё до золотой руды/алмаза/редстоуна');
+    else if (t >= 2) sub('Добывает всё до железной руды');
+    else sub('Добывает камень/уголь');
+    sub('Скорость: ×' + (toolSpeed(id) || TOOL_DIVISOR[t]));
+  } else if (isAxe(id)) {
+    sub('Топор · скорость рубки: ×' + (toolSpeed(id) || TOOL_DIVISOR[axeTier(id)]));
+  } else if (isShovel(id)) {
+    sub('Лопата · скорость копания: ×' + (toolSpeed(id) || TOOL_DIVISOR[shovelTier(id)]));
+  } else if (id === ITEM.SHEARS) {
+    sub('Стрижёт овец, срезает листву и шерсть');
+  } else if (id === ITEM.FLINT_AND_STEEL) {
+    sub('Поджигает блоки (ПКМ)');
+  } else if (id === ITEM.FIRE_CHARGE) {
+    sub('Поджигает блоки (ПКМ), одноразовый');
+  }
+
+  // ---- броня ----
+  if (isArmor(id)) {
+    sub('Защита: +' + armorPointsOf(id) + ' очк.');
+    sub('Слот: ' + ARMOR_SLOT_NAMES[armorSlotOf(id)]);
+  }
+
+  // ---- еда ----
+  if (isFood(id)) {
+    sub('Восстанавливает: ' + FOOD[id] + ' голода', 'tt-green');
+    if (id === ITEM.GOLDEN_APPLE) sub('Лечит даже при полном голоде', 'tt-gold');
+    if (id === ITEM.ROTTEN_FLESH) sub('Часто вызывает отравление', 'tt-red');
+  }
+
+  // ---- зелья и особые предметы ----
+  if (id === ITEM.POTION_FIRE_RES) {
+    sub('Огнестойкость 3:00', 'tt-aqua');
+    sub('Полная защита от огня и лавы');
+  }
+  if (id === ITEM.SPLASH_POTION_FIRE_RES) {
+    sub('Огнестойкость 2:15 (бросок)', 'tt-aqua');
+    sub('ПКМ — бросить: эффект по области');
+  }
+  if (id === ITEM.WATER_BOTTLE) sub('Основа для зелий (ПКМ по воде — набрать)');
+  if (id === ITEM.ENDER_PEARL) sub('ПКМ — телепорт в точку падения (урон 5)');
+  if (id === ITEM.BUCKET) sub('ПКМ по воде/лаве — зачерпнуть');
+  if (id === ITEM.WATER_BUCKET) sub('ПКМ — вылить воду');
+  if (id === ITEM.LAVA_BUCKET) sub('ПКМ — вылить лаву · топливо на 100 плавок');
+  if (id === ITEM.DOOR) sub('Блок — ставится на 2 клетки в высоту');
+  if (id === ITEM.REDSTONE) sub('Пыль — проводит сигнал (ПКМ — положить)');
+
+  // ---- яйца спавна ----
+  if (SPAWN_EGGS[id]) {
+    const md = (typeof MOB_DEFS !== 'undefined' && MOB_DEFS[SPAWN_EGGS[id].mob]) ? MOB_DEFS[SPAWN_EGGS[id].mob] : null;
+    sub('Призывает: ' + (md ? md.name : SPAWN_EGGS[id].mob), 'tt-green');
+    sub('Только креатив', 'tt-gold');
+  }
+  if (id === BLOCK.COMMAND_BLOCK) {
+    sub('ПКМ — редактор команд', 'tt-gold');
+    sub('Только креатив', 'tt-gold');
+  }
+
+  // ---- блоки: чем добывать ----
+  if (isBlk && id !== BLOCK.COMMAND_BLOCK) {
+    if (needsPickaxe(id)) {
+      const mt = minePickTier(id);
+      const tn = mt <= 1 ? 'любой киркой' : mt === 2 ? 'каменной киркой+' : mt === 3 ? 'медной киркой+' : mt === 4 ? 'железной киркой+' : 'алмазной киркой';
+      sub('Добывать ' + tn + (mt >= 4 ? '' : ' (иначе не выпадет)'));
+    } else if (isBlk) {
+      sub('Блок (ломается рукой)');
+    }
+  }
+  // незерская золотая руда — исключение: любая кирка
+  if (id === BLOCK.NETHER_GOLD_ORE) L[L.length - 1] = { text: 'Добывать любой киркой (дроп — самородки)', cls: 'tt-row tt-sub' };
+
+  // дрова/топливо
+  if (id === ITEM.COAL) sub('Топливо для печи (8 плавок)');
+
+  return L;
+}
+
+function positionItemTooltip() {
+  if (!itemTooltipEl || itemTooltipEl.style.display === 'none') return;
+  const r = itemTooltipEl.getBoundingClientRect();
+  let x = ttMouse.x + 14, y = ttMouse.y + 14;
+  if (x + r.width > window.innerWidth - 4) x = Math.max(4, ttMouse.x - r.width - 10);
+  if (y + r.height > window.innerHeight - 4) y = Math.max(4, ttMouse.y - r.height - 10);
+  itemTooltipEl.style.left = x + 'px';
+  itemTooltipEl.style.top = y + 'px';
+}
+
+function showItemTooltip(id, item) {
+  if (!itemTooltipEl || !id) { hideItemTooltip(); return; }
+  const lines = itemTooltipLines(id, item);
+  itemTooltipEl.innerHTML = lines.map(l => '<div class="' + (l.cls || '') + '">' + (l.text || '') + '</div>').join('');
+  itemTooltipEl.style.display = 'block';
+  positionItemTooltip();
+}
+
+function hideItemTooltip() { if (itemTooltipEl) itemTooltipEl.style.display = 'none'; }
+
+// Навесить подсказку на элемент слота: getItem() возвращает живой предмет
+// ({id,count,dur} или null) — читается при каждом показе, поэтому после
+// перетаскивания предметов подсказка всегда актуальна.
+function attachItemTooltip(el, getItem) {
+  el.__ttGet = getItem;
+  el.addEventListener('mouseenter', () => {
+    const it = getItem();
+    if (it && it.id) showItemTooltip(it.id, it); else hideItemTooltip();
+  });
+  el.addEventListener('mousemove', positionItemTooltip);
+  el.addEventListener('mouseleave', hideItemTooltip);
+}
+
+// после перерисовки интерфейса (предмет переложили) — если курсор всё ещё
+// над слотом, сразу показать подсказку заново (как в MC: подсказка не
+// пропадает при кликах по слотам)
+function refreshItemTooltip() {
+  if (!itemTooltipEl || !invOpen) { hideItemTooltip(); return; }
+  const el = document.elementFromPoint(ttMouse.x, ttMouse.y);
+  let n = el;
+  while (n && n !== document.body && !n.__ttGet) n = n.parentElement;
+  if (n && n.__ttGet) {
+    const it = n.__ttGet();
+    if (it && it.id) { showItemTooltip(it.id, it); return; }
+  }
+  hideItemTooltip();
 }
 
 // клик по слоту инвентаря/хотбара (массив slots[index]); shift — быстрый перенос как в MC
@@ -135,8 +308,10 @@ function makeSlotEl(arr, index, size) {
       el.appendChild(cnt);
     }
     addDurabilityBar(el, item);
-    el.title = BLOCK_NAMES[item.id] || '';
   }
+  // подсказка с подробностями при наведении (parity MC; живой слот — читается
+  // при каждом показе, чтобы после перекладывания обновлялась)
+  attachItemTooltip(el, () => arr[index]);
   el.addEventListener('mousedown', (e) => {
     e.preventDefault();
     slotClick(arr, index, e.button === 2, e.shiftKey);
@@ -259,7 +434,6 @@ function makeArmorSlotEl(slotName) {
     el.appendChild(iconCanvas(item.id, 34));
     if (item.count > 1) { const c = document.createElement('div'); c.className = 'count'; c.textContent = item.count; el.appendChild(c); }
     addDurabilityBar(el, item);
-    el.title = (BLOCK_NAMES[item.id] || '') + ' — ' + ARMOR_SLOT_NAMES[slotName];
   } else {
     const ghost = document.createElement('div');
     ghost.className = 'ghost';
@@ -268,8 +442,10 @@ function makeArmorSlotEl(slotName) {
     ghost.style.justifyContent = 'center';
     ghost.appendChild(armorSlotGhostIcon(slotName, 30));
     el.appendChild(ghost);
-    el.title = ARMOR_SLOT_NAMES[slotName];
+    el.title = ARMOR_SLOT_NAMES[slotName]; // пустой слот — подсказка-название слота
   }
+  // подсказка с подробностями (броня: защита/слот; вторая рука — что в ней)
+  attachItemTooltip(el, () => (slotName === 'offhand') ? PLAYER.offhand : PLAYER.armor[slotName]);
   el.addEventListener('mousedown', (e) => {
     e.preventDefault();
     if (slotName === 'offhand') offhandSlotClick(e.button === 2);
@@ -321,8 +497,8 @@ function makeFurnaceSlot(f, field) {
   if (item) {
     el.appendChild(iconCanvas(item.id, 34));
     if (item.count > 1) { const c=document.createElement('div'); c.className='count'; c.textContent=item.count; el.appendChild(c); }
-    el.title = BLOCK_NAMES[item.id] || '';
   }
+  attachItemTooltip(el, () => f[field]);
   el.addEventListener('mousedown', (e) => { e.preventDefault(); furnaceSlotClick(f, field, e.button === 2); });
   el.addEventListener('contextmenu', e => e.preventDefault());
   return el;
@@ -332,7 +508,7 @@ function makeFurnaceSlot(f, field) {
 function recipeIconEl(id, size) {
   const el = document.createElement('div');
   el.className = 'guide-cell' + (id ? '' : ' empty');
-  if (id) { el.appendChild(iconCanvas(id, size)); el.title = BLOCK_NAMES[id] || ''; }
+  if (id) { el.appendChild(iconCanvas(id, size)); attachItemTooltip(el, () => ({ id })); }
   return el;
 }
 

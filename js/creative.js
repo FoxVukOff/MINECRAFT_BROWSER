@@ -152,8 +152,9 @@ function renderCreativeInv() {
     const cell = document.createElement('div');
     cell.className = 'creative-cell';
     cell.appendChild(iconCanvas(id, 34));
-    const nm = BLOCK_NAMES[id] || '';
-    cell.title = nm + (isBlock(id) || id === ITEM.DOOR || id === ITEM.REDSTONE ? ' (блок)' : '');
+    // подсказка с подробностями при наведении (parity MC) — вместо
+    // медленного системного title
+    attachItemTooltip(cell, () => ({ id }));
     // ЛКМ — взять полный стак на курсор; ПКМ — одну штуку (как в MC)
     cell.addEventListener('mousedown', (e) => {
       e.preventDefault();
@@ -301,8 +302,9 @@ function renderInventory() {
     if (craftResult) {
       resSlot.appendChild(iconCanvas(craftResult.id, 34));
       if (craftResult.count > 1) { const c=document.createElement('div'); c.className='count'; c.textContent=craftResult.count; resSlot.appendChild(c); }
-      resSlot.title = BLOCK_NAMES[craftResult.id] || '';
     }
+    // подсказка результата крафта (название + подробности, parity MC)
+    attachItemTooltip(resSlot, () => craftResult);
     resSlot.addEventListener('mousedown', (e) => { e.preventDefault(); takeCraftResult(); });
     craftWrap.appendChild(resSlot);
     topWrap.appendChild(craftWrap);
@@ -389,6 +391,7 @@ function toggleInventory(mode) {
     _furnaceUISig = '';
     craftMode = '2x2';
     invPanel.classList.remove('open');
+    hideItemTooltip(); // подсказка не должна переживать закрытие инвентаря
     refreshUI();
     if (overlay.classList.contains('hidden') && !chatOpen) canvas.requestPointerLock();
   }

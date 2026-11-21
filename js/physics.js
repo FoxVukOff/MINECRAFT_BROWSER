@@ -286,20 +286,35 @@ function updatePlayer(dt) {
     // лёгкое всплытие, если игрок не нажимает вниз
     if (!keys['ShiftLeft'] && !keys['Space']) PLAYER.vel.y += buoyancy * dt;
 
-    // ВЫХОД НА БЕРЕГ (фикс «не выбраться из воды/лавы»): в MC из жидкости всегда
-    // можно выбраться на уступ высотой 1 блок. Если плывём к стенке и держим
-    // прыжок, а перед нами уступ со свободным пространством над ним — резкий
-    // вертикальный импульс, чтобы выскочить на берег.
+    // ВЫХОД НА БЕРЕГ (фикс «не выбраться из воды/лавы»): в MC из жидкости
+    // всегда можно выбраться на уступ — и ВРОВЕНЬ, и НА 1 БЛОК ВЫШЕ уровня
+    // жидкости (раньше работал только «вровень»: уступ +1 не находился
+    // пробой, а импульса 7 не хватало). Если плывём к стенке (Space +
+    // движение), мы У ПОВЕРХНОСТИ (над клеткой ног нет жидкости), а впереди
+    // уступ со свободным пространством над ним — мощный вертикальный
+    // импульс, ПОДТВЕРЖДАЕМЫЙ каждый кадр, пока ноги в жидкости: иначе
+    // сопротивление среды (в лаве ×0.62/кадр) съедает его на следующий кадр.
     if (keys['Space'] && (move.x !== 0 || move.z !== 0)) {
       const fy = Math.floor(PLAYER.pos.y + 0.05);
-      for (const probe of [0.6, 1.1]) {
-        const fx = Math.floor(PLAYER.pos.x + move.x * probe);
-        const fz = Math.floor(PLAYER.pos.z + move.z * probe);
-        if (isSolidForPlayer(fx, fy, fz) &&
-            !isSolidForPlayer(fx, fy + 1, fz) && !isSolidForPlayer(fx, fy + 2, fz)) {
-          // импульс как прыжок: в воде — бодрый, в вязкой лаве — послабее
-          PLAYER.vel.y = Math.max(PLAYER.vel.y, inLava ? 5.4 : 7.0);
-          break;
+      // глубоко под водой/лавой — не выпрыгиваем, просто плывём вверх
+      const aboveFeet = World.getBlock(Math.floor(PLAYER.pos.x), fy + 1, Math.floor(PLAYER.pos.z));
+      if (!isLiquid(aboveFeet)) {
+        for (const probe of [0.6, 1.1]) {
+          const fx = Math.floor(PLAYER.pos.x + move.x * probe);
+          const fz = Math.floor(PLAYER.pos.z + move.z * probe);
+          // берег ВРОВЕНЬ с клеткой ног: блок на уровне ног, над ним 2 воздуха
+          const shoreLevel = isSolidForPlayer(fx, fy, fz) &&
+              !isSolidForPlayer(fx, fy + 1, fz) && !isSolidForPlayer(fx, fy + 2, fz);
+          // берег НА +1 БЛОК выше: блок над уровнем ног, над ним 2 воздуха
+          const shoreUp = isSolidForPlayer(fx, fy + 1, fz) &&
+              !isSolidForPlayer(fx, fy + 2, fz) && !isSolidForPlayer(fx, fy + 3, fz);
+          if (shoreLevel || shoreUp) {
+            // из воды — бодрый прыжок (9.6: ноги покидают жидкость у
+            // ~cell+0.8, запас 9.6²/52 = 1.77 б — хватает на уступ +1);
+            // из вязкой лавы — чуть слабее, как в MC выходить муторнее
+            PLAYER.vel.y = Math.max(PLAYER.vel.y, shoreUp ? (inLava ? 8.8 : 9.6) : (inLava ? 7.0 : 7.5));
+            break;
+          }
         }
       }
     }
@@ -312,7 +327,11 @@ function updatePlayer(dt) {
       const fspd = sprinting ? 16 : 10;
       PLAYER.vel.y = keys['Space'] ? fspd : (keys['ShiftLeft'] ? -fspd : 0);
     } else {
-      PLAYER.vel.y -= GRAVITY * dt;
+      // ПОЛгравитации до движения (метод средней точки): вторая половина —
+      // после collide('y'). Иначе на низких FPS (большой dt) дискретный
+      // прыжок «схлопывался»: при dt=0.1 высота была 0.9 блока вместо
+      // 1.29 — на лагах нельзя было запрыгнуть на блок высотой 1
+      PLAYER.vel.y -= GRAVITY * dt * 0.5;
       if (PLAYER.vel.y < -55) PLAYER.vel.y = -55;
       if (keys['Space'] && PLAYER.onGround) {
         PLAYER.vel.y = PLAYER.jumpV;
@@ -333,6 +352,11 @@ function updatePlayer(dt) {
   PLAYER.onGround = false;
   // двигаем по осям с коллизиями
   collide('y', PLAYER.vel.y * dt);
+  // вторая половина гравитации — ПОСЛЕ движения (только «наземная» физика:
+  // не в жидкости и не в полёте креатива; при столкновении vel.y=0 — пропуск)
+  if (!PLAYER.inLiquid && !(window.__creative && PLAYER.flying) && PLAYER.vel.y !== 0) {
+    PLAYER.vel.y -= GRAVITY * dt * 0.5;
+  }
   const prevX = PLAYER.pos.x, prevZ = PLAYER.pos.z;
   collide('x', PLAYER.vel.x * dt);
   collide('z', PLAYER.vel.z * dt);
